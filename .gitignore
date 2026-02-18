@@ -4,3 +4,6 @@ node_modules
 .env.local
 .DS_Store
 prisma/dev.db
+.local
+.npm-cache
+node_modules.partial.*
