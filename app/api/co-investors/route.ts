@@ -6,6 +6,9 @@ export async function GET() {
   const coInvestors = await prisma.coInvestor.findMany({
     include: {
       partners: true,
+      contactLinks: {
+        include: { contact: true }
+      },
       investments: true,
       researchJobs: {
         orderBy: { createdAt: "desc" },
@@ -57,6 +60,9 @@ export async function POST(request: Request) {
       },
       include: {
         partners: true,
+        contactLinks: {
+          include: { contact: true }
+        },
         investments: true,
         researchJobs: {
           orderBy: { createdAt: "desc" },

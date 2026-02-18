@@ -114,6 +114,7 @@ model HealthSystem {
   researchJobs             HealthSystemResearchJob[]
   companyLeadSources       Company[]                 @relation("CompanyLeadSourceHealthSystem")
   companyHealthSystemLinks CompanyHealthSystemLink[]
+  contactLinks             ContactHealthSystem[]
 
   @@index([name])
   @@index([isAllianceMember])
@@ -140,19 +141,23 @@ model VenturePartner {
   id             String   @id @default(cuid())
   healthSystemId String
   name           String
+  coInvestorId   String?
   title          String?
   profileUrl     String?
   createdAt      DateTime @default(now())
 
   healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+  coInvestor  CoInvestor?    @relation(fields: [coInvestorId], references: [id], onDelete: SetNull)
 
   @@index([healthSystemId])
+  @@index([coInvestorId])
 }
 
 model HealthSystemInvestment {
   id                   String    @id @default(cuid())
   healthSystemId       String
   portfolioCompanyName String
+  companyId            String?
   investmentAmountUsd  Decimal?  @db.Decimal(16, 2)
   investmentDate       DateTime?
   leadPartnerName      String?
@@ -160,8 +165,10 @@ model HealthSystemInvestment {
   createdAt            DateTime  @default(now())
 
   healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+  company      Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
   @@index([healthSystemId])
+  @@index([companyId])
   @@index([portfolioCompanyName])
 }
 
@@ -208,6 +215,7 @@ model CoInvestor {
   investments            CoInvestorInvestment[]
   researchJobs           CoInvestorResearchJob[]
   companyCoInvestorLinks CompanyCoInvestorLink[]
+  contactLinks           ContactCoInvestor[]
 
   @@index([name])
   @@index([isSeedInvestor])
@@ -300,6 +308,7 @@ model Company {
 
   healthSystemLinks CompanyHealthSystemLink[]
   coInvestorLinks   CompanyCoInvestorLink[]
+  contactLinks      ContactCompany[]
   researchJobs      CompanyResearchJob[]
 
   @@index([name])
@@ -361,4 +370,82 @@ model CompanyResearchJob {
 
   @@index([status, createdAt])
   @@index([companyId, createdAt])
+}
+
+enum ContactRoleType {
+  EXECUTIVE
+  VENTURE_PARTNER
+  INVESTOR_PARTNER
+  COMPANY_CONTACT
+  OTHER
+}
+
+model Contact {
+  id          String   @id @default(cuid())
+  name        String
+  title       String?
+  email       String?
+  phone       String?
+  linkedinUrl String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  healthSystemLinks ContactHealthSystem[]
+  companyLinks      ContactCompany[]
+  coInvestorLinks   ContactCoInvestor[]
+
+  @@index([name])
+  @@index([email])
+}
+
+model ContactHealthSystem {
+  id             String          @id @default(cuid())
+  contactId      String
+  healthSystemId String
+  roleType       ContactRoleType @default(OTHER)
+  title          String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  contact      Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([healthSystemId])
+  @@unique([contactId, healthSystemId, roleType])
+}
+
+model ContactCompany {
+  id        String          @id @default(cuid())
+  contactId String
+  companyId String
+  roleType  ContactRoleType @default(COMPANY_CONTACT)
+  title     String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([companyId])
+  @@unique([contactId, companyId, roleType])
+}
+
+model ContactCoInvestor {
+  id           String          @id @default(cuid())
+  contactId    String
+  coInvestorId String
+  roleType     ContactRoleType @default(INVESTOR_PARTNER)
+  title        String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  contact    Contact    @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  coInvestor CoInvestor @relation(fields: [coInvestorId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([coInvestorId])
+  @@unique([contactId, coInvestorId, roleType])
 }

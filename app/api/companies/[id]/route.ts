@@ -115,6 +115,9 @@ export async function PATCH(
           coInvestorLinks: {
             include: { coInvestor: { select: { id: true, name: true } } }
           },
+          contactLinks: {
+            include: { contact: true }
+          },
           researchJobs: {
             orderBy: { createdAt: "desc" },
             take: 1
@@ -163,6 +166,9 @@ export async function GET(
         },
         coInvestorLinks: {
           include: { coInvestor: { select: { id: true, name: true } } }
+        },
+        contactLinks: {
+          include: { contact: true }
         },
         researchJobs: {
           orderBy: { createdAt: "desc" },

@@ -96,6 +96,19 @@ type CompanyRecord = {
   researchError?: string | null;
   healthSystemLinks: CompanyHealthSystemLink[];
   coInvestorLinks: CompanyCoInvestorLink[];
+  contactLinks: Array<{
+    id: string;
+    roleType: "EXECUTIVE" | "VENTURE_PARTNER" | "INVESTOR_PARTNER" | "COMPANY_CONTACT" | "OTHER";
+    title?: string | null;
+    contact: {
+      id: string;
+      name: string;
+      title?: string | null;
+      email?: string | null;
+      phone?: string | null;
+      linkedinUrl?: string | null;
+    };
+  }>;
 };
 
 type HealthSystemOption = {
@@ -367,7 +380,6 @@ export function CompanyWorkbench() {
   const [draftRecordId, setDraftRecordId] = React.useState<string | null>(null);
   const [detailDraft, setDetailDraft] = React.useState<DetailDraft | null>(null);
   const [runningAgent, setRunningAgent] = React.useState(false);
-  const [rerunningResearch, setRerunningResearch] = React.useState(false);
   const [savingEdits, setSavingEdits] = React.useState(false);
   const [creatingFromSearch, setCreatingFromSearch] = React.useState(false);
   const [deletingRecordId, setDeletingRecordId] = React.useState<string | null>(null);
@@ -377,6 +389,28 @@ export function CompanyWorkbench() {
   const [searchCandidateError, setSearchCandidateError] = React.useState<string | null>(null);
   const [selectedCandidateIndex, setSelectedCandidateIndex] = React.useState(-1);
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [addingContact, setAddingContact] = React.useState(false);
+  const [contactName, setContactName] = React.useState("");
+  const [contactTitle, setContactTitle] = React.useState("");
+  const [contactRelationshipTitle, setContactRelationshipTitle] = React.useState("");
+  const [contactEmail, setContactEmail] = React.useState("");
+  const [contactPhone, setContactPhone] = React.useState("");
+  const [contactLinkedinUrl, setContactLinkedinUrl] = React.useState("");
+  const [contactRoleType, setContactRoleType] = React.useState<
+    "COMPANY_CONTACT" | "EXECUTIVE" | "VENTURE_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
+  >("COMPANY_CONTACT");
+  const [editingContactLinkId, setEditingContactLinkId] = React.useState<string | null>(null);
+  const [editingContactName, setEditingContactName] = React.useState("");
+  const [editingContactTitle, setEditingContactTitle] = React.useState("");
+  const [editingContactRelationshipTitle, setEditingContactRelationshipTitle] = React.useState("");
+  const [editingContactEmail, setEditingContactEmail] = React.useState("");
+  const [editingContactPhone, setEditingContactPhone] = React.useState("");
+  const [editingContactLinkedinUrl, setEditingContactLinkedinUrl] = React.useState("");
+  const [editingContactRoleType, setEditingContactRoleType] = React.useState<
+    "COMPANY_CONTACT" | "EXECUTIVE" | "VENTURE_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
+  >("COMPANY_CONTACT");
+  const [updatingContact, setUpdatingContact] = React.useState(false);
+  const [deletingContactLinkId, setDeletingContactLinkId] = React.useState<string | null>(null);
   const [keepListView, setKeepListView] = React.useState(false);
   const [newCompanyType, setNewCompanyType] = React.useState<CompanyType>("STARTUP");
   const [newPrimaryCategory, setNewPrimaryCategory] = React.useState<PrimaryCategory>("OTHER");
@@ -710,6 +744,167 @@ export function CompanyWorkbench() {
     }
   }
 
+  async function addContactToSelectedRecord() {
+    if (!selectedRecord) return;
+    if (!contactName.trim()) {
+      setStatus({ kind: "error", text: "Contact name is required." });
+      return;
+    }
+
+    setAddingContact(true);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/companies/${selectedRecord.id}/contacts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: contactName,
+          title: contactTitle,
+          relationshipTitle: contactRelationshipTitle,
+          email: contactEmail,
+          phone: contactPhone,
+          linkedinUrl: contactLinkedinUrl,
+          roleType: contactRoleType
+        })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to add contact");
+      }
+
+      const matchLabel =
+        payload?.resolution?.matchedBy === "created"
+          ? "new contact created"
+          : `matched existing contact by ${payload?.resolution?.matchedBy || "name"}`;
+
+      setStatus({
+        kind: "ok",
+        text: `${payload.contact.name} linked (${matchLabel}).`
+      });
+      setContactName("");
+      setContactTitle("");
+      setContactRelationshipTitle("");
+      setContactEmail("");
+      setContactPhone("");
+      setContactLinkedinUrl("");
+      setContactRoleType("COMPANY_CONTACT");
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add contact"
+      });
+    } finally {
+      setAddingContact(false);
+    }
+  }
+
+  function beginEditingContact(link: CompanyRecord["contactLinks"][number]) {
+    setEditingContactLinkId(link.id);
+    setEditingContactName(link.contact.name);
+    setEditingContactTitle(link.title || "");
+    setEditingContactRelationshipTitle(link.title || link.contact.title || "");
+    setEditingContactEmail(link.contact.email || "");
+    setEditingContactPhone(link.contact.phone || "");
+    setEditingContactLinkedinUrl(link.contact.linkedinUrl || "");
+    setEditingContactRoleType(link.roleType);
+    setStatus(null);
+  }
+
+  function resetEditingContactForm() {
+    setEditingContactLinkId(null);
+    setEditingContactName("");
+    setEditingContactTitle("");
+    setEditingContactRelationshipTitle("");
+    setEditingContactEmail("");
+    setEditingContactPhone("");
+    setEditingContactLinkedinUrl("");
+    setEditingContactRoleType("COMPANY_CONTACT");
+  }
+
+  async function updateContactForSelectedRecord(linkId: string) {
+    if (!selectedRecord) return;
+    if (!editingContactName.trim()) {
+      setStatus({ kind: "error", text: "Contact name is required." });
+      return;
+    }
+
+    setUpdatingContact(true);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/companies/${selectedRecord.id}/contacts`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          linkId,
+          name: editingContactName,
+          title: editingContactTitle,
+          relationshipTitle: editingContactRelationshipTitle,
+          email: editingContactEmail,
+          phone: editingContactPhone,
+          linkedinUrl: editingContactLinkedinUrl,
+          roleType: editingContactRoleType
+        })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to update contact");
+      }
+
+      setStatus({ kind: "ok", text: `${payload.link?.contact?.name || editingContactName} updated.` });
+      resetEditingContactForm();
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update contact"
+      });
+    } finally {
+      setUpdatingContact(false);
+    }
+  }
+
+  async function deleteContactFromSelectedRecord(linkId: string, contactName: string) {
+    if (!selectedRecord) return;
+
+    const confirmDelete = window.confirm(`Remove ${contactName} from this company?`);
+    if (!confirmDelete) return;
+
+    setDeletingContactLinkId(linkId);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/companies/${selectedRecord.id}/contacts`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linkId })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to delete contact");
+      }
+
+      if (editingContactLinkId === linkId) {
+        resetEditingContactForm();
+      }
+
+      setStatus({ kind: "ok", text: `${contactName} removed from contacts.` });
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to delete contact"
+      });
+    } finally {
+      setDeletingContactLinkId(null);
+    }
+  }
+
   async function saveSelectedRecordEdits() {
     if (!selectedRecord || !detailDraft) return;
 
@@ -767,30 +962,6 @@ export function CompanyWorkbench() {
       });
     } finally {
       setSavingEdits(false);
-    }
-  }
-
-  async function rerunResearchForSelectedRecord() {
-    if (!selectedRecord) return;
-    setRerunningResearch(true);
-    setStatus(null);
-
-    try {
-      const res = await fetch(`/api/companies/${selectedRecord.id}/rerun-research`, {
-        method: "POST"
-      });
-      const payload = await res.json();
-
-      if (!res.ok) throw new Error(payload.error || "Failed to re-run research");
-      setStatus({ kind: "ok", text: `Queued research rerun for ${selectedRecord.name}.` });
-      await loadRecords();
-    } catch (error) {
-      setStatus({
-        kind: "error",
-        text: error instanceof Error ? error.message : "Failed to re-run research"
-      });
-    } finally {
-      setRerunningResearch(false);
     }
   }
 
@@ -901,6 +1072,8 @@ export function CompanyWorkbench() {
     if (!selectedRecord) {
       setDetailDraft(null);
       setDraftRecordId(null);
+      resetEditingContactForm();
+      setDeletingContactLinkId(null);
       return;
     }
 
@@ -1231,7 +1404,7 @@ export function CompanyWorkbench() {
                           record.leadSourceOther
                         )}
                       </span>
-                      <span className={`flag-pill ${statusClass(record.researchStatus)}`}>
+                      <span className="flag-pill">
                         {record.companyType}
                       </span>
                     </div>
@@ -1240,7 +1413,6 @@ export function CompanyWorkbench() {
                     <span className={`status-pill ${intakeStatusClass(record.intakeStatus)}`}>
                       {record.intakeStatus}
                     </span>
-                    <span className={`status-pill ${statusClass(record.researchStatus)}`}>{record.researchStatus}</span>
                     <button
                       className="ghost small"
                       onClick={(event) => {
@@ -1269,17 +1441,11 @@ export function CompanyWorkbench() {
             <div className="detail-card">
               <div className="detail-head">
                 <h3>{selectedRecord.name}</h3>
-                <span className={`status-pill ${statusClass(selectedRecord.researchStatus)}`}>
-                  {selectedRecord.researchStatus}
-                </span>
               </div>
 
               <div className="actions">
                 <button className="primary" onClick={saveSelectedRecordEdits} disabled={savingEdits}>
                   {savingEdits ? "Saving..." : "Save Changes"}
-                </button>
-                <button className="secondary" onClick={rerunResearchForSelectedRecord} disabled={rerunningResearch}>
-                  {rerunningResearch ? "Queueing..." : "Re-run Research"}
                 </button>
               </div>
 
@@ -1545,6 +1711,216 @@ export function CompanyWorkbench() {
                   value={detailDraft.researchNotes}
                   onChange={(event) => setDetailDraft({ ...detailDraft, researchNotes: event.target.value })}
                 />
+              </div>
+
+              <div className="detail-section">
+                <p className="detail-label">Contacts</p>
+                {selectedRecord.contactLinks.length === 0 ? (
+                  <p className="muted">No contacts linked yet.</p>
+                ) : (
+                  selectedRecord.contactLinks.map((link) => (
+                    <div key={link.id} className="detail-list-item">
+                      {editingContactLinkId === link.id ? (
+                        <div className="detail-card">
+                          <div className="detail-grid">
+                            <div>
+                              <label>Contact Name</label>
+                              <input
+                                value={editingContactName}
+                                onChange={(event) => setEditingContactName(event.target.value)}
+                                placeholder="William Smith"
+                              />
+                            </div>
+                            <div>
+                              <label>Role Type</label>
+                              <select
+                                value={editingContactRoleType}
+                                onChange={(event) =>
+                                  setEditingContactRoleType(
+                                    event.target.value as
+                                      | "COMPANY_CONTACT"
+                                      | "EXECUTIVE"
+                                      | "VENTURE_PARTNER"
+                                      | "INVESTOR_PARTNER"
+                                      | "OTHER"
+                                  )
+                                }
+                              >
+                                <option value="COMPANY_CONTACT">Company Contact</option>
+                                <option value="EXECUTIVE">Executive</option>
+                                <option value="VENTURE_PARTNER">Venture / Innovation</option>
+                                <option value="INVESTOR_PARTNER">Investor Partner</option>
+                                <option value="OTHER">Other</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label>Contact Title</label>
+                              <input
+                                value={editingContactTitle}
+                                onChange={(event) => setEditingContactTitle(event.target.value)}
+                                placeholder="CIO / Board Member"
+                              />
+                            </div>
+                            <div>
+                              <label>Relationship Title</label>
+                              <input
+                                value={editingContactRelationshipTitle}
+                                onChange={(event) => setEditingContactRelationshipTitle(event.target.value)}
+                                placeholder="Board Member"
+                              />
+                            </div>
+                            <div>
+                              <label>Email</label>
+                              <input
+                                value={editingContactEmail}
+                                onChange={(event) => setEditingContactEmail(event.target.value)}
+                                placeholder="name@company.com"
+                              />
+                            </div>
+                            <div>
+                              <label>Phone</label>
+                              <input
+                                value={editingContactPhone}
+                                onChange={(event) => setEditingContactPhone(event.target.value)}
+                                placeholder="+1 555 555 5555"
+                              />
+                            </div>
+                            <div>
+                              <label>LinkedIn URL</label>
+                              <input
+                                value={editingContactLinkedinUrl}
+                                onChange={(event) => setEditingContactLinkedinUrl(event.target.value)}
+                                placeholder="https://linkedin.com/in/..."
+                              />
+                            </div>
+                          </div>
+                          <div className="actions">
+                            <button
+                              className="primary"
+                              onClick={() => updateContactForSelectedRecord(link.id)}
+                              disabled={updatingContact}
+                            >
+                              {updatingContact ? "Saving..." : "Save Contact"}
+                            </button>
+                            <button className="ghost small" onClick={resetEditingContactForm} type="button">
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <strong>{link.contact.name}</strong>
+                          {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
+                          {` | ${link.roleType}`}
+                          {link.contact.email ? ` | ${link.contact.email}` : ""}
+                          {link.contact.phone ? ` | ${link.contact.phone}` : ""}
+                          {link.contact.linkedinUrl && (
+                            <>
+                              {" "}-{" "}
+                              <a href={link.contact.linkedinUrl} target="_blank" rel="noreferrer">
+                                profile
+                              </a>
+                            </>
+                          )}
+                          <div className="actions">
+                            <button
+                              className="ghost small"
+                              onClick={() => beginEditingContact(link)}
+                              type="button"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="ghost small"
+                              onClick={() => deleteContactFromSelectedRecord(link.id, link.contact.name)}
+                              disabled={deletingContactLinkId === link.id}
+                            >
+                              {deletingContactLinkId === link.id ? "Removing..." : "Delete"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+
+                <div className="detail-grid">
+                  <div>
+                    <label>Contact Name</label>
+                    <input
+                      value={contactName}
+                      onChange={(event) => setContactName(event.target.value)}
+                      placeholder="William Smith"
+                    />
+                  </div>
+                  <div>
+                    <label>Role Type</label>
+                    <select
+                      value={contactRoleType}
+                      onChange={(event) =>
+                        setContactRoleType(
+                          event.target.value as
+                            | "COMPANY_CONTACT"
+                            | "EXECUTIVE"
+                            | "VENTURE_PARTNER"
+                            | "INVESTOR_PARTNER"
+                            | "OTHER"
+                        )
+                      }
+                    >
+                      <option value="COMPANY_CONTACT">Company Contact</option>
+                      <option value="EXECUTIVE">Executive</option>
+                      <option value="VENTURE_PARTNER">Venture / Innovation</option>
+                      <option value="INVESTOR_PARTNER">Investor Partner</option>
+                      <option value="OTHER">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Contact Title</label>
+                    <input
+                      value={contactTitle}
+                      onChange={(event) => setContactTitle(event.target.value)}
+                      placeholder="CIO / Board Member"
+                    />
+                  </div>
+                  <div>
+                    <label>Relationship Title</label>
+                    <input
+                      value={contactRelationshipTitle}
+                      onChange={(event) => setContactRelationshipTitle(event.target.value)}
+                      placeholder="Board Member"
+                    />
+                  </div>
+                  <div>
+                    <label>Email</label>
+                    <input
+                      value={contactEmail}
+                      onChange={(event) => setContactEmail(event.target.value)}
+                      placeholder="name@company.com"
+                    />
+                  </div>
+                  <div>
+                    <label>Phone</label>
+                    <input
+                      value={contactPhone}
+                      onChange={(event) => setContactPhone(event.target.value)}
+                      placeholder="+1 555 555 5555"
+                    />
+                  </div>
+                  <div>
+                    <label>LinkedIn URL</label>
+                    <input
+                      value={contactLinkedinUrl}
+                      onChange={(event) => setContactLinkedinUrl(event.target.value)}
+                      placeholder="https://linkedin.com/in/..."
+                    />
+                  </div>
+                </div>
+                <div className="actions">
+                  <button className="secondary" onClick={addContactToSelectedRecord} disabled={addingContact}>
+                    {addingContact ? "Adding..." : "Add Contact"}
+                  </button>
+                </div>
               </div>
 
               {selectedRecord.healthSystemLinks.length === 0 ? (

@@ -3,7 +3,23 @@ import { z } from "zod";
 export const personSchema = z.object({
   name: z.string().min(1),
   title: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  phone: z.string().optional(),
   url: z.string().url().optional().or(z.literal(""))
+});
+
+export const contactRoleTypeSchema = z.enum([
+  "EXECUTIVE",
+  "VENTURE_PARTNER",
+  "INVESTOR_PARTNER",
+  "COMPANY_CONTACT",
+  "OTHER"
+]);
+export type ContactRoleType = z.infer<typeof contactRoleTypeSchema>;
+
+export const companyContactSchema = personSchema.extend({
+  roleType: contactRoleTypeSchema.optional(),
+  relationshipTitle: z.string().optional()
 });
 
 export const investmentSchema = z.object({
@@ -231,6 +247,7 @@ export const companyInputSchema = z.object({
   intakeScheduledAt: z.string().optional().nullable(),
   screeningEvaluationAt: z.string().optional().nullable(),
   researchNotes: z.string().optional(),
+  contacts: z.array(companyContactSchema).default([]),
   healthSystemLinks: z
     .array(
       z.object({

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { replaceHealthSystemContactLinks } from "@/lib/contact-links";
 import { enrichHealthSystemFromWeb } from "@/lib/research";
 import type { HealthSystemSearchCandidate } from "@/lib/schemas";
 
@@ -230,11 +231,12 @@ export async function runQueuedResearchJobs(
       const keepLpFlag = job.healthSystem.isLimitedPartner || enriched.isLimitedPartner;
       const keepAllianceFlag = job.healthSystem.isAllianceMember || enriched.isAllianceMember;
 
-      const txs: any[] = [
-        prisma.executive.deleteMany({ where: { healthSystemId: job.healthSystemId } }),
-        prisma.venturePartner.deleteMany({ where: { healthSystemId: job.healthSystemId } }),
-        prisma.healthSystemInvestment.deleteMany({ where: { healthSystemId: job.healthSystemId } }),
-        prisma.healthSystem.update({
+      await prisma.$transaction(async (tx) => {
+        await tx.executive.deleteMany({ where: { healthSystemId: job.healthSystemId } });
+        await tx.venturePartner.deleteMany({ where: { healthSystemId: job.healthSystemId } });
+        await tx.healthSystemInvestment.deleteMany({ where: { healthSystemId: job.healthSystemId } });
+
+        await tx.healthSystem.update({
           where: { id: job.healthSystemId },
           data: {
             name: trimOrNull(enriched.name) || job.healthSystem.name,
@@ -258,42 +260,37 @@ export async function runQueuedResearchJobs(
             researchNotes: trimOrNull(enriched.researchNotes),
             researchUpdatedAt: new Date()
           }
-        }),
-        prisma.healthSystemResearchJob.update({
+        });
+
+        await tx.healthSystemResearchJob.update({
           where: { id: job.id },
           data: { status: "COMPLETED", completedAt: new Date(), errorMessage: null }
-        })
-      ];
+        });
 
-      if (enriched.executives.length > 0) {
-        txs.push(
-          prisma.executive.createMany({
+        if (enriched.executives.length > 0) {
+          await tx.executive.createMany({
             data: enriched.executives.map((entry) => ({
               healthSystemId: job.healthSystemId,
               name: entry.name,
               title: trimOrNull(entry.title),
               linkedinUrl: trimOrNull(entry.url)
             }))
-          })
-        );
-      }
+          });
+        }
 
-      if (enriched.venturePartners.length > 0) {
-        txs.push(
-          prisma.venturePartner.createMany({
+        if (enriched.venturePartners.length > 0) {
+          await tx.venturePartner.createMany({
             data: enriched.venturePartners.map((entry) => ({
               healthSystemId: job.healthSystemId,
               name: entry.name,
               title: trimOrNull(entry.title),
               profileUrl: trimOrNull(entry.url)
             }))
-          })
-        );
-      }
+          });
+        }
 
-      if (enriched.investments.length > 0) {
-        txs.push(
-          prisma.healthSystemInvestment.createMany({
+        if (enriched.investments.length > 0) {
+          await tx.healthSystemInvestment.createMany({
             data: enriched.investments.map((entry) => ({
               healthSystemId: job.healthSystemId,
               portfolioCompanyName: entry.portfolioCompanyName,
@@ -302,11 +299,28 @@ export async function runQueuedResearchJobs(
               leadPartnerName: trimOrNull(entry.leadPartnerName),
               sourceUrl: trimOrNull(entry.sourceUrl)
             }))
-          })
-        );
-      }
+          });
+        }
 
-      await prisma.$transaction(txs);
+        await replaceHealthSystemContactLinks(tx, job.healthSystemId, [
+          ...enriched.executives.map((entry) => ({
+            name: entry.name,
+            title: trimOrNull(entry.title),
+            email: trimOrNull(entry.email),
+            phone: trimOrNull(entry.phone),
+            linkedinUrl: trimOrNull(entry.url),
+            roleType: "EXECUTIVE" as const
+          })),
+          ...enriched.venturePartners.map((entry) => ({
+            name: entry.name,
+            title: trimOrNull(entry.title),
+            email: trimOrNull(entry.email),
+            phone: trimOrNull(entry.phone),
+            linkedinUrl: trimOrNull(entry.url),
+            roleType: "VENTURE_PARTNER" as const
+          }))
+        ]);
+      });
       completed += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown research failure";

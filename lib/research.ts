@@ -79,6 +79,8 @@ const enrichmentSchema = {
         properties: {
           name: { type: "string" },
           title: { type: "string" },
+          email: { type: "string" },
+          phone: { type: "string" },
           url: { type: "string" }
         },
         required: ["name"]
@@ -92,6 +94,8 @@ const enrichmentSchema = {
         properties: {
           name: { type: "string" },
           title: { type: "string" },
+          email: { type: "string" },
+          phone: { type: "string" },
           url: { type: "string" }
         },
         required: ["name"]
@@ -277,7 +281,8 @@ export async function enrichHealthSystemFromWeb(seed: MinimalHealthSystem): Prom
               `HQ state: ${compactText(seed.headquartersState) || "unknown"}. ` +
               `HQ country: ${compactText(seed.headquartersCountry) || "unknown"}. ` +
               `Website: ${compactText(seed.website) || "unknown"}. ` +
-              `Include executive team, innovation/venture team presence, venture partners, and venture investments.`
+              `Include executive team, innovation/venture team presence, venture partners, and venture investments. ` +
+              `When available, include public executive/partner email addresses and phone numbers.`
           }
         ]
       }

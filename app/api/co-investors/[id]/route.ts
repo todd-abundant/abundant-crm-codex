@@ -28,6 +28,9 @@ export async function PATCH(
       },
       include: {
         partners: true,
+        contactLinks: {
+          include: { contact: true }
+        },
         investments: true,
         researchJobs: {
           orderBy: { createdAt: "desc" },

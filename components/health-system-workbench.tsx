@@ -30,8 +30,27 @@ type HealthSystemRecord = {
   researchStatus: "DRAFT" | "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
   researchNotes?: string | null;
   researchError?: string | null;
-  executives: Array<{ id: string; name: string; title?: string | null; linkedinUrl?: string | null }>;
-  venturePartners: Array<{ id: string; name: string; title?: string | null; profileUrl?: string | null }>;
+  contactLinks: Array<{
+    id: string;
+    roleType: "EXECUTIVE" | "VENTURE_PARTNER" | "INVESTOR_PARTNER" | "COMPANY_CONTACT" | "OTHER";
+    title?: string | null;
+    contact: {
+      id: string;
+      name: string;
+      title?: string | null;
+      email?: string | null;
+      phone?: string | null;
+      linkedinUrl?: string | null;
+    };
+  }>;
+  venturePartners: Array<{
+    id: string;
+    name: string;
+    title?: string | null;
+    profileUrl?: string | null;
+    coInvestorId?: string | null;
+    coInvestor?: { id: string; name: string } | null;
+  }>;
   investments: Array<{
     id: string;
     portfolioCompanyName: string;
@@ -39,7 +58,19 @@ type HealthSystemRecord = {
     investmentDate?: string | null;
     leadPartnerName?: string | null;
     sourceUrl?: string | null;
+    companyId?: string | null;
+    company?: { id: string; name: string } | null;
   }>;
+};
+
+type CoInvestorOption = {
+  id: string;
+  name: string;
+};
+
+type CompanyOption = {
+  id: string;
+  name: string;
 };
 
 type DetailDraft = {
@@ -208,7 +239,6 @@ export function HealthSystemWorkbench() {
   const [draftRecordId, setDraftRecordId] = useState<string | null>(null);
   const [detailDraft, setDetailDraft] = useState<DetailDraft | null>(null);
   const [runningAgent, setRunningAgent] = useState(false);
-  const [rerunningResearch, setRerunningResearch] = useState(false);
   const [savingEdits, setSavingEdits] = useState(false);
   const [creatingFromSearch, setCreatingFromSearch] = useState(false);
   const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
@@ -221,6 +251,52 @@ export function HealthSystemWorkbench() {
   const [searchCandidateError, setSearchCandidateError] = useState<string | null>(null);
   const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(-1);
   const [status, setStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [addingContact, setAddingContact] = useState(false);
+  const [contactName, setContactName] = useState("");
+  const [contactTitle, setContactTitle] = useState("");
+  const [contactRelationshipTitle, setContactRelationshipTitle] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactLinkedinUrl, setContactLinkedinUrl] = useState("");
+  const [contactRoleType, setContactRoleType] = useState<"EXECUTIVE" | "VENTURE_PARTNER" | "OTHER">(
+    "EXECUTIVE"
+  );
+  const [editingContactLinkId, setEditingContactLinkId] = useState<string | null>(null);
+  const [editingContactName, setEditingContactName] = useState("");
+  const [editingContactTitle, setEditingContactTitle] = useState("");
+  const [editingContactRelationshipTitle, setEditingContactRelationshipTitle] = useState("");
+  const [editingContactEmail, setEditingContactEmail] = useState("");
+  const [editingContactPhone, setEditingContactPhone] = useState("");
+  const [editingContactLinkedinUrl, setEditingContactLinkedinUrl] = useState("");
+  const [editingContactRoleType, setEditingContactRoleType] = useState<
+    "EXECUTIVE" | "VENTURE_PARTNER" | "OTHER"
+  >("EXECUTIVE");
+  const [updatingContact, setUpdatingContact] = useState(false);
+  const [deletingContactLinkId, setDeletingContactLinkId] = useState<string | null>(null);
+  const [coInvestors, setCoInvestors] = useState<CoInvestorOption[]>([]);
+  const [companies, setCompanies] = useState<CompanyOption[]>([]);
+  const [addingVenturePartner, setAddingVenturePartner] = useState(false);
+  const [venturePartnerCoInvestorId, setVenturePartnerCoInvestorId] = useState("");
+  const [venturePartnerTitle, setVenturePartnerTitle] = useState("");
+  const [editingVenturePartnerLinkId, setEditingVenturePartnerLinkId] = useState<string | null>(null);
+  const [editingVenturePartnerCoInvestorId, setEditingVenturePartnerCoInvestorId] = useState("");
+  const [editingVenturePartnerTitle, setEditingVenturePartnerTitle] = useState("");
+  const [updatingVenturePartner, setUpdatingVenturePartner] = useState(false);
+  const [deletingVenturePartnerLinkId, setDeletingVenturePartnerLinkId] = useState<string | null>(null);
+  const [addingInvestment, setAddingInvestment] = useState(false);
+  const [investmentCompanyId, setInvestmentCompanyId] = useState("");
+  const [investmentAmount, setInvestmentAmount] = useState("");
+  const [investmentDate, setInvestmentDate] = useState("");
+  const [investmentLeadPartnerName, setInvestmentLeadPartnerName] = useState("");
+  const [investmentSourceUrl, setInvestmentSourceUrl] = useState("");
+  const [editingInvestmentLinkId, setEditingInvestmentLinkId] = useState<string | null>(null);
+  const [editingInvestmentCompanyId, setEditingInvestmentCompanyId] = useState("");
+  const [editingInvestmentAmount, setEditingInvestmentAmount] = useState("");
+  const [editingInvestmentDate, setEditingInvestmentDate] = useState("");
+  const [editingInvestmentLeadPartnerName, setEditingInvestmentLeadPartnerName] = useState("");
+  const [editingInvestmentSourceUrl, setEditingInvestmentSourceUrl] = useState("");
+  const [updatingInvestment, setUpdatingInvestment] = useState(false);
+  const [deletingInvestmentLinkId, setDeletingInvestmentLinkId] = useState<string | null>(null);
   const [keepListView, setKeepListView] = useState(false);
 
   const hasPending = useMemo(
@@ -264,6 +340,37 @@ export function HealthSystemWorkbench() {
     creatingFromSearch ||
     searchingCandidates ||
     (searchCandidates.length > 1 && selectedCandidate === null);
+
+  async function loadReferenceRecords() {
+    const [coInvestorRes, companyRes] = await Promise.all([fetch("/api/co-investors"), fetch("/api/companies")]);
+
+    const coInvestorPayload = await coInvestorRes.json();
+    const companyPayload = await companyRes.json();
+
+    if (!coInvestorRes.ok) {
+      throw new Error(coInvestorPayload.error || "Failed to load co-investors");
+    }
+    if (!companyRes.ok) {
+      throw new Error(companyPayload.error || "Failed to load companies");
+    }
+
+    setCoInvestors((coInvestorPayload.coInvestors || []).map((item: { id: string; name: string }) => ({
+      id: item.id,
+      name: item.name
+    })));
+    setCompanies((companyPayload.companies || []).map((item: { id: string; name: string }) => ({
+      id: item.id,
+      name: item.name
+    })));
+  }
+
+  function getCoInvestorNameById(id: string) {
+    return coInvestors.find((coInvestor) => coInvestor.id === id)?.name || "";
+  }
+
+  function getCompanyNameById(id: string) {
+    return companies.find((company) => company.id === id)?.name || "";
+  }
 
   async function loadRecords() {
     const res = await fetch("/api/health-systems", { cache: "no-store" });
@@ -386,6 +493,460 @@ export function HealthSystemWorkbench() {
     }
   }
 
+  async function addContactToSelectedRecord() {
+    if (!selectedRecord) return;
+    if (!contactName.trim()) {
+      setStatus({ kind: "error", text: "Contact name is required." });
+      return;
+    }
+
+    setAddingContact(true);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/health-systems/${selectedRecord.id}/contacts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: contactName,
+          title: contactTitle,
+          relationshipTitle: contactRelationshipTitle,
+          email: contactEmail,
+          phone: contactPhone,
+          linkedinUrl: contactLinkedinUrl,
+          roleType: contactRoleType
+        })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to add contact");
+      }
+
+      const matchLabel =
+        payload?.resolution?.matchedBy === "created"
+          ? "new contact created"
+          : `matched existing contact by ${payload?.resolution?.matchedBy || "name"}`;
+
+      setStatus({
+        kind: "ok",
+        text: `${payload.contact.name} linked (${matchLabel}).`
+      });
+      resetContactForm();
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add contact"
+      });
+    } finally {
+      setAddingContact(false);
+    }
+  }
+
+  function beginEditingContact(link: HealthSystemRecord["contactLinks"][number]) {
+    setEditingContactLinkId(link.id);
+    setEditingContactName(link.contact.name);
+    setEditingContactTitle(link.title || "");
+    setEditingContactRelationshipTitle(link.title || link.contact.title || "");
+    setEditingContactEmail(link.contact.email || "");
+    setEditingContactPhone(link.contact.phone || "");
+    setEditingContactLinkedinUrl(link.contact.linkedinUrl || "");
+    setEditingContactRoleType(link.roleType);
+    setStatus(null);
+  }
+
+  function resetContactForm() {
+    setContactName("");
+    setContactTitle("");
+    setContactRelationshipTitle("");
+    setContactEmail("");
+    setContactPhone("");
+    setContactLinkedinUrl("");
+    setContactRoleType("EXECUTIVE");
+  }
+
+  function resetEditingContactForm() {
+    setEditingContactLinkId(null);
+    setEditingContactName("");
+    setEditingContactTitle("");
+    setEditingContactRelationshipTitle("");
+    setEditingContactEmail("");
+    setEditingContactPhone("");
+    setEditingContactLinkedinUrl("");
+    setEditingContactRoleType("EXECUTIVE");
+  }
+
+  async function updateContactForSelectedRecord(linkId: string) {
+    if (!selectedRecord) return;
+    if (!editingContactName.trim()) {
+      setStatus({ kind: "error", text: "Contact name is required." });
+      return;
+    }
+
+    setUpdatingContact(true);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/health-systems/${selectedRecord.id}/contacts`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          linkId,
+          name: editingContactName,
+          title: editingContactTitle,
+          relationshipTitle: editingContactRelationshipTitle,
+          email: editingContactEmail,
+          phone: editingContactPhone,
+          linkedinUrl: editingContactLinkedinUrl,
+          roleType: editingContactRoleType
+        })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to update contact");
+      }
+
+      setStatus({ kind: "ok", text: `${payload.link?.contact?.name || editingContactName} updated.` });
+      resetEditingContactForm();
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update contact"
+      });
+    } finally {
+      setUpdatingContact(false);
+    }
+  }
+
+  async function deleteContactFromSelectedRecord(linkId: string, contactName: string) {
+    if (!selectedRecord) return;
+
+    const confirmDelete = window.confirm(`Remove ${contactName} from this health system?`);
+    if (!confirmDelete) return;
+
+    setDeletingContactLinkId(linkId);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/health-systems/${selectedRecord.id}/contacts`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linkId })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to delete contact");
+      }
+
+      if (editingContactLinkId === linkId) {
+        resetEditingContactForm();
+      }
+
+      setStatus({ kind: "ok", text: `${contactName} removed from contacts.` });
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to delete contact"
+      });
+    } finally {
+      setDeletingContactLinkId(null);
+    }
+  }
+
+  function resetVenturePartnerForm() {
+    setVenturePartnerCoInvestorId("");
+    setVenturePartnerTitle("");
+  }
+
+  function resetEditingVenturePartnerForm() {
+    setEditingVenturePartnerLinkId(null);
+    setEditingVenturePartnerCoInvestorId("");
+    setEditingVenturePartnerTitle("");
+  }
+
+  function beginEditingVenturePartner(partner: HealthSystemRecord["venturePartners"][number]) {
+    setEditingVenturePartnerLinkId(partner.id);
+    setEditingVenturePartnerCoInvestorId(partner.coInvestorId || "");
+    setEditingVenturePartnerTitle(partner.title || "");
+    setStatus(null);
+  }
+
+  async function addVenturePartnerToSelectedRecord() {
+    if (!selectedRecord) return;
+    if (!venturePartnerCoInvestorId) {
+      setStatus({ kind: "error", text: "Select a venture partner." });
+      return;
+    }
+
+    setAddingVenturePartner(true);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/health-systems/${selectedRecord.id}/venture-partners`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          coInvestorId: venturePartnerCoInvestorId,
+          title: venturePartnerTitle
+        })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to add venture partner");
+      }
+
+      setStatus({
+        kind: "ok",
+        text: `${payload.partner?.coInvestor?.name || "Venture partner"} linked.`
+      });
+      resetVenturePartnerForm();
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add venture partner"
+      });
+    } finally {
+      setAddingVenturePartner(false);
+    }
+  }
+
+  async function updateVenturePartnerForSelectedRecord(linkId: string) {
+    if (!selectedRecord) return;
+    if (!editingVenturePartnerCoInvestorId) {
+      setStatus({ kind: "error", text: "Select a venture partner." });
+      return;
+    }
+
+    setUpdatingVenturePartner(true);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/health-systems/${selectedRecord.id}/venture-partners`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          linkId,
+          coInvestorId: editingVenturePartnerCoInvestorId,
+          title: editingVenturePartnerTitle
+        })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to update venture partner");
+      }
+
+      setStatus({
+        kind: "ok",
+        text: `${payload.partner?.coInvestor?.name || "Venture partner"} updated.`
+      });
+      resetEditingVenturePartnerForm();
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update venture partner"
+      });
+    } finally {
+      setUpdatingVenturePartner(false);
+    }
+  }
+
+  async function deleteVenturePartnerFromSelectedRecord(linkId: string, partnerName: string) {
+    if (!selectedRecord) return;
+    const confirmDelete = window.confirm(`Remove ${partnerName} from this health system?`);
+    if (!confirmDelete) return;
+
+    setDeletingVenturePartnerLinkId(linkId);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/health-systems/${selectedRecord.id}/venture-partners`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linkId })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to delete venture partner");
+      }
+
+      if (editingVenturePartnerLinkId === linkId) {
+        resetEditingVenturePartnerForm();
+      }
+
+      setStatus({ kind: "ok", text: `${partnerName} removed from venture partners.` });
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to delete venture partner"
+      });
+    } finally {
+      setDeletingVenturePartnerLinkId(null);
+    }
+  }
+
+  function resetInvestmentForm() {
+    setInvestmentCompanyId("");
+    setInvestmentAmount("");
+    setInvestmentDate("");
+    setInvestmentLeadPartnerName("");
+    setInvestmentSourceUrl("");
+  }
+
+  function resetEditingInvestmentForm() {
+    setEditingInvestmentLinkId(null);
+    setEditingInvestmentCompanyId("");
+    setEditingInvestmentAmount("");
+    setEditingInvestmentDate("");
+    setEditingInvestmentLeadPartnerName("");
+    setEditingInvestmentSourceUrl("");
+  }
+
+  function beginEditingInvestment(investment: HealthSystemRecord["investments"][number]) {
+    setEditingInvestmentLinkId(investment.id);
+    setEditingInvestmentCompanyId(investment.companyId || "");
+    setEditingInvestmentAmount(investment.investmentAmountUsd?.toString() || "");
+    setEditingInvestmentDate(investment.investmentDate || "");
+    setEditingInvestmentLeadPartnerName(investment.leadPartnerName || "");
+    setEditingInvestmentSourceUrl(investment.sourceUrl || "");
+    setStatus(null);
+  }
+
+  async function addInvestmentToSelectedRecord() {
+    if (!selectedRecord) return;
+    if (!investmentCompanyId) {
+      setStatus({ kind: "error", text: "Select a company." });
+      return;
+    }
+
+    setAddingInvestment(true);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/health-systems/${selectedRecord.id}/investments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId: investmentCompanyId,
+          investmentAmountUsd: toNullableNumber(investmentAmount),
+          investmentDate: investmentDate || null,
+          leadPartnerName: investmentLeadPartnerName,
+          sourceUrl: investmentSourceUrl
+        })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to add investment");
+      }
+
+      setStatus({
+        kind: "ok",
+        text: `${payload.investment?.company?.name || getCompanyNameById(investmentCompanyId)} linked as investment.`
+      });
+      resetInvestmentForm();
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add investment"
+      });
+    } finally {
+      setAddingInvestment(false);
+    }
+  }
+
+  async function updateInvestmentForSelectedRecord(linkId: string) {
+    if (!selectedRecord) return;
+    if (!editingInvestmentCompanyId) {
+      setStatus({ kind: "error", text: "Select a company." });
+      return;
+    }
+
+    setUpdatingInvestment(true);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/health-systems/${selectedRecord.id}/investments`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          linkId,
+          companyId: editingInvestmentCompanyId,
+          investmentAmountUsd: toNullableNumber(editingInvestmentAmount),
+          investmentDate: editingInvestmentDate || null,
+          leadPartnerName: editingInvestmentLeadPartnerName,
+          sourceUrl: editingInvestmentSourceUrl
+        })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to update investment");
+      }
+
+      setStatus({
+        kind: "ok",
+        text: `${payload.investment?.company?.name || getCompanyNameById(editingInvestmentCompanyId)} updated.`
+      });
+      resetEditingInvestmentForm();
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update investment"
+      });
+    } finally {
+      setUpdatingInvestment(false);
+    }
+  }
+
+  async function deleteInvestmentFromSelectedRecord(linkId: string, companyName: string) {
+    if (!selectedRecord) return;
+    const confirmDelete = window.confirm(`Remove ${companyName} from investments?`);
+    if (!confirmDelete) return;
+
+    setDeletingInvestmentLinkId(linkId);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/health-systems/${selectedRecord.id}/investments`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linkId })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to delete investment");
+      }
+
+      if (editingInvestmentLinkId === linkId) {
+        resetEditingInvestmentForm();
+      }
+
+      setStatus({ kind: "ok", text: `${companyName} removed from investments.` });
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to delete investment"
+      });
+    } finally {
+      setDeletingInvestmentLinkId(null);
+    }
+  }
+
   async function saveSelectedRecordEdits() {
     if (!selectedRecord || !detailDraft) return;
 
@@ -430,32 +991,6 @@ export function HealthSystemWorkbench() {
     }
   }
 
-  async function rerunResearchForSelectedRecord() {
-    if (!selectedRecord) return;
-
-    setRerunningResearch(true);
-    setStatus(null);
-
-    try {
-      const res = await fetch(`/api/health-systems/${selectedRecord.id}/rerun-research`, {
-        method: "POST"
-      });
-
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Failed to re-run research");
-
-      setStatus({ kind: "ok", text: `Queued research rerun for ${selectedRecord.name}.` });
-      await loadRecords();
-    } catch (error) {
-      setStatus({
-        kind: "error",
-        text: error instanceof Error ? error.message : "Failed to re-run research"
-      });
-    } finally {
-      setRerunningResearch(false);
-    }
-  }
-
   async function deleteHealthSystem(record: HealthSystemRecord) {
     const confirmDelete = window.confirm(
       `Delete ${record.name} and all related research details? This cannot be undone.`
@@ -490,7 +1025,7 @@ export function HealthSystemWorkbench() {
   }
 
   useEffect(() => {
-    loadRecords().catch(() => {
+    Promise.all([loadRecords(), loadReferenceRecords()]).catch(() => {
       setStatus({ kind: "error", text: "Failed to load health systems." });
     });
   }, []);
@@ -570,6 +1105,14 @@ export function HealthSystemWorkbench() {
     if (!selectedRecord) {
       setDetailDraft(null);
       setDraftRecordId(null);
+      resetEditingContactForm();
+      resetVenturePartnerForm();
+      resetEditingVenturePartnerForm();
+      resetInvestmentForm();
+      resetEditingInvestmentForm();
+      setDeletingContactLinkId(null);
+      setDeletingVenturePartnerLinkId(null);
+      setDeletingInvestmentLinkId(null);
       return;
     }
 
@@ -740,9 +1283,6 @@ export function HealthSystemWorkbench() {
                     </div>
                   </div>
                   <div className="list-row-meta">
-                    <span className={`status-pill ${statusClass(record.researchStatus)}`}>
-                      {record.researchStatus}
-                    </span>
                     <button
                       className="ghost small"
                       onClick={(event) => {
@@ -771,21 +1311,11 @@ export function HealthSystemWorkbench() {
             <div className="detail-card">
               <div className="detail-head">
                 <h3>{selectedRecord.name}</h3>
-                <span className={`status-pill ${statusClass(selectedRecord.researchStatus)}`}>
-                  {selectedRecord.researchStatus}
-                </span>
               </div>
 
               <div className="actions">
                 <button className="primary" onClick={saveSelectedRecordEdits} disabled={savingEdits}>
                   {savingEdits ? "Saving..." : "Save Changes"}
-                </button>
-                <button
-                  className="secondary"
-                  onClick={rerunResearchForSelectedRecord}
-                  disabled={rerunningResearch}
-                >
-                  {rerunningResearch ? "Queueing..." : "Re-run Research"}
                 </button>
               </div>
 
@@ -950,25 +1480,203 @@ export function HealthSystemWorkbench() {
               )}
 
               <div className="detail-section">
-                <p className="detail-label">Executive Team</p>
-                {selectedRecord.executives.length === 0 ? (
-                  <p className="muted">No executives captured.</p>
+                <p className="detail-label">Contacts</p>
+                {selectedRecord.contactLinks.length === 0 ? (
+                  <p className="muted">No contacts linked yet.</p>
                 ) : (
-                  selectedRecord.executives.map((executive) => (
-                    <div key={executive.id} className="detail-list-item">
-                      <strong>{executive.name}</strong>
-                      {executive.title ? `, ${executive.title}` : ""}
-                      {executive.linkedinUrl && (
-                        <>
-                          {" "}-{" "}
-                          <a href={executive.linkedinUrl} target="_blank" rel="noreferrer">
-                            profile
-                          </a>
-                        </>
+                  selectedRecord.contactLinks.map((link) => (
+                    <div key={link.id} className="detail-list-item">
+                      {editingContactLinkId === link.id ? (
+                        <div className="detail-card">
+                          <div className="detail-grid">
+                            <div>
+                              <label>Contact Name</label>
+                              <input
+                                value={editingContactName}
+                                onChange={(event) => setEditingContactName(event.target.value)}
+                                placeholder="William Smith"
+                              />
+                            </div>
+                            <div>
+                              <label>Role Type</label>
+                              <select
+                                value={editingContactRoleType}
+                                onChange={(event) =>
+                                  setEditingContactRoleType(
+                                    event.target.value as "EXECUTIVE" | "VENTURE_PARTNER" | "OTHER"
+                                  )
+                                }
+                              >
+                                <option value="EXECUTIVE">Executive</option>
+                                <option value="VENTURE_PARTNER">Venture Partner</option>
+                                <option value="OTHER">Other</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label>Contact Title</label>
+                              <input
+                                value={editingContactTitle}
+                                onChange={(event) => setEditingContactTitle(event.target.value)}
+                                placeholder="Chief Innovation Officer"
+                              />
+                            </div>
+                            <div>
+                              <label>Relationship Title</label>
+                              <input
+                                value={editingContactRelationshipTitle}
+                                onChange={(event) => setEditingContactRelationshipTitle(event.target.value)}
+                                placeholder="Board Observer"
+                              />
+                            </div>
+                            <div>
+                              <label>Email</label>
+                              <input
+                                value={editingContactEmail}
+                                onChange={(event) => setEditingContactEmail(event.target.value)}
+                                placeholder="name@org.com"
+                              />
+                            </div>
+                            <div>
+                              <label>Phone</label>
+                              <input
+                                value={editingContactPhone}
+                                onChange={(event) => setEditingContactPhone(event.target.value)}
+                                placeholder="+1 555 555 5555"
+                              />
+                            </div>
+                            <div>
+                              <label>LinkedIn URL</label>
+                              <input
+                                value={editingContactLinkedinUrl}
+                                onChange={(event) => setEditingContactLinkedinUrl(event.target.value)}
+                                placeholder="https://linkedin.com/in/..."
+                              />
+                            </div>
+                          </div>
+                          <div className="actions">
+                            <button
+                              className="primary"
+                              onClick={() => updateContactForSelectedRecord(link.id)}
+                              disabled={updatingContact}
+                            >
+                              {updatingContact ? "Saving..." : "Save Contact"}
+                            </button>
+                            <button
+                              className="ghost small"
+                              onClick={() => {
+                                resetEditingContactForm();
+                              }}
+                              type="button"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <strong>{link.contact.name}</strong>
+                          {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
+                          {` | ${link.roleType}`}
+                          {link.contact.email ? ` | ${link.contact.email}` : ""}
+                          {link.contact.phone ? ` | ${link.contact.phone}` : ""}
+                          {link.contact.linkedinUrl && (
+                            <>
+                              {" "}-{" "}
+                              <a href={link.contact.linkedinUrl} target="_blank" rel="noreferrer">
+                                profile
+                              </a>
+                            </>
+                          )}
+                          <div className="actions">
+                            <button
+                              className="ghost small"
+                              onClick={() => beginEditingContact(link)}
+                              type="button"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="ghost small"
+                              onClick={() => deleteContactFromSelectedRecord(link.id, link.contact.name)}
+                              disabled={deletingContactLinkId === link.id}
+                            >
+                              {deletingContactLinkId === link.id ? "Removing..." : "Delete"}
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   ))
                 )}
+
+                <div className="detail-grid">
+                  <div>
+                    <label>Contact Name</label>
+                    <input
+                      value={contactName}
+                      onChange={(event) => setContactName(event.target.value)}
+                      placeholder="William Smith"
+                    />
+                  </div>
+                  <div>
+                    <label>Role Type</label>
+                    <select
+                      value={contactRoleType}
+                      onChange={(event) =>
+                        setContactRoleType(event.target.value as "EXECUTIVE" | "VENTURE_PARTNER" | "OTHER")
+                      }
+                    >
+                      <option value="EXECUTIVE">Executive</option>
+                      <option value="VENTURE_PARTNER">Venture Partner</option>
+                      <option value="OTHER">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Contact Title</label>
+                    <input
+                      value={contactTitle}
+                      onChange={(event) => setContactTitle(event.target.value)}
+                      placeholder="Chief Innovation Officer"
+                    />
+                  </div>
+                  <div>
+                    <label>Relationship Title</label>
+                    <input
+                      value={contactRelationshipTitle}
+                      onChange={(event) => setContactRelationshipTitle(event.target.value)}
+                      placeholder="Board Observer"
+                    />
+                  </div>
+                  <div>
+                    <label>Email</label>
+                    <input
+                      value={contactEmail}
+                      onChange={(event) => setContactEmail(event.target.value)}
+                      placeholder="name@org.com"
+                    />
+                  </div>
+                  <div>
+                    <label>Phone</label>
+                    <input
+                      value={contactPhone}
+                      onChange={(event) => setContactPhone(event.target.value)}
+                      placeholder="+1 555 555 5555"
+                    />
+                  </div>
+                  <div>
+                    <label>LinkedIn URL</label>
+                    <input
+                      value={contactLinkedinUrl}
+                      onChange={(event) => setContactLinkedinUrl(event.target.value)}
+                      placeholder="https://linkedin.com/in/..."
+                    />
+                  </div>
+                </div>
+                <div className="actions">
+                  <button className="secondary" onClick={addContactToSelectedRecord} disabled={addingContact}>
+                    {addingContact ? "Adding..." : "Add Contact"}
+                  </button>
+                </div>
               </div>
 
               <div className="detail-section">
@@ -978,42 +1686,289 @@ export function HealthSystemWorkbench() {
                 ) : (
                   selectedRecord.venturePartners.map((partner) => (
                     <div key={partner.id} className="detail-list-item">
-                      <strong>{partner.name}</strong>
-                      {partner.title ? `, ${partner.title}` : ""}
-                      {partner.profileUrl && (
-                        <>
-                          {" "}-{" "}
-                          <a href={partner.profileUrl} target="_blank" rel="noreferrer">
-                            profile
-                          </a>
-                        </>
+                      {editingVenturePartnerLinkId === partner.id ? (
+                        <div className="detail-card">
+                          <div className="detail-grid">
+                            <div>
+                              <label>Co-Investor</label>
+                              <select
+                                value={editingVenturePartnerCoInvestorId}
+                                onChange={(event) => setEditingVenturePartnerCoInvestorId(event.target.value)}
+                              >
+                                <option value="">Select a co-investor</option>
+                                {coInvestors.map((coInvestor) => (
+                                  <option key={coInvestor.id} value={coInvestor.id}>
+                                    {coInvestor.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label>Title</label>
+                              <input
+                                value={editingVenturePartnerTitle}
+                                onChange={(event) => setEditingVenturePartnerTitle(event.target.value)}
+                                placeholder="Investment partner"
+                              />
+                            </div>
+                          </div>
+                          <div className="actions">
+                            <button
+                              className="primary"
+                              onClick={() => updateVenturePartnerForSelectedRecord(partner.id)}
+                              disabled={updatingVenturePartner}
+                            >
+                              {updatingVenturePartner ? "Saving..." : "Save Venture Partner"}
+                            </button>
+                            <button
+                              className="ghost small"
+                              onClick={resetEditingVenturePartnerForm}
+                              type="button"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <strong>{partner.coInvestor?.name || partner.name}</strong>
+                          {partner.title ? `, ${partner.title}` : ""}
+                          {partner.profileUrl && (
+                            <>
+                              {" "}-{" "}
+                              <a href={partner.profileUrl} target="_blank" rel="noreferrer">
+                                profile
+                              </a>
+                            </>
+                          )}
+                          <div className="actions">
+                            <button
+                              className="ghost small"
+                              onClick={() => beginEditingVenturePartner(partner)}
+                              type="button"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="ghost small"
+                              onClick={() =>
+                                deleteVenturePartnerFromSelectedRecord(
+                                  partner.id,
+                                  partner.coInvestor?.name || partner.name
+                                )
+                              }
+                              disabled={deletingVenturePartnerLinkId === partner.id}
+                            >
+                              {deletingVenturePartnerLinkId === partner.id ? "Removing..." : "Delete"}
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   ))
                 )}
+                <div className="detail-grid">
+                  <div>
+                    <label>Co-Investor</label>
+                    <select
+                      value={venturePartnerCoInvestorId}
+                      onChange={(event) => setVenturePartnerCoInvestorId(event.target.value)}
+                    >
+                      <option value="">Select a co-investor</option>
+                      {coInvestors.map((coInvestor) => (
+                        <option key={coInvestor.id} value={coInvestor.id}>
+                          {coInvestor.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label>Title</label>
+                    <input
+                      value={venturePartnerTitle}
+                      onChange={(event) => setVenturePartnerTitle(event.target.value)}
+                      placeholder="Investment partner"
+                    />
+                  </div>
+                </div>
+                <div className="actions">
+                  <button
+                    className="secondary"
+                    onClick={addVenturePartnerToSelectedRecord}
+                    disabled={addingVenturePartner}
+                  >
+                    {addingVenturePartner ? "Adding..." : "Add Venture Partner"}
+                  </button>
+                </div>
               </div>
 
               <div className="detail-section">
-                <p className="detail-label">Venture Investments</p>
+                <p className="detail-label">Investments</p>
                 {selectedRecord.investments.length === 0 ? (
                   <p className="muted">No investments captured.</p>
                 ) : (
                   selectedRecord.investments.map((investment) => (
                     <div key={investment.id} className="detail-list-item">
-                      <strong>{investment.portfolioCompanyName}</strong> | Amount: {" "}
-                      {formatUsd(investment.investmentAmountUsd)} | Date: {formatDate(investment.investmentDate)}
-                      {" "}| Lead: {investment.leadPartnerName || "-"}
-                      {investment.sourceUrl && (
-                        <>
-                          {" "}-{" "}
-                          <a href={investment.sourceUrl} target="_blank" rel="noreferrer">
-                            source
-                          </a>
-                        </>
+                      {editingInvestmentLinkId === investment.id ? (
+                        <div className="detail-card">
+                          <div className="detail-grid">
+                            <div>
+                              <label>Company</label>
+                              <select
+                                value={editingInvestmentCompanyId}
+                                onChange={(event) => setEditingInvestmentCompanyId(event.target.value)}
+                              >
+                                <option value="">Select a company</option>
+                                {companies.map((company) => (
+                                  <option key={company.id} value={company.id}>
+                                    {company.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label>Investment Amount (USD)</label>
+                              <input
+                                value={editingInvestmentAmount}
+                                onChange={(event) => setEditingInvestmentAmount(event.target.value)}
+                                placeholder="2500000"
+                              />
+                            </div>
+                            <div>
+                              <label>Investment Date</label>
+                              <input
+                                value={editingInvestmentDate}
+                                onChange={(event) => setEditingInvestmentDate(event.target.value)}
+                                placeholder="YYYY-MM-DD"
+                              />
+                            </div>
+                            <div>
+                              <label>Lead Partner</label>
+                              <input
+                                value={editingInvestmentLeadPartnerName}
+                                onChange={(event) => setEditingInvestmentLeadPartnerName(event.target.value)}
+                                placeholder="Lead partner name"
+                              />
+                            </div>
+                            <div>
+                              <label>Source URL</label>
+                              <input
+                                value={editingInvestmentSourceUrl}
+                                onChange={(event) => setEditingInvestmentSourceUrl(event.target.value)}
+                                placeholder="https://source.example.com"
+                              />
+                            </div>
+                          </div>
+                          <div className="actions">
+                            <button
+                              className="primary"
+                              onClick={() => updateInvestmentForSelectedRecord(investment.id)}
+                              disabled={updatingInvestment}
+                            >
+                              {updatingInvestment ? "Saving..." : "Save Investment"}
+                            </button>
+                            <button
+                              className="ghost small"
+                              onClick={resetEditingInvestmentForm}
+                              type="button"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <strong>{investment.company?.name || investment.portfolioCompanyName}</strong> | Amount:
+                          {" "}
+                          {formatUsd(investment.investmentAmountUsd)} | Date: {formatDate(investment.investmentDate)}
+                          {" "}| Lead: {investment.leadPartnerName || "-"}
+                          {investment.sourceUrl && (
+                            <>
+                              {" "}-{" "}
+                              <a href={investment.sourceUrl} target="_blank" rel="noreferrer">
+                                source
+                              </a>
+                            </>
+                          )}
+                          <div className="actions">
+                            <button
+                              className="ghost small"
+                              onClick={() => beginEditingInvestment(investment)}
+                              type="button"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="ghost small"
+                              onClick={() =>
+                                deleteInvestmentFromSelectedRecord(
+                                  investment.id,
+                                  investment.company?.name || investment.portfolioCompanyName
+                                )
+                              }
+                              disabled={deletingInvestmentLinkId === investment.id}
+                            >
+                              {deletingInvestmentLinkId === investment.id ? "Removing..." : "Delete"}
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   ))
                 )}
+                <div className="detail-grid">
+                  <div>
+                    <label>Company</label>
+                    <select
+                      value={investmentCompanyId}
+                      onChange={(event) => setInvestmentCompanyId(event.target.value)}
+                    >
+                      <option value="">Select a company</option>
+                      {companies.map((company) => (
+                        <option key={company.id} value={company.id}>
+                          {company.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label>Investment Amount (USD)</label>
+                    <input
+                      value={investmentAmount}
+                      onChange={(event) => setInvestmentAmount(event.target.value)}
+                      placeholder="2500000"
+                    />
+                  </div>
+                  <div>
+                    <label>Investment Date</label>
+                    <input
+                      value={investmentDate}
+                      onChange={(event) => setInvestmentDate(event.target.value)}
+                      placeholder="YYYY-MM-DD"
+                    />
+                  </div>
+                  <div>
+                    <label>Lead Partner</label>
+                    <input
+                      value={investmentLeadPartnerName}
+                      onChange={(event) => setInvestmentLeadPartnerName(event.target.value)}
+                      placeholder="Lead partner name"
+                    />
+                  </div>
+                  <div>
+                    <label>Source URL</label>
+                    <input
+                      value={investmentSourceUrl}
+                      onChange={(event) => setInvestmentSourceUrl(event.target.value)}
+                      placeholder="https://source.example.com"
+                    />
+                  </div>
+                </div>
+                <div className="actions">
+                  <button className="secondary" onClick={addInvestmentToSelectedRecord} disabled={addingInvestment}>
+                    {addingInvestment ? "Adding..." : "Add Investment"}
+                  </button>
+                </div>
               </div>
             </div>
           )}

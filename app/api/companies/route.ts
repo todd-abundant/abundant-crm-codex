@@ -134,6 +134,9 @@ export async function GET() {
       coInvestorLinks: {
         include: { coInvestor: { select: { id: true, name: true } } }
       },
+      contactLinks: {
+        include: { contact: true }
+      },
       researchJobs: {
         orderBy: { createdAt: "desc" },
         take: 1
@@ -210,6 +213,9 @@ export async function POST(request: Request) {
         },
         coInvestorLinks: {
           include: { coInvestor: { select: { id: true, name: true } } }
+        },
+        contactLinks: {
+          include: { contact: true }
         },
         researchJobs: {
           orderBy: { createdAt: "desc" },

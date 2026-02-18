@@ -5,9 +5,29 @@ import { healthSystemInputSchema } from "@/lib/schemas";
 export async function GET() {
   const healthSystems = await prisma.healthSystem.findMany({
     include: {
-      executives: true,
-      venturePartners: true,
-      investments: true,
+      venturePartners: {
+        include: {
+          coInvestor: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      },
+      contactLinks: {
+        include: { contact: true }
+      },
+      investments: {
+        include: {
+          company: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      },
       researchJobs: {
         orderBy: { createdAt: "desc" },
         take: 1
@@ -69,8 +89,10 @@ export async function POST(request: Request) {
         }
       },
       include: {
-        executives: true,
         venturePartners: true,
+        contactLinks: {
+          include: { contact: true }
+        },
         investments: true,
         researchJobs: {
           orderBy: { createdAt: "desc" },

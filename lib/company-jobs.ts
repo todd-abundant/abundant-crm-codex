@@ -1,5 +1,5 @@
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { replaceCompanyContactLinks } from "@/lib/contact-links";
 import { enrichCompanyFromWeb } from "@/lib/company-research";
 import { type CompanySearchCandidate } from "@/lib/schemas";
 
@@ -256,8 +256,8 @@ export async function runQueuedResearchJobs(
         headquartersCountry: job.selectedCountry || job.company.headquartersCountry
       });
 
-      const txs: Prisma.PrismaPromise<unknown>[] = [
-        prisma.company.update({
+      await prisma.$transaction(async (tx) => {
+        await tx.company.update({
           where: { id: job.companyId },
           data: {
             name: trimOrNull(enriched.name) || job.company.name,
@@ -286,43 +286,41 @@ export async function runQueuedResearchJobs(
             researchNotes: trimOrNull(enriched.researchNotes),
             researchUpdatedAt: new Date()
           }
-        }),
-        prisma.companyResearchJob.update({
+        });
+
+        await tx.companyResearchJob.update({
           where: { id: job.id },
           data: { status: "COMPLETED", completedAt: new Date(), errorMessage: null }
-        })
-      ];
+        });
 
-      if (enriched.healthSystemLinks.length > 0) {
-        const mappedHealthSystems = enriched.healthSystemLinks
-          .map((entry) => {
-            const parsedRelationship =
-              entry.relationshipType === "INVESTOR_PARTNER" ||
-              entry.relationshipType === "SPIN_OUT_PARTNER" ||
-              entry.relationshipType === "CUSTOMER" ||
-              entry.relationshipType === "OTHER"
-                ? entry.relationshipType
-                : "OTHER";
+        if (enriched.healthSystemLinks.length > 0) {
+          const mappedHealthSystems = enriched.healthSystemLinks
+            .map((entry) => {
+              const parsedRelationship =
+                entry.relationshipType === "INVESTOR_PARTNER" ||
+                entry.relationshipType === "SPIN_OUT_PARTNER" ||
+                entry.relationshipType === "CUSTOMER" ||
+                entry.relationshipType === "OTHER"
+                  ? entry.relationshipType
+                  : "OTHER";
 
-            return {
-              companyId: job.companyId,
-              healthSystemId: trimOrNull(entry.healthSystemId),
-              relationshipType: parsedRelationship,
-              notes: trimOrNull(entry.notes),
-              investmentAmountUsd: entry.investmentAmountUsd ?? null,
-              ownershipPercent: entry.ownershipPercent ?? null
-            };
-          })
-          .filter(
-            (entry): entry is (typeof entry & { healthSystemId: string }) => entry.healthSystemId !== null && entry.healthSystemId !== undefined
-          );
+              return {
+                companyId: job.companyId,
+                healthSystemId: trimOrNull(entry.healthSystemId),
+                relationshipType: parsedRelationship,
+                notes: trimOrNull(entry.notes),
+                investmentAmountUsd: entry.investmentAmountUsd ?? null,
+                ownershipPercent: entry.ownershipPercent ?? null
+              };
+            })
+            .filter(
+              (entry): entry is (typeof entry & { healthSystemId: string }) =>
+                entry.healthSystemId !== null && entry.healthSystemId !== undefined
+            );
 
-        const filteredHealthSystems = mappedHealthSystems;
-
-        if (filteredHealthSystems.length > 0) {
-          txs.push(
-            prisma.companyHealthSystemLink.createMany({
-              data: filteredHealthSystems.map((entry) => ({
+          if (mappedHealthSystems.length > 0) {
+            await tx.companyHealthSystemLink.createMany({
+              data: mappedHealthSystems.map((entry) => ({
                 companyId: entry.companyId,
                 healthSystemId: entry.healthSystemId,
                 relationshipType: entry.relationshipType,
@@ -330,45 +328,67 @@ export async function runQueuedResearchJobs(
                 investmentAmountUsd: entry.investmentAmountUsd,
                 ownershipPercent: entry.ownershipPercent
               }))
-            })
-          );
+            });
+          }
         }
-      }
 
-      if (enriched.coInvestorLinks.length > 0) {
-        const mappedCoInvestors = enriched.coInvestorLinks
-          .map((entry) => {
-            const parsedRelationship =
-              entry.relationshipType === "PARTNER" || entry.relationshipType === "INVESTOR" || entry.relationshipType === "OTHER"
-                ? entry.relationshipType
-                : "OTHER";
+        if (enriched.coInvestorLinks.length > 0) {
+          const mappedCoInvestors = enriched.coInvestorLinks
+            .map((entry) => {
+              const parsedRelationship =
+                entry.relationshipType === "PARTNER" ||
+                entry.relationshipType === "INVESTOR" ||
+                entry.relationshipType === "OTHER"
+                  ? entry.relationshipType
+                  : "OTHER";
 
-            return {
-              companyId: job.companyId,
-              coInvestorId: trimOrNull(entry.coInvestorId),
-              relationshipType: parsedRelationship,
-              notes: trimOrNull(entry.notes),
-              investmentAmountUsd: entry.investmentAmountUsd ?? null
-            };
-          })
-          .filter((entry): entry is (typeof entry & { coInvestorId: string }) => entry.coInvestorId !== null && entry.coInvestorId !== undefined);
-
-        if (mappedCoInvestors.length > 0) {
-          txs.push(
-            prisma.companyCoInvestorLink.createMany({
-              data: mappedCoInvestors.map((entry) => ({
+              return {
                 companyId: job.companyId,
+                coInvestorId: trimOrNull(entry.coInvestorId),
+                relationshipType: parsedRelationship,
+                notes: trimOrNull(entry.notes),
+                investmentAmountUsd: entry.investmentAmountUsd ?? null
+              };
+            })
+            .filter(
+              (entry): entry is (typeof entry & { coInvestorId: string }) =>
+                entry.coInvestorId !== null && entry.coInvestorId !== undefined
+            );
+
+          if (mappedCoInvestors.length > 0) {
+            await tx.companyCoInvestorLink.createMany({
+              data: mappedCoInvestors.map((entry) => ({
+                companyId: entry.companyId,
                 coInvestorId: entry.coInvestorId,
                 relationshipType: entry.relationshipType,
                 notes: entry.notes,
                 investmentAmountUsd: entry.investmentAmountUsd
               }))
-            })
-          );
+            });
+          }
         }
-      }
 
-      await prisma.$transaction(txs);
+        await replaceCompanyContactLinks(
+          tx,
+          job.companyId,
+          (enriched.contacts ?? []).map((entry) => ({
+            name: entry.name,
+            title: trimOrNull(entry.title),
+            relationshipTitle: trimOrNull(entry.relationshipTitle),
+            email: trimOrNull(entry.email),
+            phone: trimOrNull(entry.phone),
+            linkedinUrl: trimOrNull(entry.url),
+            roleType:
+              entry.roleType === "EXECUTIVE" ||
+              entry.roleType === "VENTURE_PARTNER" ||
+              entry.roleType === "INVESTOR_PARTNER" ||
+              entry.roleType === "OTHER" ||
+              entry.roleType === "COMPANY_CONTACT"
+                ? entry.roleType
+                : "COMPANY_CONTACT"
+          }))
+        );
+      });
       completed += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown research failure";

@@ -1,5 +1,5 @@
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { replaceCoInvestorContactLinks } from "@/lib/contact-links";
 import { enrichCoInvestorFromWeb } from "@/lib/co-investor-research";
 import type { CoInvestorSearchCandidate } from "@/lib/schemas";
 
@@ -224,10 +224,11 @@ export async function runQueuedResearchJobs(
       const keepSeedFlag = job.coInvestor.isSeedInvestor || enriched.isSeedInvestor;
       const keepSeriesAFlag = job.coInvestor.isSeriesAInvestor || enriched.isSeriesAInvestor;
 
-      const txs: Prisma.PrismaPromise<unknown>[] = [
-        prisma.coInvestorPartner.deleteMany({ where: { coInvestorId: job.coInvestorId } }),
-        prisma.coInvestorInvestment.deleteMany({ where: { coInvestorId: job.coInvestorId } }),
-        prisma.coInvestor.update({
+      await prisma.$transaction(async (tx) => {
+        await tx.coInvestorPartner.deleteMany({ where: { coInvestorId: job.coInvestorId } });
+        await tx.coInvestorInvestment.deleteMany({ where: { coInvestorId: job.coInvestorId } });
+
+        await tx.coInvestor.update({
           where: { id: job.coInvestorId },
           data: {
             name: trimOrNull(enriched.name) || job.coInvestor.name,
@@ -244,29 +245,26 @@ export async function runQueuedResearchJobs(
             researchNotes: trimOrNull(enriched.researchNotes),
             researchUpdatedAt: new Date()
           }
-        }),
-        prisma.coInvestorResearchJob.update({
+        });
+
+        await tx.coInvestorResearchJob.update({
           where: { id: job.id },
           data: { status: "COMPLETED", completedAt: new Date(), errorMessage: null }
-        })
-      ];
+        });
 
-      if (enriched.partners.length > 0) {
-        txs.push(
-          prisma.coInvestorPartner.createMany({
+        if (enriched.partners.length > 0) {
+          await tx.coInvestorPartner.createMany({
             data: enriched.partners.map((entry) => ({
               coInvestorId: job.coInvestorId,
               name: entry.name,
               title: trimOrNull(entry.title),
               profileUrl: trimOrNull(entry.url)
             }))
-          })
-        );
-      }
+          });
+        }
 
-      if (enriched.investments.length > 0) {
-        txs.push(
-          prisma.coInvestorInvestment.createMany({
+        if (enriched.investments.length > 0) {
+          await tx.coInvestorInvestment.createMany({
             data: enriched.investments.map((entry) => ({
               coInvestorId: job.coInvestorId,
               portfolioCompanyName: entry.portfolioCompanyName,
@@ -276,11 +274,22 @@ export async function runQueuedResearchJobs(
               leadPartnerName: trimOrNull(entry.leadPartnerName),
               sourceUrl: trimOrNull(entry.sourceUrl)
             }))
-          })
-        );
-      }
+          });
+        }
 
-      await prisma.$transaction(txs);
+        await replaceCoInvestorContactLinks(
+          tx,
+          job.coInvestorId,
+          enriched.partners.map((entry) => ({
+            name: entry.name,
+            title: trimOrNull(entry.title),
+            email: trimOrNull(entry.email),
+            phone: trimOrNull(entry.phone),
+            linkedinUrl: trimOrNull(entry.url),
+            roleType: "INVESTOR_PARTNER" as const
+          }))
+        );
+      });
       completed += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown research failure";

@@ -28,6 +28,7 @@ export const emptyCompanyDraft: CompanyInput = {
   intakeScheduledAt: null,
   screeningEvaluationAt: null,
   researchNotes: "",
+  contacts: [],
   healthSystemLinks: [],
   coInvestorLinks: []
 };
@@ -108,6 +109,23 @@ const enrichmentSchema = {
           investmentAmountUsd: { type: ["number", "null"] }
         },
         required: ["coInvestorId", "relationshipType"]
+      }
+    },
+    contacts: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string" },
+          title: { type: "string" },
+          relationshipTitle: { type: "string" },
+          roleType: { type: "string" },
+          email: { type: "string" },
+          phone: { type: "string" },
+          url: { type: "string" }
+        },
+        required: ["name"]
       }
     }
   },
@@ -330,6 +348,25 @@ function normalizeCoInvestorRelationship(value: unknown): "PARTNER" | "INVESTOR"
   return "OTHER";
 }
 
+function normalizeEmail(value: unknown): string {
+  const text = cleanText(value).toLowerCase();
+  if (!text) return "";
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text) ? text : "";
+}
+
+function normalizeContactRoleType(
+  value: unknown
+): "EXECUTIVE" | "VENTURE_PARTNER" | "INVESTOR_PARTNER" | "COMPANY_CONTACT" | "OTHER" | undefined {
+  const raw = cleanText(value).toLowerCase();
+  if (!raw) return undefined;
+  if (raw.includes("executive")) return "EXECUTIVE";
+  if (raw.includes("venture") || raw.includes("innovation")) return "VENTURE_PARTNER";
+  if (raw.includes("investor")) return "INVESTOR_PARTNER";
+  if (raw.includes("board") || raw.includes("advisor") || raw.includes("company")) return "COMPANY_CONTACT";
+  if (raw.includes("other")) return "OTHER";
+  return undefined;
+}
+
 function normalizeInputFromParsed(parsed: Record<string, unknown>): Record<string, unknown> {
   const normalizedHealthSystemLinks = Array.isArray(parsed.healthSystemLinks)
     ? parsed.healthSystemLinks
@@ -371,6 +408,32 @@ function normalizeInputFromParsed(parsed: Record<string, unknown>): Record<strin
         .filter((entry) => entry !== null)
     : [];
 
+  const normalizedContacts = Array.isArray(parsed.contacts)
+    ? parsed.contacts
+        .map((entry) => {
+          if (!entry || typeof entry !== "object" || entry === null) return null;
+          const candidate = entry as Record<string, unknown>;
+          const name = cleanText(candidate.name);
+          if (!name) return null;
+
+          const roleType = normalizeContactRoleType(candidate.roleType);
+          const relationshipTitle = cleanText(candidate.relationshipTitle);
+          const title = cleanText(candidate.title);
+          const phone = cleanText(candidate.phone);
+
+          return {
+            name,
+            ...(title ? { title } : {}),
+            email: normalizeEmail(candidate.email),
+            ...(phone ? { phone } : {}),
+            url: normalizeUrl(candidate.url),
+            ...(roleType ? { roleType } : {}),
+            ...(relationshipTitle ? { relationshipTitle } : {})
+          };
+        })
+        .filter((entry) => entry !== null)
+    : [];
+
   return {
     ...parsed,
     name: cleanText(parsed.name),
@@ -396,6 +459,7 @@ function normalizeInputFromParsed(parsed: Record<string, unknown>): Record<strin
       "COMPLETED",
       "SCREENING_EVALUATION"
     ]) || "NOT_SCHEDULED",
+    contacts: normalizedContacts,
     healthSystemLinks: normalizedHealthSystemLinks,
     coInvestorLinks: normalizedCoInvestorLinks
   };
@@ -410,6 +474,7 @@ function mergeDraft(partial: Partial<CompanyInput>): CompanyInput {
   return {
     ...emptyCompanyDraft,
     ...partial,
+    contacts: (partial.contacts ?? []).filter((entry) => Boolean(entry.name?.trim())),
     healthSystemLinks: (partial.healthSystemLinks ?? []).filter((entry) =>
       Boolean(entry.healthSystemId?.trim())
     ),
@@ -554,6 +619,7 @@ export async function enrichCompanyFromWeb(seed: MinimalCompany): Promise<Compan
               `HQ country: ${compactText(seed.headquartersCountry) || "unknown"}. ` +
               `Website: ${compactText(seed.website) || "unknown"}. ` +
               `Capture company type, primary category, description, and whether there is a linked health system source. ` +
+              `Capture notable individual contacts (executives, founders, board members) with title, profile URL, and public email/phone when available. ` +
               `If known, note investors or customers and include relationships with known health systems or co-investors by IDs only when certain.`
           }
         ]
@@ -592,6 +658,11 @@ export async function enrichCompanyFromWeb(seed: MinimalCompany): Promise<Compan
     headquartersState: compactText(seed.headquartersState),
     headquartersCountry: compactText(seed.headquartersCountry),
     ...normalized,
+    contacts: normalized.contacts?.map((entry) => ({
+      ...entry,
+      email: entry.email || "",
+      url: entry.url || ""
+    })),
     healthSystemLinks: normalized.healthSystemLinks?.map((entry) => ({
       ...entry,
       investmentAmountUsd: firstOfNullable(entry.investmentAmountUsd),

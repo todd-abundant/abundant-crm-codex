@@ -33,9 +33,29 @@ export async function PATCH(
         researchUpdatedAt: new Date()
       },
       include: {
-        executives: true,
-        venturePartners: true,
-        investments: true,
+        venturePartners: {
+          include: {
+            coInvestor: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
+        contactLinks: {
+          include: { contact: true }
+        },
+        investments: {
+          include: {
+            company: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
         researchJobs: {
           orderBy: { createdAt: "desc" },
           take: 1

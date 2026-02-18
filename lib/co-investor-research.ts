@@ -71,6 +71,8 @@ const enrichmentSchema = {
         properties: {
           name: { type: "string" },
           title: { type: "string" },
+          email: { type: "string" },
+          phone: { type: "string" },
           url: { type: "string" }
         },
         required: ["name"]
@@ -249,7 +251,8 @@ export async function enrichCoInvestorFromWeb(seed: MinimalCoInvestor): Promise<
               `HQ state: ${compactText(seed.headquartersState) || "unknown"}. ` +
               `HQ country: ${compactText(seed.headquartersCountry) || "unknown"}. ` +
               `Website: ${compactText(seed.website) || "unknown"}. ` +
-              `Include partner team and investments (company, amount, date, and stage).`
+              `Include partner team and investments (company, amount, date, and stage). ` +
+              `When available, include public partner email addresses and phone numbers.`
           }
         ]
       }
