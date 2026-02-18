@@ -1,0 +1,364 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ResearchStatus {
+  DRAFT
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum CoInvestorResearchStatus {
+  DRAFT
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum CompanyType {
+  STARTUP
+  SPIN_OUT
+  DENOVO
+}
+
+enum CompanyPrimaryCategory {
+  PATIENT_ACCESS_AND_GROWTH
+  CARE_DELIVERY_TECH_ENABLED_SERVICES
+  CLINICAL_WORKFLOW_AND_PRODUCTIVITY
+  REVENUE_CYCLE_AND_FINANCIAL_OPERATIONS
+  VALUE_BASED_CARE_AND_POPULATION_HEALTH_ENABLEMENT
+  AI_ENABLED_AUTOMATION_AND_DECISION_SUPPORT
+  DATA_PLATFORM_INTEROPERABILITY_AND_INTEGRATION
+  REMOTE_PATIENT_MONITORING_AND_CONNECTED_DEVICES
+  DIAGNOSTICS_IMAGING_AND_TESTING_ENABLEMENT
+  PHARMACY_AND_MEDICATION_ENABLEMENT
+  SUPPLY_CHAIN_PROCUREMENT_AND_ASSET_OPERATIONS
+  SECURITY_PRIVACY_AND_COMPLIANCE_INFRASTRUCTURE
+  PROVIDER_EXPERIENCE_AND_DEVELOPMENT
+  OTHER
+}
+
+enum CompanyDeclineReason {
+  PRODUCT
+  INSUFFICIENT_ROI
+  HIGHLY_COMPETITIVE_LANDSCAPE
+  OUT_OF_INVESTMENT_THESIS_SCOPE
+  TOO_EARLY
+  TOO_MATURE_FOR_SEED_INVESTMENT
+  LACKS_PROOF_POINTS
+  INSUFFICIENT_TAM
+  TEAM
+  HEALTH_SYSTEM_BUYING_PROCESS
+  WORKFLOW_FRICTION
+  OTHER
+}
+
+enum CompanyIntakeStatus {
+  NOT_SCHEDULED
+  SCHEDULED
+  COMPLETED
+  SCREENING_EVALUATION
+}
+
+enum CompanyLeadSourceType {
+  HEALTH_SYSTEM
+  OTHER
+}
+
+enum CompanyHealthSystemRelationship {
+  CUSTOMER
+  SPIN_OUT_PARTNER
+  INVESTOR_PARTNER
+  OTHER
+}
+
+enum CompanyCoInvestorRelationship {
+  INVESTOR
+  PARTNER
+  OTHER
+}
+
+model HealthSystem {
+  id                          String         @id @default(cuid())
+  name                        String
+  legalName                   String?
+  website                     String?
+  headquartersCity            String?
+  headquartersState           String?
+  headquartersCountry         String?
+  netPatientRevenueUsd        Decimal?       @db.Decimal(16, 2)
+  isLimitedPartner            Boolean        @default(false)
+  limitedPartnerInvestmentUsd Decimal?       @db.Decimal(16, 2)
+  isAllianceMember            Boolean        @default(false)
+  hasInnovationTeam           Boolean?
+  hasVentureTeam              Boolean?
+  ventureTeamSummary          String?
+  researchStatus              ResearchStatus @default(DRAFT)
+  researchNotes               String?
+  researchError               String?
+  researchUpdatedAt           DateTime?
+  createdAt                   DateTime       @default(now())
+  updatedAt                   DateTime       @updatedAt
+
+  executives               Executive[]
+  venturePartners          VenturePartner[]
+  investments              HealthSystemInvestment[]
+  researchJobs             HealthSystemResearchJob[]
+  companyLeadSources       Company[]                 @relation("CompanyLeadSourceHealthSystem")
+  companyHealthSystemLinks CompanyHealthSystemLink[]
+
+  @@index([name])
+  @@index([isAllianceMember])
+  @@index([isLimitedPartner])
+  @@index([researchStatus])
+  @@index([website])
+  @@index([headquartersCity, headquartersState, headquartersCountry])
+}
+
+model Executive {
+  id             String   @id @default(cuid())
+  healthSystemId String
+  name           String
+  title          String?
+  linkedinUrl    String?
+  createdAt      DateTime @default(now())
+
+  healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+
+  @@index([healthSystemId])
+}
+
+model VenturePartner {
+  id             String   @id @default(cuid())
+  healthSystemId String
+  name           String
+  title          String?
+  profileUrl     String?
+  createdAt      DateTime @default(now())
+
+  healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+
+  @@index([healthSystemId])
+}
+
+model HealthSystemInvestment {
+  id                   String    @id @default(cuid())
+  healthSystemId       String
+  portfolioCompanyName String
+  investmentAmountUsd  Decimal?  @db.Decimal(16, 2)
+  investmentDate       DateTime?
+  leadPartnerName      String?
+  sourceUrl            String?
+  createdAt            DateTime  @default(now())
+
+  healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+
+  @@index([healthSystemId])
+  @@index([portfolioCompanyName])
+}
+
+model HealthSystemResearchJob {
+  id              String         @id @default(cuid())
+  healthSystemId  String
+  status          ResearchStatus @default(QUEUED)
+  searchName      String
+  selectedCity    String?
+  selectedState   String?
+  selectedCountry String?
+  selectedWebsite String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  errorMessage    String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([healthSystemId, createdAt])
+}
+
+model CoInvestor {
+  id                  String                   @id @default(cuid())
+  name                String
+  legalName           String?
+  website             String?
+  headquartersCity    String?
+  headquartersState   String?
+  headquartersCountry String?
+  isSeedInvestor      Boolean                  @default(false)
+  isSeriesAInvestor   Boolean                  @default(false)
+  investmentNotes     String?
+  researchStatus      CoInvestorResearchStatus @default(DRAFT)
+  researchNotes       String?
+  researchError       String?
+  researchUpdatedAt   DateTime?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  partners               CoInvestorPartner[]
+  investments            CoInvestorInvestment[]
+  researchJobs           CoInvestorResearchJob[]
+  companyCoInvestorLinks CompanyCoInvestorLink[]
+
+  @@index([name])
+  @@index([isSeedInvestor])
+  @@index([isSeriesAInvestor])
+  @@index([researchStatus])
+}
+
+model CoInvestorPartner {
+  id           String   @id @default(cuid())
+  coInvestorId String
+  name         String
+  title        String?
+  profileUrl   String?
+  createdAt    DateTime @default(now())
+
+  coInvestor CoInvestor @relation(fields: [coInvestorId], references: [id], onDelete: Cascade)
+
+  @@index([coInvestorId])
+}
+
+model CoInvestorInvestment {
+  id                   String    @id @default(cuid())
+  coInvestorId         String
+  portfolioCompanyName String
+  investmentAmountUsd  Decimal?  @db.Decimal(16, 2)
+  investmentDate       DateTime?
+  investmentStage      String?
+  leadPartnerName      String?
+  sourceUrl            String?
+  createdAt            DateTime  @default(now())
+
+  coInvestor CoInvestor @relation(fields: [coInvestorId], references: [id], onDelete: Cascade)
+
+  @@index([coInvestorId])
+  @@index([portfolioCompanyName])
+}
+
+model CoInvestorResearchJob {
+  id              String                   @id @default(cuid())
+  coInvestorId    String
+  status          CoInvestorResearchStatus @default(QUEUED)
+  searchName      String
+  selectedCity    String?
+  selectedState   String?
+  selectedCountry String?
+  selectedWebsite String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  errorMessage    String?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  coInvestor CoInvestor @relation(fields: [coInvestorId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([coInvestorId, createdAt])
+}
+
+model Company {
+  id                       String                 @id @default(cuid())
+  name                     String
+  legalName                String?
+  website                  String?
+  headquartersCity         String?
+  headquartersState        String?
+  headquartersCountry      String?
+  companyType              CompanyType            @default(STARTUP)
+  primaryCategory          CompanyPrimaryCategory @default(OTHER)
+  primaryCategoryOther     String?
+  declineReason            CompanyDeclineReason?
+  declineReasonOther       String?
+  leadSourceType           CompanyLeadSourceType  @default(OTHER)
+  leadSourceHealthSystemId String?
+  leadSourceOther          String?
+  leadSourceNotes          String?
+  description              String?
+  googleTranscriptUrl      String?
+  spinOutOwnershipPercent  Decimal?               @db.Decimal(7, 2)
+  intakeStatus             CompanyIntakeStatus    @default(NOT_SCHEDULED)
+  intakeScheduledAt        DateTime?
+  screeningEvaluationAt    DateTime?
+  researchStatus           ResearchStatus         @default(DRAFT)
+  researchNotes            String?
+  researchError            String?
+  researchUpdatedAt        DateTime?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+
+  leadSourceHealthSystem HealthSystem? @relation("CompanyLeadSourceHealthSystem", fields: [leadSourceHealthSystemId], references: [id], onDelete: SetNull)
+
+  healthSystemLinks CompanyHealthSystemLink[]
+  coInvestorLinks   CompanyCoInvestorLink[]
+  researchJobs      CompanyResearchJob[]
+
+  @@index([name])
+  @@index([companyType])
+  @@index([primaryCategory])
+  @@index([leadSourceType])
+  @@index([leadSourceHealthSystemId])
+  @@index([intakeStatus])
+  @@index([researchStatus])
+}
+
+model CompanyHealthSystemLink {
+  id                  String                          @id @default(cuid())
+  companyId           String
+  healthSystemId      String
+  relationshipType    CompanyHealthSystemRelationship @default(CUSTOMER)
+  notes               String?
+  investmentAmountUsd Decimal?                        @db.Decimal(16, 2)
+  ownershipPercent    Decimal?                        @db.Decimal(7, 2)
+  createdAt           DateTime                        @default(now())
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, healthSystemId])
+}
+
+model CompanyCoInvestorLink {
+  id                  String                        @id @default(cuid())
+  companyId           String
+  coInvestorId        String
+  relationshipType    CompanyCoInvestorRelationship @default(INVESTOR)
+  notes               String?
+  investmentAmountUsd Decimal?                      @db.Decimal(16, 2)
+  createdAt           DateTime                      @default(now())
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  coInvestor CoInvestor @relation(fields: [coInvestorId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, coInvestorId])
+}
+
+model CompanyResearchJob {
+  id              String         @id @default(cuid())
+  companyId       String
+  status          ResearchStatus @default(QUEUED)
+  searchName      String
+  selectedCity    String?
+  selectedState   String?
+  selectedCountry String?
+  selectedWebsite String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  errorMessage    String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([companyId, createdAt])
+}
