@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   InlineBooleanField,
   InlineSelectField,
   InlineTextField,
   InlineTextareaField
 } from "./inline-detail-field";
+import { SearchMatchModal } from "./search-match-modal";
 
 type SearchCandidate = {
   name: string;
@@ -16,6 +17,14 @@ type SearchCandidate = {
   headquartersCountry?: string;
   summary?: string;
   sourceUrls: string[];
+};
+
+type ManualSearchCandidate = {
+  name: string;
+  website: string;
+  headquartersCity: string;
+  headquartersState: string;
+  headquartersCountry: string;
 };
 
 type HealthSystemRecord = {
@@ -255,6 +264,15 @@ export function HealthSystemWorkbench() {
   const [searchingCandidates, setSearchingCandidates] = useState(false);
   const [searchCandidateError, setSearchCandidateError] = useState<string | null>(null);
   const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(-1);
+  const [matchModalOpen, setMatchModalOpen] = useState(false);
+  const [matchModalManualMode, setMatchModalManualMode] = useState(false);
+  const [manualMatchCandidate, setManualMatchCandidate] = useState<ManualSearchCandidate>({
+    name: "",
+    website: "",
+    headquartersCity: "",
+    headquartersState: "",
+    headquartersCountry: ""
+  });
   const [status, setStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [addingContact, setAddingContact] = useState(false);
   const [contactName, setContactName] = useState("");
@@ -303,6 +321,8 @@ export function HealthSystemWorkbench() {
   const [updatingInvestment, setUpdatingInvestment] = useState(false);
   const [deletingInvestmentLinkId, setDeletingInvestmentLinkId] = useState<string | null>(null);
   const [keepListView, setKeepListView] = useState(false);
+  const candidateSearchCacheRef = useRef<Record<string, SearchCandidate[]>>({});
+  const candidateSearchAbortRef = useRef<AbortController | null>(null);
 
   const hasPending = useMemo(
     () => records.some((record) => record.researchStatus === "QUEUED" || record.researchStatus === "RUNNING"),
@@ -343,8 +363,48 @@ export function HealthSystemWorkbench() {
 
   const createButtonDisabled =
     creatingFromSearch ||
-    searchingCandidates ||
-    (searchCandidates.length > 1 && selectedCandidate === null);
+    (matchModalManualMode
+      ? !manualMatchCandidate.name.trim()
+      : searchingCandidates ||
+        (searchCandidates.length > 1 && selectedCandidate === null) ||
+        (searchCandidates.length === 0 && !manualMatchCandidate.name.trim()));
+
+  function beginManualMatchEntry() {
+    setMatchModalManualMode(true);
+    setSearchingCandidates(false);
+    setSearchCandidateError(null);
+    setSearchCandidates([]);
+    setCandidateSearchQuery(query.trim());
+    setSelectedCandidateIndex(-1);
+    if (candidateSearchAbortRef.current) {
+      candidateSearchAbortRef.current.abort();
+      candidateSearchAbortRef.current = null;
+    }
+  }
+
+  function openCreateMatchModal() {
+    const term = query.trim();
+    if (!term || !shouldOfferCreate) {
+      return;
+    }
+
+    setManualMatchCandidate((previous) => {
+      if (previous.name === term) {
+        return previous;
+      }
+      return {
+        ...previous,
+        name: term
+      };
+    });
+    setSearchCandidates([]);
+    setCandidateSearchQuery("");
+    setSelectedCandidateIndex(-1);
+    setSearchCandidateError(null);
+    setSearchingCandidates(false);
+    setMatchModalManualMode(false);
+    setMatchModalOpen(true);
+  }
 
   async function loadReferenceRecords() {
     const [coInvestorRes, companyRes] = await Promise.all([fetch("/api/co-investors"), fetch("/api/companies")]);
@@ -397,11 +457,15 @@ export function HealthSystemWorkbench() {
     }
   }
 
-  async function searchCandidateMatches(term: string): Promise<SearchCandidate[]> {
+  async function searchCandidateMatches(
+    term: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<SearchCandidate[]> {
     const searchRes = await fetch("/api/health-systems/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: term })
+      body: JSON.stringify({ query: term }),
+      signal: options?.signal
     });
 
     if (!searchRes.ok) {
@@ -427,24 +491,28 @@ export function HealthSystemWorkbench() {
 
     try {
       let candidates = searchCandidates;
-      if (candidateSearchQuery !== term || candidates.length === 0) {
+      if (!matchModalManualMode && (candidateSearchQuery !== term || candidates.length === 0)) {
         candidates = await searchCandidateMatches(term);
         setSearchCandidates(candidates);
         setCandidateSearchQuery(term);
-
-        if (candidates.length === 1) {
-          setSelectedCandidateIndex(0);
-        } else {
-          setSelectedCandidateIndex(candidates.length > 1 ? -1 : -1);
-        }
+        setSelectedCandidateIndex(candidates.length === 1 ? 0 : -1);
       }
 
-      if (candidates.length > 1 && selectedCandidateIndex < 0) {
+      if (!matchModalManualMode && candidates.length > 1 && selectedCandidateIndex < 0) {
         throw new Error("Select one matching health system before creating.");
       }
 
-      const candidate =
-        candidates.length > 0
+      const candidate = matchModalManualMode
+        ? {
+            name: manualMatchCandidate.name || term,
+            website: manualMatchCandidate.website,
+            headquartersCity: manualMatchCandidate.headquartersCity,
+            headquartersState: manualMatchCandidate.headquartersState,
+            headquartersCountry: manualMatchCandidate.headquartersCountry,
+            summary: "Created from manual entry.",
+            sourceUrls: []
+          }
+        : candidates.length > 0
           ? candidates[selectedCandidateIndex >= 0 ? selectedCandidateIndex : 0]
           : buildFallbackCandidate(term);
 
@@ -487,6 +555,15 @@ export function HealthSystemWorkbench() {
       setCandidateSearchQuery("");
       setSelectedCandidateIndex(-1);
       setSearchCandidateError(null);
+      setMatchModalOpen(false);
+      setMatchModalManualMode(false);
+      setManualMatchCandidate({
+        name: "",
+        website: "",
+        headquartersCity: "",
+        headquartersState: "",
+        headquartersCountry: ""
+      });
       await runQueuedAgent(1);
     } catch (error) {
       setStatus({
@@ -1062,17 +1139,56 @@ export function HealthSystemWorkbench() {
   }, [hasPending]);
 
   useEffect(() => {
+    if (!matchModalOpen) return;
+
     if (!shouldOfferCreate) {
+      setMatchModalOpen(false);
+      setMatchModalManualMode(false);
       setSearchCandidates([]);
       setCandidateSearchQuery("");
       setSelectedCandidateIndex(-1);
       setSearchCandidateError(null);
       setSearchingCandidates(false);
+      if (candidateSearchAbortRef.current) {
+        candidateSearchAbortRef.current.abort();
+        candidateSearchAbortRef.current = null;
+      }
       return;
     }
 
     const term = query.trim();
     if (!term) return;
+
+    if (matchModalManualMode) {
+      return;
+    }
+
+    setManualMatchCandidate((previous) => {
+      if (previous.name === term) {
+        return previous;
+      }
+      return {
+        ...previous,
+        name: term
+      };
+    });
+
+    const cacheKey = term.toLowerCase();
+    const cachedCandidates = candidateSearchCacheRef.current[cacheKey];
+    if (cachedCandidates) {
+      setSearchCandidates(cachedCandidates);
+      setCandidateSearchQuery(term);
+      setSelectedCandidateIndex(cachedCandidates.length === 1 ? 0 : -1);
+      setSearchingCandidates(false);
+      setSearchCandidateError(null);
+      return;
+    }
+
+    if (candidateSearchAbortRef.current) {
+      candidateSearchAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    candidateSearchAbortRef.current = controller;
 
     let active = true;
 
@@ -1081,13 +1197,17 @@ export function HealthSystemWorkbench() {
       setSearchCandidateError(null);
 
       try {
-        const candidates = await searchCandidateMatches(term);
+        const candidates = await searchCandidateMatches(term, { signal: controller.signal });
         if (!active) return;
+        if (!controller.signal.aborted) {
+          candidateSearchCacheRef.current[cacheKey] = candidates;
+        }
         setSearchCandidates(candidates);
         setCandidateSearchQuery(term);
         setSelectedCandidateIndex(candidates.length === 1 ? 0 : -1);
       } catch (error) {
         if (!active) return;
+        if (error instanceof DOMException && error.name === "AbortError") return;
         setSearchCandidates([]);
         setCandidateSearchQuery(term);
         setSelectedCandidateIndex(-1);
@@ -1102,8 +1222,12 @@ export function HealthSystemWorkbench() {
     return () => {
       active = false;
       clearTimeout(timeout);
+      controller.abort();
+      if (candidateSearchAbortRef.current === controller) {
+        candidateSearchAbortRef.current = null;
+      }
     };
-  }, [shouldOfferCreate, query]);
+  }, [matchModalOpen, query, shouldOfferCreate, matchModalManualMode]);
 
   useEffect(() => {
     if (filteredRecords.length === 0) {
@@ -1211,62 +1335,47 @@ export function HealthSystemWorkbench() {
             <div className="create-card">
               <p className="create-title">No health systems match "{query.trim()}".</p>
               <p className="muted">Create a new health system and launch the research agent?</p>
-
-              {searchingCandidates && <p className="muted">Searching for possible online matches...</p>}
-
-              {searchCandidateError && <p className="status error">{searchCandidateError}</p>}
-
-              {searchCandidates.length > 0 && (
-                <div className="candidate-list">
-                  {searchCandidates.length > 1 && (
-                    <p className="detail-label">Select the health system match:</p>
-                  )}
-                  {searchCandidates.map((candidate, index) => {
-                    const location = formatLocation(candidate);
-                    const isSelected = selectedCandidateIndex === index;
-                    return (
-                      <label
-                        key={`${candidate.name}-${candidate.headquartersCity || "unknown"}-${index}`}
-                        className={`candidate-option ${isSelected ? "selected" : ""}`}
-                      >
-                        <input
-                          type="radio"
-                          name="health-system-candidate"
-                          checked={isSelected}
-                          onChange={() => setSelectedCandidateIndex(index)}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                          }}
-                        />
-                        <div>
-                          <div className="candidate-name">{candidate.name}</div>
-                          <div className="candidate-location muted">
-                            {location || "Location not identified"}
-                          </div>
-                          {candidate.website && <div className="candidate-location muted">{candidate.website}</div>}
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-
               <div className="actions">
-                <button
-                  className="primary"
-                  onClick={createAndResearchFromSearchTerm}
-                  disabled={createButtonDisabled}
-                  title={
-                    searchCandidates.length > 1 && selectedCandidate === null
-                      ? "Select a match before creating"
-                      : undefined
-                  }
-                >
-                  {createButtonDisabled ? (searchingCandidates ? "Checking matches..." : "Select a match") : "Create + Start Research"}
+                <button className="primary" type="button" onClick={openCreateMatchModal} disabled={creatingFromSearch}>
+                  Search online
                 </button>
               </div>
             </div>
           )}
+
+          <SearchMatchModal
+            isOpen={matchModalOpen}
+            title="Health system not found"
+            query={query.trim()}
+            searching={searchingCandidates}
+            candidates={searchCandidates}
+            selectedCandidateIndex={selectedCandidateIndex}
+            searchError={searchCandidateError}
+            manualCandidateEnabled={!searchingCandidates && searchCandidates.length === 0}
+            isManualMode={matchModalManualMode}
+            onSelectCandidate={setSelectedCandidateIndex}
+            manualCandidate={manualMatchCandidate}
+            onManualCandidateChange={(candidate) =>
+              setManualMatchCandidate((current) => ({
+                ...current,
+                ...candidate
+              }))
+            }
+            onCreateManually={() => void beginManualMatchEntry()}
+            submitLabel={
+              createButtonDisabled
+                ? searchingCandidates
+                  ? "Checking matches..."
+                  : "Create + Start Research"
+                : "Create + Start Research"
+            }
+            onSubmit={() => void createAndResearchFromSearchTerm()}
+            onClose={() => {
+              setMatchModalOpen(false);
+              setMatchModalManualMode(false);
+            }}
+            submitDisabled={createButtonDisabled}
+          />
 
           <div className="list-container">
             {filteredRecords.length === 0 && !shouldOfferCreate && (

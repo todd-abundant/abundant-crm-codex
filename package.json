@@ -16,6 +16,9 @@
     "db:sync": "node scripts/db-sync.mjs",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
+    "test:db:smoke": "node scripts/test-db-smoke.mjs",
+    "test:http:smoke": "node scripts/test-http-smoke.mjs",
+    "test:smoke": "npm run test:db:smoke && npm run test:http:smoke",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "postinstall": "prisma generate"
