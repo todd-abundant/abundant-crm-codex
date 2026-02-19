@@ -216,6 +216,7 @@ model CoInvestor {
   researchJobs           CoInvestorResearchJob[]
   companyCoInvestorLinks CompanyCoInvestorLink[]
   contactLinks           ContactCoInvestor[]
+  venturePartners        VenturePartner[]
 
   @@index([name])
   @@index([isSeedInvestor])
@@ -310,6 +311,7 @@ model Company {
   coInvestorLinks   CompanyCoInvestorLink[]
   contactLinks      ContactCompany[]
   researchJobs      CompanyResearchJob[]
+  healthSystemInvestments HealthSystemInvestment[]
 
   @@index([name])
   @@index([companyType])
