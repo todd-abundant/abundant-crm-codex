@@ -185,6 +185,7 @@ npm run db:sync
 
 - `npm run db:sync`
   - If committed migrations exist, applies them with `prisma migrate deploy`.
+  - If migrate deploy fails on a local DB, it automatically falls back to `prisma db push`.
   - If no migrations exist, falls back to `prisma db push`.
   - Always runs `prisma generate` afterward.
 - `npm run setup:local`

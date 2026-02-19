@@ -16,19 +16,28 @@ function hasMigrationFolders() {
   }
 }
 
-function runPrismaCommand(args) {
+function runPrismaCommand(args, options = {}) {
+  const { exitOnFailure = true } = options;
   const npxBinary = process.platform === "win32" ? "npx.cmd" : "npx";
   console.log(`\n> npx ${args.join(" ")}`);
   const result = spawnSync(npxBinary, args, { stdio: "inherit" });
-  if (result.status !== 0) {
+  const succeeded = result.status === 0;
+  if (!succeeded && exitOnFailure) {
     process.exit(result.status ?? 1);
   }
+  return succeeded;
 }
 
 const useMigrations = hasMigrationFolders();
 
 if (useMigrations) {
-  runPrismaCommand(["prisma", "migrate", "deploy"]);
+  const migrated = runPrismaCommand(["prisma", "migrate", "deploy"], { exitOnFailure: false });
+  if (!migrated) {
+    console.warn(
+      "\nPrisma migrate deploy failed for this local database. Falling back to `prisma db push` to align schema."
+    );
+    runPrismaCommand(["prisma", "db", "push"]);
+  }
 } else {
   runPrismaCommand(["prisma", "db", "push"]);
   console.log(

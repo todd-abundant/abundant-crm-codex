@@ -386,8 +386,13 @@ export function CoInvestorWorkbench() {
 
   async function loadRecords() {
     const res = await fetch("/api/co-investors", { cache: "no-store" });
-    const payload = await res.json();
-    setRecords(payload.coInvestors || []);
+    const payload = await res
+      .json()
+      .catch(() => ({ error: "Failed to load co-investors.", coInvestors: [] as CoInvestorRecord[] }));
+    if (!res.ok) {
+      throw new Error(payload.error || "Failed to load co-investors.");
+    }
+    setRecords(Array.isArray(payload.coInvestors) ? payload.coInvestors : []);
   }
 
   async function runQueuedAgent(maxJobs = 2) {
@@ -1031,8 +1036,11 @@ export function CoInvestorWorkbench() {
   }
 
   React.useEffect(() => {
-    loadRecords().catch(() => {
-      setStatus({ kind: "error", text: "Failed to load co-investors." });
+    loadRecords().catch((error) => {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to load co-investors."
+      });
     });
   }, []);
 
@@ -1040,8 +1048,11 @@ export function CoInvestorWorkbench() {
     if (!hasPending) return;
 
     const timer = setInterval(() => {
-      loadRecords().catch(() => {
-        setStatus({ kind: "error", text: "Failed to refresh co-investors." });
+      loadRecords().catch((error) => {
+        setStatus({
+          kind: "error",
+          text: error instanceof Error ? error.message : "Failed to refresh co-investors."
+        });
       });
     }, 7000);
 

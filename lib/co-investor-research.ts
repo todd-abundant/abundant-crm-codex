@@ -321,7 +321,7 @@ export async function searchCoInvestorCandidates(query: string): Promise<{
         headquartersState: "",
         headquartersCountry: "",
         website: "",
-        summary: "AI web search not configured. Confirm and enqueue research once API key is set.",
+        summary: "AI web search is temporarily unavailable. Confirm and enqueue research, then retry later.",
         sourceUrls: []
       }
     ],
@@ -333,72 +333,81 @@ export async function searchCoInvestorCandidates(query: string): Promise<{
   }
 
   const startMs = Date.now();
+  try {
     const result = await getCachedLookup(
-    `co-investor-candidates:${normalizedQuery}`,
-    async () => {
-      const client = getOpenAIClient();
-      if (!client) {
-        return fallback;
-      }
+      `co-investor-candidates:${normalizedQuery}`,
+      async () => {
+        const client = getOpenAIClient();
+        if (!client) {
+          return fallback;
+        }
 
-      const model = process.env.OPENAI_SEARCH_MODEL || "gpt-4o-mini";
-      const response = await client.responses.create({
-        model,
-        tools: [{ type: "web_search_preview" }],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "co_investor_candidates",
-            schema: searchSchema,
-            strict: false
-          }
-        },
-        input: [
-          {
-            role: "system",
-            content: [
-              {
-                type: "input_text",
-                text:
-                  "Search the web to find seed and series A digital health investors that are US based whose name matches the user query. Return up to 6 candidates with location and website so a user can disambiguate by location."
-              }
-            ]
+        const model = process.env.OPENAI_SEARCH_MODEL || "gpt-4o-mini";
+        const response = await client.responses.create({
+          model,
+          tools: [{ type: "web_search_preview" }],
+          text: {
+            format: {
+              type: "json_schema",
+              name: "co_investor_candidates",
+              schema: searchSchema,
+              strict: false
+            }
           },
-          {
-            role: "user",
-            content: [
-              {
-                type: "input_text",
-                text:
-                  `Search the web to find seed and series A digital health investors that are US based whose name matches "${normalizedQuery}".  Return up to 6 candidates with location and website so a user can disambiguate by location.`
-              }
-            ]
-          }
-        ]
-      } as any);
+          input: [
+            {
+              role: "system",
+              content: [
+                {
+                  type: "input_text",
+                  text:
+                    "Search the web to find seed and series A digital health investors that are US based whose name matches the user query. Return up to 6 candidates with location and website so a user can disambiguate by location."
+                }
+              ]
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "input_text",
+                  text:
+                    `Search the web to find seed and series A digital health investors that are US based whose name matches "${normalizedQuery}".  Return up to 6 candidates with location and website so a user can disambiguate by location.`
+                }
+              ]
+            }
+          ]
+        } as any);
 
-      const parsed = extractJsonPayload(response.output_text || "{}");
-      const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : [];
-      const candidates = rawCandidates
-        .map((candidate) => normalizeCoInvestorCandidate(candidate))
-        .filter((candidate): candidate is CoInvestorSearchCandidate => candidate !== null)
-        .slice(0, 6);
+        const parsed = extractJsonPayload(response.output_text || "{}");
+        const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : [];
+        const candidates = rawCandidates
+          .map((candidate) => normalizeCoInvestorCandidate(candidate))
+          .filter((candidate): candidate is CoInvestorSearchCandidate => candidate !== null)
+          .slice(0, 6);
 
-      if (candidates.length === 0) {
-        return fallback;
-      }
+        if (candidates.length === 0) {
+          return fallback;
+        }
 
-      return { candidates, researchUsed: true };
-    },
-    CO_INVESTOR_SEARCH_CACHE_TTL_MS
-  );
+        return { candidates, researchUsed: true };
+      },
+      CO_INVESTOR_SEARCH_CACHE_TTL_MS
+    );
 
-  const totalMs = Date.now() - startMs;
-  console.log(
-    `search_co_investor_candidates latencyMs=${totalMs} cache=${result.fromCache ? "hit" : "miss"} query="${normalizedQuery}"`
-  );
+    const totalMs = Date.now() - startMs;
+    console.log(
+      `search_co_investor_candidates latencyMs=${totalMs} cache=${result.fromCache ? "hit" : "miss"} query="${normalizedQuery}"`
+    );
 
-  return result.data;
+    return result.data;
+  } catch (error) {
+    const totalMs = Date.now() - startMs;
+    console.error(
+      `search_co_investor_candidates_fallback latencyMs=${totalMs} query="${normalizedQuery}"`,
+      error
+    );
+    return fallback;
+  }
 }
 
 export async function enrichCoInvestorFromWeb(seed: MinimalCoInvestor): Promise<CoInvestorInput> {

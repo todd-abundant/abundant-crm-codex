@@ -58,21 +58,11 @@ export async function getCachedLookup<T>(
 
   const inFlight = (async () => {
     const data = await fetcher();
-    const entry = cache.get(key);
     cache.set(key, {
       value: data,
       expiresAt: Date.now() + ttlMs,
       lastAccessAt: Date.now()
     });
-
-    if (entry?.inFlight === inFlight) {
-      const refreshed = cache.get(key);
-      if (refreshed) {
-        refreshed.inFlight = undefined;
-        refreshed.value = data;
-        refreshed.lastAccessAt = Date.now();
-      }
-    }
 
     return { data, fromCache: false };
   })();

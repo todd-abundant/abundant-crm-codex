@@ -3,30 +3,47 @@ import { prisma } from "@/lib/db";
 import { coInvestorInputSchema } from "@/lib/schemas";
 
 export async function GET() {
-  const coInvestors = await prisma.coInvestor.findMany({
-    include: {
-      partners: true,
-      contactLinks: {
-        include: { contact: true }
+  try {
+    const coInvestors = await prisma.coInvestor.findMany({
+      include: {
+        partners: true,
+        contactLinks: {
+          include: { contact: true }
+        },
+        investments: true,
+        interactions: {
+          orderBy: { occurredAt: "desc" },
+          take: 25
+        },
+        nextActions: {
+          orderBy: [{ status: "asc" }, { dueAt: "asc" }, { createdAt: "desc" }],
+          take: 25
+        },
+        researchJobs: {
+          orderBy: { createdAt: "desc" },
+          take: 1
+        }
       },
-      investments: true,
-      interactions: {
-        orderBy: { occurredAt: "desc" },
-        take: 25
-      },
-      nextActions: {
-        orderBy: [{ status: "asc" }, { dueAt: "asc" }, { createdAt: "desc" }],
-        take: 25
-      },
-      researchJobs: {
-        orderBy: { createdAt: "desc" },
-        take: 1
-      }
-    },
-    orderBy: { createdAt: "desc" }
-  });
+      orderBy: { createdAt: "desc" }
+    });
 
-  return NextResponse.json({ coInvestors });
+    return NextResponse.json({ coInvestors });
+  } catch (error: unknown) {
+    console.error("list_co_investors_error", error);
+    const prismaCode =
+      typeof error === "object" && error !== null && "code" in error
+        ? String((error as { code?: string }).code)
+        : undefined;
+
+    if (prismaCode === "P2021") {
+      return NextResponse.json(
+        { error: "Database schema is out of date. Run: npm run db:sync" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ error: "Failed to load co-investors" }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {
