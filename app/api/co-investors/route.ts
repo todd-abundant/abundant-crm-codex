@@ -10,6 +10,14 @@ export async function GET() {
         include: { contact: true }
       },
       investments: true,
+      interactions: {
+        orderBy: { occurredAt: "desc" },
+        take: 25
+      },
+      nextActions: {
+        orderBy: [{ status: "asc" }, { dueAt: "asc" }, { createdAt: "desc" }],
+        take: 25
+      },
       researchJobs: {
         orderBy: { createdAt: "desc" },
         take: 1
@@ -64,6 +72,14 @@ export async function POST(request: Request) {
           include: { contact: true }
         },
         investments: true,
+        interactions: {
+          orderBy: { occurredAt: "desc" },
+          take: 25
+        },
+        nextActions: {
+          orderBy: [{ status: "asc" }, { dueAt: "asc" }, { createdAt: "desc" }],
+          take: 25
+        },
         researchJobs: {
           orderBy: { createdAt: "desc" },
           take: 1

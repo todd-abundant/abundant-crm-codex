@@ -38,7 +38,7 @@ body {
 }
 
 main {
-  max-width: 1280px;
+  max-width: 1560px;
   margin: 0 auto;
   padding: 12px 12px 24px;
 }
@@ -113,7 +113,7 @@ main {
 
 .grid {
   display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
+  grid-template-columns: minmax(380px, 34%) minmax(780px, 66%);
   gap: 12px;
 }
 
@@ -140,7 +140,7 @@ button {
   font: inherit;
 }
 
-input,
+input:not([type="checkbox"]):not([type="radio"]),
 textarea,
 select {
   width: 100%;
@@ -437,6 +437,53 @@ a {
   font-size: 0.95rem;
 }
 
+
+.create-card .row {
+  margin-top: 8px;
+}
+
+.create-card .row label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--colorTextPrimary);
+}
+
+.create-card .row input[type="checkbox"] {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.toggle-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.toggle-chip {
+  border: 1px solid #bfd4ee;
+  background: #f4f8fc;
+  color: #1f2937;
+  border-radius: 10px;
+  min-height: 40px;
+  padding: 8px 12px;
+  font-weight: 700;
+  text-align: left;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.toggle-chip.active {
+  background: #0a2f5a;
+  border-color: #0a2f5a;
+  color: #ffffff;
+}
+
+.toggle-chip:focus-visible {
+  outline: 2px solid rgba(10, 47, 90, 0.35);
+  outline-offset: 2px;
+}
 .list-container {
   margin-top: 8px;
   display: flex;
@@ -632,8 +679,49 @@ a {
   background: #edf7ff;
 }
 
+
 .detail-card {
   margin-top: 8px;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
+}
+
+.detail-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+  padding: 6px;
+  border: 1px solid #d3dfec;
+  border-radius: 10px;
+  background: #f7fbff;
+}
+
+.detail-tab {
+  border: 1px solid #c6d8ea;
+  background: #ffffff;
+  color: #274161;
+  border-radius: 999px;
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.detail-tab.active {
+  background: #0a2f5a;
+  border-color: #0a2f5a;
+  color: #ffffff;
+}
+
+.detail-tab:hover:not(.active),
+.detail-tab:focus-visible:not(.active) {
+  background: #eef5fd;
+  border-color: #9ec0e1;
 }
 
 .detail-head {
@@ -703,22 +791,19 @@ a {
 }
 
 .inline-edit-display {
-  min-height: auto;
-  padding: 2px 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--colorBorder);
+  border-radius: var(--radiusInput);
+  background: var(--colorSurface);
   color: var(--colorTextPrimary);
   cursor: pointer;
   line-height: 1.3;
-  word-break: break-word;
 }
 
 .inline-edit-display:hover,
 .inline-edit-display:focus-visible {
-  text-decoration: underline;
-  text-decoration-color: var(--colorBrandAccent);
-  text-underline-offset: 2px;
+  border-color: var(--colorBrandAccent);
 }
 
 .inline-edit-display--multiline {
@@ -726,6 +811,124 @@ a {
   white-space: pre-wrap;
   line-height: 1.45;
   padding: 2px 0;
+}
+
+
+.inline-rich-text {
+  display: block;
+  color: #1f2937;
+}
+
+.inline-rich-text a {
+  color: #0b5cad;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.inline-note-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+
+.inline-highlight-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.inline-highlight-card {
+  border: 1px solid #d6e3ef;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #f9fcff;
+}
+
+.inline-highlight-card--wide {
+  grid-column: span 2;
+}
+
+.inline-highlight-label {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #315477;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.inline-highlight-card p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.inline-contact-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inline-contact-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #c8daea;
+  background: #edf5fc;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.74rem;
+  color: #1f3f63;
+}
+
+.inline-note-body p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.inline-note-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.38rem;
+}
+
+.inline-note-list li {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.inline-source-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
+}
+
+.inline-source-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #c2d7ea;
+  background: #eef5fd;
+  color: #124a82;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.inline-source-chip:hover,
+.inline-source-chip:focus-visible {
+  border-color: #8fb8de;
+  background: #e2effc;
+}
+
+.inline-note-actions {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .inline-edit-empty {
@@ -778,6 +981,27 @@ select {
 }
 
 @media (max-width: 620px) {
+  .inline-highlight-card--wide {
+    grid-column: span 1;
+  }
+
+  .inline-highlight-row {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-card {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .detail-tabs {
+    position: static;
+  }
+
+  .toggle-row {
+    grid-template-columns: 1fr;
+  }
+
   .hero {
     padding: 12px;
   }
@@ -806,4 +1030,52 @@ select {
   .detail-head h3 {
     width: 100%;
   }
+}
+
+
+.inline-highlight-card--snapshot p {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.45;
+}
+
+.inline-note-list {
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.panel {
+  padding: 14px;
+}
+
+
+.inline-expand-toggle {
+  border: 1px solid #c2d7ea;
+  background: #eef5fd;
+  color: #1f4a73;
+  border-radius: 999px;
+  min-height: 28px;
+  padding: 2px 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.inline-expand-toggle--secondary {
+  background: #ffffff;
+}
+
+.inline-expand-toggle:hover,
+.inline-expand-toggle:focus-visible {
+  background: #e2effc;
+  border-color: #8fb8de;
+}
+
+.inline-truncation-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #5c7087;
+  font-style: italic;
 }

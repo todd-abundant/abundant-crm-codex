@@ -169,7 +169,7 @@ export async function PATCH(
         if (!company) {
           throw new Error("Company not found");
         }
-        companyName = company.name;
+        companyName = company.name || undefined;
       }
 
       const update = buildInvestmentUpdatePayload(input, companyName);

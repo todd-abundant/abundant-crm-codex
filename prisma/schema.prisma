@@ -23,6 +23,30 @@ enum CoInvestorResearchStatus {
   FAILED
 }
 
+enum CoInvestorInteractionType {
+  MEETING
+  EMAIL
+  CALL
+  EVENT
+  INTRO
+  NOTE
+}
+
+enum NextActionStatus {
+  OPEN
+  IN_PROGRESS
+  BLOCKED
+  DONE
+  CANCELLED
+}
+
+enum NextActionPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
 enum CompanyType {
   STARTUP
   SPIN_OUT
@@ -217,6 +241,8 @@ model CoInvestor {
   companyCoInvestorLinks CompanyCoInvestorLink[]
   contactLinks           ContactCoInvestor[]
   venturePartners        VenturePartner[]
+  interactions           CoInvestorInteraction[]
+  nextActions            NextAction[]
 
   @@index([name])
   @@index([isSeedInvestor])
@@ -273,6 +299,42 @@ model CoInvestorResearchJob {
 
   @@index([status, createdAt])
   @@index([coInvestorId, createdAt])
+}
+
+model CoInvestorInteraction {
+  id              String                    @id @default(cuid())
+  coInvestorId    String
+  interactionType CoInvestorInteractionType @default(NOTE)
+  channel         String?
+  subject         String?
+  summary         String?
+  occurredAt      DateTime                  @default(now())
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  coInvestor CoInvestor @relation(fields: [coInvestorId], references: [id], onDelete: Cascade)
+
+  @@index([coInvestorId, occurredAt])
+  @@index([interactionType])
+}
+
+model NextAction {
+  id           String             @id @default(cuid())
+  coInvestorId String
+  title        String
+  details      String?
+  ownerName    String?
+  dueAt        DateTime?
+  completedAt  DateTime?
+  status       NextActionStatus   @default(OPEN)
+  priority     NextActionPriority @default(MEDIUM)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  coInvestor CoInvestor @relation(fields: [coInvestorId], references: [id], onDelete: Cascade)
+
+  @@index([coInvestorId, status, dueAt])
+  @@index([ownerName, status])
 }
 
 model Company {

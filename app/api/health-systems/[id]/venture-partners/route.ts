@@ -113,10 +113,12 @@ export async function PATCH(
       }
 
       const coInvestorId = trimOrNull(input.coInvestorId);
-      const coInvestorName = coInvestorId ? (await tx.coInvestor.findUnique({
-        where: { id: coInvestorId },
-        select: { name: true }
-      }))?.name : undefined;
+      const coInvestorName = coInvestorId
+        ? ((await tx.coInvestor.findUnique({
+            where: { id: coInvestorId },
+            select: { name: true }
+          }))?.name || undefined)
+        : undefined;
 
       if (input.coInvestorId !== undefined && !coInvestorName) {
         throw new Error("Co-investor not found");

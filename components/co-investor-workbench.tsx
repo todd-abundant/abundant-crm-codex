@@ -6,7 +6,6 @@ import {
   InlineTextField,
   InlineTextareaField
 } from "./inline-detail-field";
-import { SearchMatchModal } from "./search-match-modal";
 
 type SearchCandidate = {
   name: string;
@@ -18,12 +17,23 @@ type SearchCandidate = {
   sourceUrls: string[];
 };
 
-type ManualSearchCandidate = {
-  name: string;
-  website: string;
-  headquartersCity: string;
-  headquartersState: string;
-  headquartersCountry: string;
+type CoInvestorInteraction = {
+  id: string;
+  interactionType: "MEETING" | "EMAIL" | "CALL" | "EVENT" | "INTRO" | "NOTE";
+  channel?: string | null;
+  subject?: string | null;
+  summary?: string | null;
+  occurredAt: string;
+};
+
+type NextActionItem = {
+  id: string;
+  title: string;
+  details?: string | null;
+  ownerName?: string | null;
+  dueAt?: string | null;
+  status: "OPEN" | "IN_PROGRESS" | "BLOCKED" | "DONE" | "CANCELLED";
+  priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 };
 
 type CoInvestorRecord = {
@@ -41,6 +51,8 @@ type CoInvestorRecord = {
   researchNotes?: string | null;
   researchError?: string | null;
   researchUpdatedAt?: string | null;
+  interactions: CoInvestorInteraction[];
+  nextActions: NextActionItem[];
   contactLinks: Array<{
     id: string;
     roleType: "EXECUTIVE" | "VENTURE_PARTNER" | "INVESTOR_PARTNER" | "COMPANY_CONTACT" | "OTHER";
@@ -65,6 +77,8 @@ type CoInvestorRecord = {
     sourceUrl?: string | null;
   }>;
 };
+
+type DetailTab = "overview" | "contacts" | "activity" | "actions" | "network";
 
 type DetailDraft = {
   name: string;
@@ -152,8 +166,40 @@ function statusClass(status: CoInvestorRecord["researchStatus"]) {
   return "draft";
 }
 
-function isResearchInProgress(status: CoInvestorRecord["researchStatus"]) {
-  return status === "QUEUED" || status === "RUNNING";
+function summarizeInsightSnapshot(value?: string | null) {
+  const clean = (value || "")
+    .replace(/\[[^\]]+\]\((https?:\/\/[^\s)]+)\)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return "";
+  if (clean.length <= 220) return clean;
+  return `${clean.slice(0, 217).trimEnd()}...`;
+}
+
+function coInvestorInsightPayload(record: CoInvestorRecord) {
+  const thesisFit = record.isSeedInvestor || record.isSeriesAInvestor ? "Likely aligned" : "Needs review";
+  const roundActivity = record.investments.length > 0 ? "Active" : "Limited evidence";
+
+  const contacts = record.contactLinks
+    .flatMap((link) => [link.contact.email || "", link.contact.phone || ""])
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const uniqueContacts = Array.from(new Set(contacts));
+
+  const contactConfidence =
+    uniqueContacts.length >= 2 ? "High" : uniqueContacts.length === 1 ? "Medium" : "Low";
+
+  const snapshot =
+    summarizeInsightSnapshot(record.researchNotes) ||
+    `${record.name} | ${record.investments.length} known investments | ${record.contactLinks.length} linked contacts`;
+
+  return {
+    thesisFit,
+    roundActivity,
+    contactConfidence,
+    snapshot,
+    keyContacts: uniqueContacts
+  };
 }
 
 function formatUsd(value: string | number | null | undefined) {
@@ -173,6 +219,25 @@ function formatDate(value: string | null | undefined) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleDateString("en-US");
+}
+
+function toDateInputValue(value: string | null | undefined) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
+function getNextOpenAction(actions: NextActionItem[]) {
+  return actions.find((item) => item.status !== "DONE" && item.status !== "CANCELLED") || null;
+}
+
+function nextActionStatusClass(status: NextActionItem["status"]) {
+  if (status === "DONE") return "done";
+  if (status === "IN_PROGRESS") return "running";
+  if (status === "BLOCKED") return "failed";
+  if (status === "CANCELLED") return "queued";
+  return "draft";
 }
 
 function buildFallbackCandidate(term: string): SearchCandidate {
@@ -240,17 +305,31 @@ export function CoInvestorWorkbench() {
   const [updatingContact, setUpdatingContact] = React.useState(false);
   const [deletingContactLinkId, setDeletingContactLinkId] = React.useState<string | null>(null);
   const [keepListView, setKeepListView] = React.useState(false);
-  const [searchMatchCandidateCache] = React.useState(() => new Map<string, SearchCandidate[]>());
-  const [searchAbortController, setSearchAbortController] = React.useState<AbortController | null>(null);
-  const [matchModalOpen, setMatchModalOpen] = React.useState(false);
-  const [matchModalManualMode, setMatchModalManualMode] = React.useState(false);
-  const [manualMatchCandidate, setManualMatchCandidate] = React.useState<ManualSearchCandidate>({
-    name: "",
-    website: "",
-    headquartersCity: "",
-    headquartersState: "",
-    headquartersCountry: ""
-  });
+  const [newIsSeedInvestor, setNewIsSeedInvestor] = React.useState(false);
+  const [newIsSeriesAInvestor, setNewIsSeriesAInvestor] = React.useState(false);
+  const [newInteractionType, setNewInteractionType] = React.useState<CoInvestorInteraction["interactionType"]>("NOTE");
+  const [newInteractionSubject, setNewInteractionSubject] = React.useState("");
+  const [newInteractionSummary, setNewInteractionSummary] = React.useState("");
+  const [addingInteraction, setAddingInteraction] = React.useState(false);
+  const [newActionTitle, setNewActionTitle] = React.useState("");
+  const [newActionDueAt, setNewActionDueAt] = React.useState("");
+  const [addingNextAction, setAddingNextAction] = React.useState(false);
+  const [updatingNextActionId, setUpdatingNextActionId] = React.useState<string | null>(null);
+  const [deletingNextActionId, setDeletingNextActionId] = React.useState<string | null>(null);
+  const [deletingInteractionId, setDeletingInteractionId] = React.useState<string | null>(null);
+  const [editingInteractionId, setEditingInteractionId] = React.useState<string | null>(null);
+  const [editingInteractionSubject, setEditingInteractionSubject] = React.useState("");
+  const [editingInteractionSummary, setEditingInteractionSummary] = React.useState("");
+  const [savingInteractionId, setSavingInteractionId] = React.useState<string | null>(null);
+  const [editingNextActionId, setEditingNextActionId] = React.useState<string | null>(null);
+  const [editingNextActionTitle, setEditingNextActionTitle] = React.useState("");
+  const [editingNextActionDueAt, setEditingNextActionDueAt] = React.useState("");
+  const [editingNextActionOwner, setEditingNextActionOwner] = React.useState("");
+  const [savingNextActionId, setSavingNextActionId] = React.useState<string | null>(null);
+  const [activeDetailTab, setActiveDetailTab] = React.useState<DetailTab>("overview");
+
+  const candidateSearchCacheRef = React.useRef<Record<string, SearchCandidate[]>>({});
+  const candidateSearchAbortRef = React.useRef<AbortController | null>(null);
 
   const hasPending = React.useMemo(
     () => records.some((record) => record.researchStatus === "QUEUED" || record.researchStatus === "RUNNING"),
@@ -283,56 +362,27 @@ export function CoInvestorWorkbench() {
     [records, selectedRecordId]
   );
 
-  const shouldOfferCreate = query.trim().length >= 2 && filteredRecords.length === 0;
+  const relationshipHighlights = React.useMemo(() => {
+    if (!selectedRecord) return null;
+
+    const latestInteraction = selectedRecord.interactions[0] || null;
+    const nextOpenAction = getNextOpenAction(selectedRecord.nextActions);
+
+    return {
+      latestInteraction,
+      nextOpenAction,
+      totalInteractions: selectedRecord.interactions.length,
+      openActions: selectedRecord.nextActions.filter((item) => item.status !== "DONE" && item.status !== "CANCELLED").length
+    };
+  }, [selectedRecord]);
+
+  const shouldOfferCreate = query.trim().length >= 3 && filteredRecords.length === 0;
   const selectedCandidate =
     selectedCandidateIndex >= 0 && selectedCandidateIndex < searchCandidates.length
       ? searchCandidates[selectedCandidateIndex]
       : null;
 
-  const createButtonDisabled =
-    creatingFromSearch ||
-    (matchModalManualMode
-      ? !manualMatchCandidate.name.trim()
-      : searchingCandidates ||
-        (searchCandidates.length > 1 && selectedCandidate === null));
-
-  function beginManualMatchEntry() {
-    setMatchModalManualMode(true);
-    setSearchAbortController((previous) => {
-      previous?.abort();
-      return previous;
-    });
-    setSearchingCandidates(false);
-    setSearchCandidateError(null);
-    setSearchCandidates([]);
-    setCandidateSearchQuery(query.trim());
-    setSelectedCandidateIndex(-1);
-  }
-
-  function openCreateMatchModal() {
-    const term = query.trim();
-    if (!term || !shouldOfferCreate) {
-      return;
-    }
-
-    setManualMatchCandidate((prev) => {
-      if (prev.name === term) {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        name: term
-      };
-    });
-    setSearchCandidates([]);
-    setCandidateSearchQuery("");
-    setSelectedCandidateIndex(-1);
-    setSearchCandidateError(null);
-    setSearchingCandidates(false);
-    setMatchModalManualMode(false);
-    setMatchModalOpen(true);
-  }
+  const createButtonDisabled = creatingFromSearch;
 
   async function loadRecords() {
     const res = await fetch("/api/co-investors", { cache: "no-store" });
@@ -354,16 +404,12 @@ export function CoInvestorWorkbench() {
     }
   }
 
-  async function searchCandidateMatches(
-    term: string,
-    options?: { signal?: AbortSignal }
-  ): Promise<SearchCandidate[]> {
-    const trimmed = term.trim();
+  async function searchCandidateMatches(term: string, signal?: AbortSignal): Promise<SearchCandidate[]> {
     const searchRes = await fetch("/api/co-investors/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: trimmed }),
-      signal: options?.signal
+      body: JSON.stringify({ query: term }),
+      signal
     });
 
     if (!searchRes.ok) {
@@ -379,6 +425,51 @@ export function CoInvestorWorkbench() {
     return searchPayload.candidates as SearchCandidate[];
   }
 
+  async function checkOnlineMatchesForQuery() {
+    const term = query.trim();
+    if (!term) return;
+
+    const cacheKey = term.toLowerCase();
+    const cachedCandidates = candidateSearchCacheRef.current[cacheKey];
+    if (cachedCandidates) {
+      setSearchCandidates(cachedCandidates);
+      setCandidateSearchQuery(term);
+      setSelectedCandidateIndex(-1);
+      setSearchCandidateError(null);
+      return;
+    }
+
+    setSearchingCandidates(true);
+    setSearchCandidateError(null);
+
+    if (candidateSearchAbortRef.current) {
+      candidateSearchAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    candidateSearchAbortRef.current = controller;
+
+    try {
+      const candidates = await searchCandidateMatches(term, controller.signal);
+      candidateSearchCacheRef.current[cacheKey] = candidates;
+      setSearchCandidates(candidates);
+      setCandidateSearchQuery(term);
+      setSelectedCandidateIndex(-1);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+      setSearchCandidates([]);
+      setCandidateSearchQuery(term);
+      setSelectedCandidateIndex(-1);
+      setSearchCandidateError(error instanceof Error ? error.message : "Failed to search co-investors.");
+    } finally {
+      if (candidateSearchAbortRef.current === controller) {
+        candidateSearchAbortRef.current = null;
+      }
+      setSearchingCandidates(false);
+    }
+  }
+
   async function createAndResearchFromSearchTerm() {
     const term = query.trim();
     if (!term) return;
@@ -388,44 +479,11 @@ export function CoInvestorWorkbench() {
     setKeepListView(false);
 
     try {
-      let candidates = searchCandidates;
-      if (!matchModalManualMode && (candidateSearchQuery !== term || candidates.length === 0)) {
-        candidates = await searchCandidateMatches(term);
-        setSearchCandidates(candidates);
-        setCandidateSearchQuery(term);
-
-        if (candidates.length === 1) {
-          setSelectedCandidateIndex(0);
-        } else {
-          setSelectedCandidateIndex(candidates.length > 1 ? -1 : -1);
-        }
-      }
-
-      if (!matchModalManualMode && candidates.length > 1 && selectedCandidateIndex < 0) {
-        throw new Error("Select one matching co-investor before creating.");
-      }
-
-      const candidate = matchModalManualMode
-        ? {
-            name: manualMatchCandidate.name || term,
-            website: manualMatchCandidate.website,
-            headquartersCity: manualMatchCandidate.headquartersCity,
-            headquartersState: manualMatchCandidate.headquartersState,
-            headquartersCountry: manualMatchCandidate.headquartersCountry,
-            summary: "Created from manual entry.",
-            sourceUrls: []
-          }
-        : candidates.length > 0
-          ? candidates[selectedCandidateIndex >= 0 ? selectedCandidateIndex : 0]
-          : {
-              name: manualMatchCandidate.name || term,
-              website: manualMatchCandidate.website,
-              headquartersCity: manualMatchCandidate.headquartersCity,
-              headquartersState: manualMatchCandidate.headquartersState,
-              headquartersCountry: manualMatchCandidate.headquartersCountry,
-              summary: "Created from manual entry.",
-              sourceUrls: []
-            };
+      const hasCurrentMatches = candidateSearchQuery === term && searchCandidates.length > 0;
+      const candidate =
+        hasCurrentMatches && selectedCandidate
+          ? selectedCandidate
+          : buildFallbackCandidate(term);
 
       const duplicateRecord = findDuplicateRecord(records, candidate);
       if (duplicateRecord) {
@@ -440,8 +498,8 @@ export function CoInvestorWorkbench() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           candidate,
-          isSeedInvestor: false,
-          isSeriesAInvestor: false
+          isSeedInvestor: newIsSeedInvestor,
+          isSeriesAInvestor: newIsSeriesAInvestor
         })
       });
 
@@ -462,16 +520,8 @@ export function CoInvestorWorkbench() {
       setCandidateSearchQuery("");
       setSelectedCandidateIndex(-1);
       setSearchCandidateError(null);
-      setMatchModalOpen(false);
-      setMatchModalManualMode(false);
-      setManualMatchCandidate({
-        name: "",
-        website: "",
-        headquartersCity: "",
-        headquartersState: "",
-        headquartersCountry: ""
-      });
-      await loadRecords();
+      setNewIsSeedInvestor(false);
+      setNewIsSeriesAInvestor(false);
 
       await runQueuedAgent(1);
     } catch (error) {
@@ -550,8 +600,7 @@ export function CoInvestorWorkbench() {
     setEditingContactEmail(link.contact.email || "");
     setEditingContactPhone(link.contact.phone || "");
     setEditingContactLinkedinUrl(link.contact.linkedinUrl || "");
-    const normalizedRoleType = link.roleType === "INVESTOR_PARTNER" || link.roleType === "OTHER" ? link.roleType : "OTHER";
-    setEditingContactRoleType(normalizedRoleType);
+    setEditingContactRoleType(link.roleType === "INVESTOR_PARTNER" ? "INVESTOR_PARTNER" : "OTHER");
     setStatus(null);
   }
 
@@ -732,6 +781,255 @@ export function CoInvestorWorkbench() {
     }
   }
 
+  async function addInteractionForSelectedRecord() {
+    if (!selectedRecord) return;
+
+    const subject = newInteractionSubject.trim();
+    const summary = newInteractionSummary.trim();
+    if (!subject && !summary) {
+      setStatus({ kind: "error", text: "Add a subject or summary for the interaction." });
+      return;
+    }
+
+    setAddingInteraction(true);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/co-investors/${selectedRecord.id}/interactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          interactionType: newInteractionType,
+          subject,
+          summary
+        })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to add interaction");
+
+      setNewInteractionSubject("");
+      setNewInteractionSummary("");
+      setStatus({ kind: "ok", text: "Interaction added." });
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add interaction"
+      });
+    } finally {
+      setAddingInteraction(false);
+    }
+  }
+
+  async function addNextActionForSelectedRecord() {
+    if (!selectedRecord) return;
+
+    const title = newActionTitle.trim();
+    if (!title) {
+      setStatus({ kind: "error", text: "Next action title is required." });
+      return;
+    }
+
+    setAddingNextAction(true);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/co-investors/${selectedRecord.id}/next-actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          dueAt: newActionDueAt ? new Date(newActionDueAt).toISOString() : null
+        })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to add next action");
+
+      setNewActionTitle("");
+      setNewActionDueAt("");
+      setStatus({ kind: "ok", text: "Next action added." });
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add next action"
+      });
+    } finally {
+      setAddingNextAction(false);
+    }
+  }
+
+  async function updateNextActionStatus(nextActionId: string, status: NextActionItem["status"]) {
+    if (!selectedRecord) return;
+
+    setUpdatingNextActionId(nextActionId);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/co-investors/${selectedRecord.id}/next-actions`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nextActionId, status })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to update next action");
+
+      setStatus({ kind: "ok", text: "Next action updated." });
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update next action"
+      });
+    } finally {
+      setUpdatingNextActionId(null);
+    }
+  }
+
+  async function deleteNextAction(nextActionId: string) {
+    if (!selectedRecord) return;
+
+    setDeletingNextActionId(nextActionId);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/co-investors/${selectedRecord.id}/next-actions`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nextActionId })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to delete next action");
+
+      setStatus({ kind: "ok", text: "Next action deleted." });
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to delete next action"
+      });
+    } finally {
+      setDeletingNextActionId(null);
+    }
+  }
+
+  async function deleteInteraction(interactionId: string) {
+    if (!selectedRecord) return;
+
+    setDeletingInteractionId(interactionId);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/co-investors/${selectedRecord.id}/interactions`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ interactionId })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to delete interaction");
+
+      setStatus({ kind: "ok", text: "Interaction deleted." });
+      if (editingInteractionId === interactionId) {
+        setEditingInteractionId(null);
+      }
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to delete interaction"
+      });
+    } finally {
+      setDeletingInteractionId(null);
+    }
+  }
+
+  function startInteractionEdit(entry: CoInvestorInteraction) {
+    setEditingInteractionId(entry.id);
+    setEditingInteractionSubject(entry.subject || "");
+    setEditingInteractionSummary(entry.summary || "");
+  }
+
+  async function saveInteractionEdit(interactionId: string) {
+    if (!selectedRecord) return;
+
+    const subject = editingInteractionSubject.trim();
+    const summary = editingInteractionSummary.trim();
+    if (!subject && !summary) {
+      setStatus({ kind: "error", text: "Add a subject or summary for the interaction." });
+      return;
+    }
+
+    setSavingInteractionId(interactionId);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/co-investors/${selectedRecord.id}/interactions`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ interactionId, subject, summary })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to update interaction");
+
+      setEditingInteractionId(null);
+      setStatus({ kind: "ok", text: "Interaction updated." });
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update interaction"
+      });
+    } finally {
+      setSavingInteractionId(null);
+    }
+  }
+
+  function startNextActionEdit(item: NextActionItem) {
+    setEditingNextActionId(item.id);
+    setEditingNextActionTitle(item.title || "");
+    setEditingNextActionDueAt(toDateInputValue(item.dueAt));
+    setEditingNextActionOwner(item.ownerName || "");
+  }
+
+  async function saveNextActionEdit(nextActionId: string) {
+    if (!selectedRecord) return;
+
+    const title = editingNextActionTitle.trim();
+    if (!title) {
+      setStatus({ kind: "error", text: "Next action title is required." });
+      return;
+    }
+
+    setSavingNextActionId(nextActionId);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/co-investors/${selectedRecord.id}/next-actions`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nextActionId,
+          title,
+          ownerName: editingNextActionOwner.trim() || null,
+          dueAt: editingNextActionDueAt ? new Date(editingNextActionDueAt).toISOString() : null
+        })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to update next action");
+
+      setEditingNextActionId(null);
+      setStatus({ kind: "ok", text: "Next action updated." });
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update next action"
+      });
+    } finally {
+      setSavingNextActionId(null);
+    }
+  }
+
   React.useEffect(() => {
     loadRecords().catch(() => {
       setStatus({ kind: "error", text: "Failed to load co-investors." });
@@ -751,86 +1049,18 @@ export function CoInvestorWorkbench() {
   }, [hasPending]);
 
   React.useEffect(() => {
-    if (!matchModalOpen) return;
-
     if (!shouldOfferCreate) {
-      setMatchModalOpen(false);
-      setMatchModalManualMode(false);
       setSearchCandidates([]);
       setCandidateSearchQuery("");
       setSelectedCandidateIndex(-1);
       setSearchCandidateError(null);
       setSearchingCandidates(false);
-      return;
-    }
-
-    const term = query.trim();
-    if (!term) return;
-
-    if (matchModalManualMode) {
-      return;
-    }
-
-    setManualMatchCandidate((prev) => {
-      if (prev.name === term) {
-        return prev;
+      if (candidateSearchAbortRef.current) {
+        candidateSearchAbortRef.current.abort();
+        candidateSearchAbortRef.current = null;
       }
-
-      return {
-        ...prev,
-        name: term
-      };
-    });
-
-    const cachedCandidates = searchMatchCandidateCache.get(term.toLowerCase());
-    if (cachedCandidates) {
-      setSearchCandidates(cachedCandidates);
-      setCandidateSearchQuery(term);
-      setSelectedCandidateIndex(cachedCandidates.length === 1 ? 0 : -1);
-      setSearchingCandidates(false);
-      setSearchCandidateError(null);
-      return;
     }
-
-    searchAbortController?.abort();
-    const controller = new AbortController();
-    setSearchAbortController(controller);
-
-    let active = true;
-
-    const timeout = setTimeout(async () => {
-      setSearchingCandidates(true);
-      setSearchCandidateError(null);
-
-      try {
-        const candidates = await searchCandidateMatches(term, { signal: controller.signal });
-        if (!active) return;
-        if (!controller.signal.aborted) {
-          searchMatchCandidateCache.set(term.toLowerCase(), candidates);
-        }
-        setSearchCandidates(candidates);
-        setCandidateSearchQuery(term);
-        setSelectedCandidateIndex(candidates.length === 1 ? 0 : -1);
-      } catch (error) {
-        if (!active) return;
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        setSearchCandidates([]);
-        setCandidateSearchQuery(term);
-        setSelectedCandidateIndex(-1);
-        setSearchCandidateError(
-          error instanceof Error ? error.message : "Failed to search co-investors."
-        );
-      } finally {
-        if (active) setSearchingCandidates(false);
-      }
-    }, 300);
-
-    return () => {
-      active = false;
-      clearTimeout(timeout);
-      controller.abort();
-    };
-  }, [matchModalOpen, query, shouldOfferCreate, matchModalManualMode]);
+  }, [shouldOfferCreate]);
 
   React.useEffect(() => {
     if (filteredRecords.length === 0) {
@@ -853,12 +1083,17 @@ export function CoInvestorWorkbench() {
       setDraftRecordId(null);
       resetEditingContactForm();
       setDeletingContactLinkId(null);
+      setEditingInteractionId(null);
+      setEditingNextActionId(null);
+      setDeletingInteractionId(null);
+      setDeletingNextActionId(null);
       return;
     }
 
     if (selectedRecord.id !== draftRecordId) {
       setDetailDraft(draftFromRecord(selectedRecord));
       setDraftRecordId(selectedRecord.id);
+      setActiveDetailTab("overview");
     }
   }, [selectedRecord, draftRecordId]);
 
@@ -881,56 +1116,106 @@ export function CoInvestorWorkbench() {
             placeholder="Type a co-investor name, location, or website"
             value={query}
             onChange={(event) => {
+              const nextQuery = event.target.value;
               setKeepListView(false);
-              setQuery(event.target.value);
+              setQuery(nextQuery);
+              setSearchCandidates([]);
+              setCandidateSearchQuery("");
+              setSelectedCandidateIndex(-1);
+              setSearchCandidateError(null);
+              setSearchingCandidates(false);
+              if (candidateSearchAbortRef.current) {
+                candidateSearchAbortRef.current.abort();
+                candidateSearchAbortRef.current = null;
+              }
             }}
           />
+
+          {query.trim().length >= 2 && query.trim().length < 3 && filteredRecords.length === 0 && (
+            <p className="muted">Type at least 3 characters to check potential external matches.</p>
+          )}
 
           {shouldOfferCreate && (
             <div className="create-card">
               <p className="create-title">No co-investors match "{query.trim()}"</p>
-              <p className="muted">Create a new co-investor and launch the research agent?</p>
+              <p className="muted">Create immediately, then optionally check online matches.</p>
+
+              <div className="toggle-row" role="group" aria-label="Investor stage flags">
+                <button
+                  type="button"
+                  className={`toggle-chip ${newIsSeedInvestor ? "active" : ""}`}
+                  aria-pressed={newIsSeedInvestor}
+                  onClick={() => setNewIsSeedInvestor((current) => !current)}
+                >
+                  Seed Stage Investor
+                </button>
+                <button
+                  type="button"
+                  className={`toggle-chip ${newIsSeriesAInvestor ? "active" : ""}`}
+                  aria-pressed={newIsSeriesAInvestor}
+                  onClick={() => setNewIsSeriesAInvestor((current) => !current)}
+                >
+                  Series A Investor
+                </button>
+              </div>
+
               <div className="actions">
-                <button className="primary" type="button" onClick={openCreateMatchModal}>
-                  Search online
+                <button
+                  className="secondary"
+                  onClick={() => void checkOnlineMatchesForQuery()}
+                  disabled={searchingCandidates || creatingFromSearch}
+                  type="button"
+                >
+                  {searchingCandidates ? "Checking matches..." : "Check Web Matches"}
+                </button>
+              </div>
+
+              {searchingCandidates && <p className="muted">Searching for possible online matches...</p>}
+
+              {searchCandidateError && <p className="status error">{searchCandidateError}</p>}
+
+              {searchCandidates.length > 0 && (
+                <div className="candidate-list">
+                  {searchCandidates.length > 1 && <p className="detail-label">Select the matching investor:</p>}
+                  {searchCandidates.map((candidate, index) => {
+                    const location = formatLocation(candidate);
+                    const isSelected = selectedCandidateIndex === index;
+                    return (
+                      <label
+                        key={`${candidate.name}-${candidate.headquartersCity || "unknown"}-${index}`}
+                        className={`candidate-option ${isSelected ? "selected" : ""}`}
+                      >
+                        <input
+                          type="radio"
+                          name="co-investor-candidate"
+                          checked={isSelected}
+                          onChange={() => setSelectedCandidateIndex(index)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                          }}
+                        />
+                        <div>
+                          <div className="candidate-name">{candidate.name}</div>
+                          <div className="candidate-location muted">{location || "Location not identified"}</div>
+                          {candidate.website && <div className="candidate-location muted">{candidate.website}</div>}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="actions">
+                <button
+                  className="primary"
+                  onClick={createAndResearchFromSearchTerm}
+                  disabled={createButtonDisabled}
+                >
+                  {createButtonDisabled ? "Creating..." : "Create + Start Research"}
                 </button>
               </div>
             </div>
           )}
-
-          <SearchMatchModal
-            isOpen={matchModalOpen}
-            title="Co-investor not found"
-            query={query.trim()}
-            searching={searchingCandidates}
-            candidates={searchCandidates}
-            selectedCandidateIndex={selectedCandidateIndex}
-            searchError={searchCandidateError}
-            manualCandidateEnabled={!searchingCandidates && searchCandidates.length === 0}
-            isManualMode={matchModalManualMode}
-            onSelectCandidate={setSelectedCandidateIndex}
-            manualCandidate={manualMatchCandidate}
-            onManualCandidateChange={(candidate) =>
-              setManualMatchCandidate((current) => ({
-                ...current,
-                ...candidate
-              }))
-            }
-            onCreateManually={() => void beginManualMatchEntry()}
-            submitLabel={
-              createButtonDisabled
-                ? searchingCandidates
-                  ? "Checking matches..."
-                  : "Create + Start Research"
-                : "Create + Start Research"
-            }
-            onSubmit={() => void createAndResearchFromSearchTerm()}
-            onClose={() => {
-              setMatchModalOpen(false);
-              setMatchModalManualMode(false);
-            }}
-            submitDisabled={createButtonDisabled}
-          />
 
           <div className="list-container">
             {filteredRecords.length === 0 && !shouldOfferCreate && (
@@ -996,45 +1281,48 @@ export function CoInvestorWorkbench() {
                   <h3>{selectedRecord.name}</h3>
                 </div>
 
+                <div className="detail-tabs" role="tablist" aria-label="Co-investor detail sections">
+                  <button type="button" className={`detail-tab ${activeDetailTab === "overview" ? "active" : ""}`} aria-selected={activeDetailTab === "overview"} onClick={() => setActiveDetailTab("overview")}>Overview</button>
+                  <button type="button" className={`detail-tab ${activeDetailTab === "contacts" ? "active" : ""}`} aria-selected={activeDetailTab === "contacts"} onClick={() => setActiveDetailTab("contacts")}>Contacts</button>
+                  <button type="button" className={`detail-tab ${activeDetailTab === "activity" ? "active" : ""}`} aria-selected={activeDetailTab === "activity"} onClick={() => setActiveDetailTab("activity")}>Activity</button>
+                  <button type="button" className={`detail-tab ${activeDetailTab === "actions" ? "active" : ""}`} aria-selected={activeDetailTab === "actions"} onClick={() => setActiveDetailTab("actions")}>Next Actions</button>
+                  <button type="button" className={`detail-tab ${activeDetailTab === "network" ? "active" : ""}`} aria-selected={activeDetailTab === "network"} onClick={() => setActiveDetailTab("network")}>Network</button>
+                </div>
+
+                {activeDetailTab === "overview" && (
+                  <>
                 <div className="detail-grid">
                   <InlineTextField
-                    kind="text"
                     label="Name"
                     value={detailDraft.name}
                     onSave={(value) => updateDetailDraft({ name: value })}
                   />
                   <InlineTextField
-                    kind="text"
                     label="Legal Name"
                     value={detailDraft.legalName}
                     onSave={(value) => updateDetailDraft({ legalName: value })}
                   />
                   <InlineTextField
-                    kind="text"
                     label="Website"
                     value={detailDraft.website}
                     onSave={(value) => updateDetailDraft({ website: value })}
                   />
                   <InlineTextField
-                    kind="text"
                     label="HQ City"
                     value={detailDraft.headquartersCity}
                     onSave={(value) => updateDetailDraft({ headquartersCity: value })}
                   />
                   <InlineTextField
-                    kind="text"
                     label="HQ State"
                     value={detailDraft.headquartersState}
                     onSave={(value) => updateDetailDraft({ headquartersState: value })}
                   />
                   <InlineTextField
-                    kind="text"
                     label="HQ Country"
                     value={detailDraft.headquartersCountry}
                     onSave={(value) => updateDetailDraft({ headquartersCountry: value })}
                   />
                   <InlineBooleanField
-                    kind="boolean"
                     label="Seed Investor"
                     value={detailDraft.isSeedInvestor}
                     trueLabel="Yes"
@@ -1042,7 +1330,6 @@ export function CoInvestorWorkbench() {
                     onSave={(value) => updateDetailDraft({ isSeedInvestor: value })}
                   />
                   <InlineBooleanField
-                    kind="boolean"
                     label="Series A Investor"
                     value={detailDraft.isSeriesAInvestor}
                     trueLabel="Yes"
@@ -1053,16 +1340,17 @@ export function CoInvestorWorkbench() {
 
                 <div className="detail-section">
                   <InlineTextareaField
-                    kind="textarea"
+                    multiline
                     label="Investment Notes"
                     value={detailDraft.investmentNotes}
+                    insight={coInvestorInsightPayload(selectedRecord)}
                     onSave={(value) => updateDetailDraft({ investmentNotes: value })}
                   />
                 </div>
 
                 <div className="detail-section">
                   <InlineTextareaField
-                    kind="textarea"
+                    multiline
                     label="Research Notes"
                     value={detailDraft.researchNotes}
                     onSave={(value) => updateDetailDraft({ researchNotes: value })}
@@ -1076,11 +1364,13 @@ export function CoInvestorWorkbench() {
                 </div>
               )}
 
+                  </>
+                )}
+
+                {activeDetailTab === "contacts" && (
+                  <>
               <div className="detail-section">
                 <p className="detail-label">Contacts</p>
-                {isResearchInProgress(selectedRecord.researchStatus) ? (
-                  <p className="muted">Research is underway, contact discovery may appear shortly.</p>
-                ) : null}
                 {selectedRecord.contactLinks.length === 0 ? (
                   <p className="muted">No contacts linked yet.</p>
                 ) : (
@@ -1271,6 +1561,265 @@ export function CoInvestorWorkbench() {
                 </div>
               </div>
 
+                  </>
+                )}
+
+                {activeDetailTab === "activity" && (
+                  <>
+              <div className="detail-section">
+                <p className="detail-label">Relationship Highlights</p>
+                {!relationshipHighlights ? (
+                  <p className="muted">No relationship data yet.</p>
+                ) : (
+                  <div className="detail-grid">
+                    <div>
+                      <p className="muted">Latest Interaction</p>
+                      <strong>
+                        {relationshipHighlights.latestInteraction
+                          ? relationshipHighlights.latestInteraction.subject || relationshipHighlights.latestInteraction.interactionType
+                          : "No interactions"}
+                      </strong>
+                      {relationshipHighlights.latestInteraction && (
+                        <p className="muted">{formatDate(relationshipHighlights.latestInteraction.occurredAt)}</p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="muted">Next Open Action</p>
+                      <strong>{relationshipHighlights.nextOpenAction?.title || "No open next actions"}</strong>
+                      {relationshipHighlights.nextOpenAction?.dueAt && (
+                        <p className="muted">Due {formatDate(relationshipHighlights.nextOpenAction.dueAt)}</p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="muted">Totals</p>
+                      <strong>{relationshipHighlights.totalInteractions} interactions</strong>
+                    </div>
+                    <div>
+                      <p className="muted">Open Next Actions</p>
+                      <strong>{relationshipHighlights.openActions}</strong>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="detail-section">
+                <p className="detail-label">Log Interaction</p>
+                <div className="detail-grid">
+                  <div>
+                    <label>Type</label>
+                    <select
+                      value={newInteractionType}
+                      onChange={(event) =>
+                        setNewInteractionType(event.target.value as CoInvestorInteraction["interactionType"])
+                      }
+                    >
+                      <option value="MEETING">Meeting</option>
+                      <option value="EMAIL">Email</option>
+                      <option value="CALL">Call</option>
+                      <option value="EVENT">Event</option>
+                      <option value="INTRO">Intro</option>
+                      <option value="NOTE">Note</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Subject</label>
+                    <input
+                      value={newInteractionSubject}
+                      onChange={(event) => setNewInteractionSubject(event.target.value)}
+                      placeholder="Intro call with partner"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label>Summary</label>
+                  <textarea
+                    value={newInteractionSummary}
+                    onChange={(event) => setNewInteractionSummary(event.target.value)}
+                    placeholder="Key notes from this interaction"
+                  />
+                </div>
+                <div className="actions">
+                  <button className="secondary" onClick={addInteractionForSelectedRecord} disabled={addingInteraction}>
+                    {addingInteraction ? "Adding..." : "Add Interaction"}
+                  </button>
+                </div>
+
+                {selectedRecord.interactions.length === 0 ? (
+                  <p className="muted">No interactions logged yet.</p>
+                ) : (
+                  selectedRecord.interactions.map((entry) => (
+                    <div key={entry.id} className="detail-list-item">
+                      {editingInteractionId === entry.id ? (
+                        <>
+                          <label>Subject</label>
+                          <input
+                            value={editingInteractionSubject}
+                            onChange={(event) => setEditingInteractionSubject(event.target.value)}
+                            placeholder="Subject"
+                          />
+                          <label>Summary</label>
+                          <textarea
+                            value={editingInteractionSummary}
+                            onChange={(event) => setEditingInteractionSummary(event.target.value)}
+                            placeholder="Summary"
+                          />
+                          <div className="actions">
+                            <button
+                              className="primary"
+                              onClick={() => saveInteractionEdit(entry.id)}
+                              disabled={savingInteractionId === entry.id}
+                            >
+                              {savingInteractionId === entry.id ? "Saving..." : "Save"}
+                            </button>
+                            <button className="ghost small" onClick={() => setEditingInteractionId(null)}>
+                              Cancel
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <strong>{entry.interactionType}</strong>
+                          {entry.subject ? ` | ${entry.subject}` : ""}
+                          {` | ${formatDate(entry.occurredAt)}`}
+                          {entry.summary && <p>{entry.summary}</p>}
+                          <div className="actions">
+                            <button className="ghost small" onClick={() => startInteractionEdit(entry)} type="button">
+                              Edit
+                            </button>
+                            <button
+                              className="ghost small"
+                              onClick={() => deleteInteraction(entry.id)}
+                              disabled={deletingInteractionId === entry.id}
+                              type="button"
+                            >
+                              {deletingInteractionId === entry.id ? "Deleting..." : "Delete"}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+
+                  </>
+                )}
+
+                {activeDetailTab === "actions" && (
+                  <>
+              <div className="detail-section">
+                <p className="detail-label">Next Actions</p>
+                <div className="detail-grid">
+                  <div>
+                    <label>Title</label>
+                    <input
+                      value={newActionTitle}
+                      onChange={(event) => setNewActionTitle(event.target.value)}
+                      placeholder="Send follow-up materials"
+                    />
+                  </div>
+                  <div>
+                    <label>Due Date</label>
+                    <input
+                      type="date"
+                      value={newActionDueAt}
+                      onChange={(event) => setNewActionDueAt(event.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="actions">
+                  <button className="secondary" onClick={addNextActionForSelectedRecord} disabled={addingNextAction}>
+                    {addingNextAction ? "Adding..." : "Add Next Action"}
+                  </button>
+                </div>
+
+                {selectedRecord.nextActions.length === 0 ? (
+                  <p className="muted">No open next actions yet.</p>
+                ) : (
+                  selectedRecord.nextActions.map((item) => (
+                    <div key={item.id} className="detail-list-item">
+                      {editingNextActionId === item.id ? (
+                        <>
+                          <label>Title</label>
+                          <input
+                            value={editingNextActionTitle}
+                            onChange={(event) => setEditingNextActionTitle(event.target.value)}
+                            placeholder="Title"
+                          />
+                          <div className="detail-grid">
+                            <div>
+                              <label>Owner</label>
+                              <input
+                                value={editingNextActionOwner}
+                                onChange={(event) => setEditingNextActionOwner(event.target.value)}
+                                placeholder="Owner"
+                              />
+                            </div>
+                            <div>
+                              <label>Due Date</label>
+                              <input
+                                type="date"
+                                value={editingNextActionDueAt}
+                                onChange={(event) => setEditingNextActionDueAt(event.target.value)}
+                              />
+                            </div>
+                          </div>
+                          <div className="actions">
+                            <button
+                              className="primary"
+                              onClick={() => saveNextActionEdit(item.id)}
+                              disabled={savingNextActionId === item.id}
+                            >
+                              {savingNextActionId === item.id ? "Saving..." : "Save"}
+                            </button>
+                            <button className="ghost small" onClick={() => setEditingNextActionId(null)}>
+                              Cancel
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <strong>{item.title}</strong>
+                          {item.ownerName ? ` | ${item.ownerName}` : ""}
+                          {item.dueAt ? ` | Due ${formatDate(item.dueAt)}` : ""}
+                          <span className={`status-pill ${nextActionStatusClass(item.status)}`} style={{ marginLeft: 8 }}>
+                            {item.status}
+                          </span>
+                          <div className="actions">
+                            {item.status !== "DONE" && (
+                              <button
+                                className="ghost small"
+                                onClick={() => updateNextActionStatus(item.id, "DONE")}
+                                disabled={updatingNextActionId === item.id}
+                                type="button"
+                              >
+                                Done
+                              </button>
+                            )}
+                            <button className="ghost small" onClick={() => startNextActionEdit(item)} type="button">
+                              Edit
+                            </button>
+                            <button
+                              className="ghost small"
+                              onClick={() => deleteNextAction(item.id)}
+                              disabled={deletingNextActionId === item.id}
+                              type="button"
+                            >
+                              {deletingNextActionId === item.id ? "Deleting..." : "Delete"}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+
+                  </>
+                )}
+
+                {activeDetailTab === "network" && (
+                  <>
               <div className="detail-section">
                 <p className="detail-label">Co-Investor Partners</p>
                 {selectedRecord.partners.length === 0 ? (
@@ -1319,6 +1868,8 @@ export function CoInvestorWorkbench() {
                   ))
                 )}
               </div>
+                  </>
+                )}
             </div>
           )}
         </section>

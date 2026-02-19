@@ -7,7 +7,6 @@ import {
   InlineTextField,
   InlineTextareaField
 } from "./inline-detail-field";
-import { SearchMatchModal } from "./search-match-modal";
 
 type SearchCandidate = {
   name: string;
@@ -17,14 +16,6 @@ type SearchCandidate = {
   headquartersCountry?: string;
   summary?: string;
   sourceUrls: string[];
-};
-
-type ManualSearchCandidate = {
-  name: string;
-  website: string;
-  headquartersCity: string;
-  headquartersState: string;
-  headquartersCountry: string;
 };
 
 type HealthSystemRecord = {
@@ -176,10 +167,6 @@ function statusClass(status: HealthSystemRecord["researchStatus"]) {
   return "draft";
 }
 
-function isResearchInProgress(status: HealthSystemRecord["researchStatus"]) {
-  return status === "QUEUED" || status === "RUNNING";
-}
-
 function toNullableBoolean(value: "null" | "true" | "false") {
   if (value === "null") return null;
   return value === "true";
@@ -268,17 +255,6 @@ export function HealthSystemWorkbench() {
   const [searchingCandidates, setSearchingCandidates] = useState(false);
   const [searchCandidateError, setSearchCandidateError] = useState<string | null>(null);
   const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(-1);
-  const [searchMatchCandidateCache] = useState(() => new Map<string, SearchCandidate[]>());
-  const [searchAbortController, setSearchAbortController] = useState<AbortController | null>(null);
-  const [matchModalOpen, setMatchModalOpen] = useState(false);
-  const [matchModalManualMode, setMatchModalManualMode] = useState(false);
-  const [manualMatchCandidate, setManualMatchCandidate] = useState<ManualSearchCandidate>({
-    name: "",
-    website: "",
-    headquartersCity: "",
-    headquartersState: "",
-    headquartersCountry: ""
-  });
   const [status, setStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [addingContact, setAddingContact] = useState(false);
   const [contactName, setContactName] = useState("");
@@ -367,48 +343,8 @@ export function HealthSystemWorkbench() {
 
   const createButtonDisabled =
     creatingFromSearch ||
-    (matchModalManualMode
-      ? !manualMatchCandidate.name.trim()
-      : searchingCandidates ||
-        (searchCandidates.length > 1 && selectedCandidate === null));
-
-  function beginManualMatchEntry() {
-    setMatchModalManualMode(true);
-    setSearchAbortController((previous) => {
-      previous?.abort();
-      return previous;
-    });
-    setSearchingCandidates(false);
-    setSearchCandidateError(null);
-    setSearchCandidates([]);
-    setCandidateSearchQuery(query.trim());
-    setSelectedCandidateIndex(-1);
-  }
-
-  function openCreateMatchModal() {
-    const term = query.trim();
-    if (!term || !shouldOfferCreate) {
-      return;
-    }
-
-    setManualMatchCandidate((prev) => {
-      if (prev.name === term) {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        name: term
-      };
-    });
-    setSearchCandidates([]);
-    setCandidateSearchQuery("");
-    setSelectedCandidateIndex(-1);
-    setSearchCandidateError(null);
-    setSearchingCandidates(false);
-    setMatchModalManualMode(false);
-    setMatchModalOpen(true);
-  }
+    searchingCandidates ||
+    (searchCandidates.length > 1 && selectedCandidate === null);
 
   async function loadReferenceRecords() {
     const [coInvestorRes, companyRes] = await Promise.all([fetch("/api/co-investors"), fetch("/api/companies")]);
@@ -461,16 +397,11 @@ export function HealthSystemWorkbench() {
     }
   }
 
-  async function searchCandidateMatches(
-    term: string,
-    options?: { signal?: AbortSignal }
-  ): Promise<SearchCandidate[]> {
-    const trimmed = term.trim();
+  async function searchCandidateMatches(term: string): Promise<SearchCandidate[]> {
     const searchRes = await fetch("/api/health-systems/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: trimmed }),
-      signal: options?.signal
+      body: JSON.stringify({ query: term })
     });
 
     if (!searchRes.ok) {
@@ -496,10 +427,7 @@ export function HealthSystemWorkbench() {
 
     try {
       let candidates = searchCandidates;
-      if (
-        !matchModalManualMode &&
-        (candidateSearchQuery !== term || candidates.length === 0)
-      ) {
+      if (candidateSearchQuery !== term || candidates.length === 0) {
         candidates = await searchCandidateMatches(term);
         setSearchCandidates(candidates);
         setCandidateSearchQuery(term);
@@ -511,31 +439,14 @@ export function HealthSystemWorkbench() {
         }
       }
 
-      if (!matchModalManualMode && candidates.length > 1 && selectedCandidateIndex < 0) {
+      if (candidates.length > 1 && selectedCandidateIndex < 0) {
         throw new Error("Select one matching health system before creating.");
       }
 
-      const candidate = matchModalManualMode
-        ? {
-            name: manualMatchCandidate.name || term,
-            website: manualMatchCandidate.website,
-            headquartersCity: manualMatchCandidate.headquartersCity,
-            headquartersState: manualMatchCandidate.headquartersState,
-            headquartersCountry: manualMatchCandidate.headquartersCountry,
-            summary: "Created from manual entry.",
-            sourceUrls: []
-          }
-        : candidates.length > 0
+      const candidate =
+        candidates.length > 0
           ? candidates[selectedCandidateIndex >= 0 ? selectedCandidateIndex : 0]
-          : {
-              name: manualMatchCandidate.name || term,
-              website: manualMatchCandidate.website,
-              headquartersCity: manualMatchCandidate.headquartersCity,
-              headquartersState: manualMatchCandidate.headquartersState,
-              headquartersCountry: manualMatchCandidate.headquartersCountry,
-              summary: "Created from manual entry.",
-              sourceUrls: []
-            };
+          : buildFallbackCandidate(term);
 
       const duplicateRecord = findDuplicateRecord(records, candidate);
       if (duplicateRecord) {
@@ -576,16 +487,6 @@ export function HealthSystemWorkbench() {
       setCandidateSearchQuery("");
       setSelectedCandidateIndex(-1);
       setSearchCandidateError(null);
-      setMatchModalOpen(false);
-      setMatchModalManualMode(false);
-      setManualMatchCandidate({
-        name: "",
-        website: "",
-        headquartersCity: "",
-        headquartersState: "",
-        headquartersCountry: ""
-      });
-      await loadRecords();
       await runQueuedAgent(1);
     } catch (error) {
       setStatus({
@@ -656,11 +557,7 @@ export function HealthSystemWorkbench() {
     setEditingContactEmail(link.contact.email || "");
     setEditingContactPhone(link.contact.phone || "");
     setEditingContactLinkedinUrl(link.contact.linkedinUrl || "");
-    const normalizedRoleType =
-      link.roleType === "EXECUTIVE" || link.roleType === "VENTURE_PARTNER" || link.roleType === "OTHER"
-        ? link.roleType
-        : "OTHER";
-    setEditingContactRoleType(normalizedRoleType);
+    setEditingContactRoleType(link.roleType === "EXECUTIVE" || link.roleType === "VENTURE_PARTNER" ? link.roleType : "OTHER");
     setStatus(null);
   }
 
@@ -1165,11 +1062,7 @@ export function HealthSystemWorkbench() {
   }, [hasPending]);
 
   useEffect(() => {
-    if (!matchModalOpen) return;
-
     if (!shouldOfferCreate) {
-      setMatchModalOpen(false);
-      setMatchModalManualMode(false);
       setSearchCandidates([]);
       setCandidateSearchQuery("");
       setSelectedCandidateIndex(-1);
@@ -1181,36 +1074,6 @@ export function HealthSystemWorkbench() {
     const term = query.trim();
     if (!term) return;
 
-    if (matchModalManualMode) {
-      return;
-    }
-
-    setManualMatchCandidate((prev) => {
-      if (prev.name === term) {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        name: term
-      };
-    });
-
-    const cachedCandidates = searchMatchCandidateCache.get(term.toLowerCase());
-    if (cachedCandidates) {
-      setSearchCandidates(cachedCandidates);
-      setCandidateSearchQuery(term);
-      setSelectedCandidateIndex(cachedCandidates.length === 1 ? 0 : -1);
-      setSearchingCandidates(false);
-      setSearchCandidateError(null);
-      return;
-    }
-
-    searchAbortController?.abort();
-
-    const controller = new AbortController();
-    setSearchAbortController(controller);
-
     let active = true;
 
     const timeout = setTimeout(async () => {
@@ -1218,17 +1081,13 @@ export function HealthSystemWorkbench() {
       setSearchCandidateError(null);
 
       try {
-        const candidates = await searchCandidateMatches(term, { signal: controller.signal });
+        const candidates = await searchCandidateMatches(term);
         if (!active) return;
-        if (!controller.signal.aborted) {
-          searchMatchCandidateCache.set(term.toLowerCase(), candidates);
-        }
         setSearchCandidates(candidates);
         setCandidateSearchQuery(term);
         setSelectedCandidateIndex(candidates.length === 1 ? 0 : -1);
       } catch (error) {
         if (!active) return;
-        if (error instanceof DOMException && error.name === "AbortError") return;
         setSearchCandidates([]);
         setCandidateSearchQuery(term);
         setSelectedCandidateIndex(-1);
@@ -1243,9 +1102,8 @@ export function HealthSystemWorkbench() {
     return () => {
       active = false;
       clearTimeout(timeout);
-      controller.abort();
     };
-  }, [matchModalOpen, query, shouldOfferCreate, matchModalManualMode]);
+  }, [shouldOfferCreate, query]);
 
   useEffect(() => {
     if (filteredRecords.length === 0) {
@@ -1307,8 +1165,8 @@ export function HealthSystemWorkbench() {
             }}
           />
 
-              {shouldOfferCreate && (
-                <div className="create-card">
+          {query.trim().length >= 2 && (
+            <div className="create-card">
               <p className="create-title">New Health System Relationship</p>
               <p className="muted">
                 If this search becomes a new health system, set these flags before creating.
@@ -1336,57 +1194,79 @@ export function HealthSystemWorkbench() {
                   Alliance Member
                 </label>
               </div>
-                {newIsLimitedPartner && (
-                  <div>
-                    <label>LP Investment Amount (USD)</label>
-                    <input
-                      value={newLimitedPartnerInvestmentUsd}
-                      onChange={(event) => setNewLimitedPartnerInvestmentUsd(event.target.value)}
-                      placeholder="e.g. 2500000"
-                    />
-                  </div>
-                )}
+              {newIsLimitedPartner && (
+                <div>
+                  <label>LP Investment Amount (USD)</label>
+                  <input
+                    value={newLimitedPartnerInvestmentUsd}
+                    onChange={(event) => setNewLimitedPartnerInvestmentUsd(event.target.value)}
+                    placeholder="e.g. 2500000"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {shouldOfferCreate && (
+            <div className="create-card">
+              <p className="create-title">No health systems match "{query.trim()}".</p>
+              <p className="muted">Create a new health system and launch the research agent?</p>
+
+              {searchingCandidates && <p className="muted">Searching for possible online matches...</p>}
+
+              {searchCandidateError && <p className="status error">{searchCandidateError}</p>}
+
+              {searchCandidates.length > 0 && (
+                <div className="candidate-list">
+                  {searchCandidates.length > 1 && (
+                    <p className="detail-label">Select the health system match:</p>
+                  )}
+                  {searchCandidates.map((candidate, index) => {
+                    const location = formatLocation(candidate);
+                    const isSelected = selectedCandidateIndex === index;
+                    return (
+                      <label
+                        key={`${candidate.name}-${candidate.headquartersCity || "unknown"}-${index}`}
+                        className={`candidate-option ${isSelected ? "selected" : ""}`}
+                      >
+                        <input
+                          type="radio"
+                          name="health-system-candidate"
+                          checked={isSelected}
+                          onChange={() => setSelectedCandidateIndex(index)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                          }}
+                        />
+                        <div>
+                          <div className="candidate-name">{candidate.name}</div>
+                          <div className="candidate-location muted">
+                            {location || "Location not identified"}
+                          </div>
+                          {candidate.website && <div className="candidate-location muted">{candidate.website}</div>}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+
               <div className="actions">
-                <button className="primary" type="button" onClick={openCreateMatchModal}>
-                  Search online
+                <button
+                  className="primary"
+                  onClick={createAndResearchFromSearchTerm}
+                  disabled={createButtonDisabled}
+                  title={
+                    searchCandidates.length > 1 && selectedCandidate === null
+                      ? "Select a match before creating"
+                      : undefined
+                  }
+                >
+                  {createButtonDisabled ? (searchingCandidates ? "Checking matches..." : "Select a match") : "Create + Start Research"}
                 </button>
               </div>
-              </div>
-            )}
-
-          <SearchMatchModal
-            isOpen={matchModalOpen}
-            title="Health System not found"
-            query={query.trim()}
-            searching={searchingCandidates}
-            candidates={searchCandidates}
-            selectedCandidateIndex={selectedCandidateIndex}
-            searchError={searchCandidateError}
-            manualCandidateEnabled={!searchingCandidates && searchCandidates.length === 0}
-            isManualMode={matchModalManualMode}
-            onSelectCandidate={setSelectedCandidateIndex}
-            manualCandidate={manualMatchCandidate}
-            onManualCandidateChange={(candidate) =>
-              setManualMatchCandidate((current) => ({
-                ...current,
-                ...candidate
-              }))
-            }
-            onCreateManually={() => void beginManualMatchEntry()}
-            submitLabel={
-              createButtonDisabled
-                ? searchingCandidates
-                  ? "Checking matches..."
-                  : "Create + Start Research"
-                : "Create + Start Research"
-            }
-            onSubmit={() => void createAndResearchFromSearchTerm()}
-            onClose={() => {
-              setMatchModalOpen(false);
-              setMatchModalManualMode(false);
-            }}
-            submitDisabled={createButtonDisabled}
-          />
+            </div>
+          )}
 
           <div className="list-container">
             {filteredRecords.length === 0 && !shouldOfferCreate && (
@@ -1454,50 +1334,42 @@ export function HealthSystemWorkbench() {
 
               <div className="detail-grid">
                 <InlineTextField
-                  kind="text"
                   label="Name"
                   value={detailDraft.name}
                   onSave={(value) => updateDetailDraft({ name: value })}
                 />
                 <InlineTextField
-                  kind="text"
                   label="Legal Name"
                   value={detailDraft.legalName}
                   onSave={(value) => updateDetailDraft({ legalName: value })}
                 />
                 <InlineTextField
-                  kind="text"
                   label="Website"
                   value={detailDraft.website}
                   onSave={(value) => updateDetailDraft({ website: value })}
                 />
                 <InlineTextField
-                  kind="text"
                   label="Net Patient Revenue (USD)"
                   value={detailDraft.netPatientRevenueUsd}
                   inputType="number"
                   onSave={(value) => updateDetailDraft({ netPatientRevenueUsd: value })}
                 />
                 <InlineTextField
-                  kind="text"
                   label="HQ City"
                   value={detailDraft.headquartersCity}
                   onSave={(value) => updateDetailDraft({ headquartersCity: value })}
                 />
                 <InlineTextField
-                  kind="text"
                   label="HQ State"
                   value={detailDraft.headquartersState}
                   onSave={(value) => updateDetailDraft({ headquartersState: value })}
                 />
                 <InlineTextField
-                  kind="text"
                   label="HQ Country"
                   value={detailDraft.headquartersCountry}
                   onSave={(value) => updateDetailDraft({ headquartersCountry: value })}
                 />
                 <InlineBooleanField
-                  kind="boolean"
                   label="Limited Partner"
                   value={detailDraft.isLimitedPartner}
                   onSave={(nextValue) => {
@@ -1511,7 +1383,6 @@ export function HealthSystemWorkbench() {
                 />
                 {detailDraft.isLimitedPartner && (
                   <InlineTextField
-                    kind="text"
                     label="LP Investment Amount (USD)"
                     value={detailDraft.limitedPartnerInvestmentUsd}
                     inputType="number"
@@ -1519,7 +1390,6 @@ export function HealthSystemWorkbench() {
                   />
                 )}
                 <InlineBooleanField
-                  kind="boolean"
                   label="Alliance Member"
                   value={detailDraft.isAllianceMember}
                   onSave={(value) => updateDetailDraft({ isAllianceMember: value })}
@@ -1527,7 +1397,6 @@ export function HealthSystemWorkbench() {
                   falseLabel="No"
                 />
                 <InlineSelectField
-                  kind="select"
                   label="Innovation Team"
                   value={detailDraft.hasInnovationTeam}
                   onSave={(value) =>
@@ -1540,7 +1409,6 @@ export function HealthSystemWorkbench() {
                   ]}
                 />
                 <InlineSelectField
-                  kind="select"
                   label="Venture Team"
                   value={detailDraft.hasVentureTeam}
                   onSave={(value) =>
@@ -1556,7 +1424,7 @@ export function HealthSystemWorkbench() {
 
               <div className="detail-section">
                 <InlineTextareaField
-                  kind="textarea"
+                  multiline
                   label="Venture Team Summary"
                   value={detailDraft.ventureTeamSummary}
                   onSave={(value) => updateDetailDraft({ ventureTeamSummary: value })}
@@ -1565,7 +1433,7 @@ export function HealthSystemWorkbench() {
 
               <div className="detail-section">
                 <InlineTextareaField
-                  kind="textarea"
+                  multiline
                   label="Research Notes"
                   value={detailDraft.researchNotes}
                   onSave={(value) => updateDetailDraft({ researchNotes: value })}
@@ -1581,9 +1449,6 @@ export function HealthSystemWorkbench() {
 
               <div className="detail-section">
                 <p className="detail-label">Contacts</p>
-                {isResearchInProgress(selectedRecord.researchStatus) ? (
-                  <p className="muted">Research is underway, contact discovery may appear shortly.</p>
-                ) : null}
                 {selectedRecord.contactLinks.length === 0 ? (
                   <p className="muted">No contacts linked yet.</p>
                 ) : (

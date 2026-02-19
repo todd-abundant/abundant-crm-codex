@@ -1803,56 +1803,47 @@ export function CompanyWorkbench() {
 
               <div className="detail-grid">
                 <InlineTextField
-                  kind="text"
                   label="Name"
                   value={detailDraft.name}
                   onSave={(value) => updateDetailDraft({ name: value })}
                 />
                 <InlineTextField
-                  kind="text"
                   label="Legal Name"
                   value={detailDraft.legalName}
                   onSave={(value) => updateDetailDraft({ legalName: value })}
                 />
                 <InlineTextField
-                  kind="text"
                   label="Website"
                   value={detailDraft.website}
                   onSave={(value) => updateDetailDraft({ website: value })}
                 />
                 <InlineTextField
-                  kind="text"
                   label="Google Transcript Doc URL"
                   value={detailDraft.googleTranscriptUrl}
                   onSave={(value) => updateDetailDraft({ googleTranscriptUrl: value })}
                 />
                 <InlineTextField
-                  kind="text"
                   label="HQ City"
                   value={detailDraft.headquartersCity}
                   onSave={(value) => updateDetailDraft({ headquartersCity: value })}
                 />
                 <InlineTextField
-                  kind="text"
                   label="HQ State"
                   value={detailDraft.headquartersState}
                   onSave={(value) => updateDetailDraft({ headquartersState: value })}
                 />
                 <InlineTextField
-                  kind="text"
                   label="HQ Country"
                   value={detailDraft.headquartersCountry}
                   onSave={(value) => updateDetailDraft({ headquartersCountry: value })}
                 />
                 <InlineSelectField
-                  kind="select"
                   label="Company Type"
                   value={detailDraft.companyType}
                   onSave={(value) => updateDetailDraft({ companyType: value as CompanyType })}
                   options={companyTypeOptions}
                 />
                 <InlineSelectField
-                  kind="select"
                   label="Primary Category"
                   value={detailDraft.primaryCategory}
                   onSave={(value) => updateDetailDraft({ primaryCategory: value as PrimaryCategory })}
@@ -1860,14 +1851,12 @@ export function CompanyWorkbench() {
                 />
                 {detailDraft.primaryCategory === "OTHER" && (
                   <InlineTextField
-                    kind="text"
                     label="Primary Category (Other)"
                     value={detailDraft.primaryCategoryOther}
                     onSave={(value) => updateDetailDraft({ primaryCategoryOther: value })}
                   />
                 )}
                 <InlineSelectField
-                  kind="select"
                   label="Decline Reason"
                   value={detailDraft.declineReason}
                   onSave={(value) => updateDetailDraft({ declineReason: value as DeclineReason | "" })}
@@ -1875,14 +1864,12 @@ export function CompanyWorkbench() {
                 />
                 {detailDraft.declineReason === "OTHER" && (
                   <InlineTextField
-                    kind="text"
                     label="Decline Reason (Other)"
                     value={detailDraft.declineReasonOther}
                     onSave={(value) => updateDetailDraft({ declineReasonOther: value })}
                   />
                 )}
                 <InlineSelectField
-                  kind="select"
                   label="Lead Source"
                   value={detailDraft.leadSourceType}
                   onSave={(value) =>
@@ -1942,7 +1929,6 @@ export function CompanyWorkbench() {
                   </div>
                 ) : (
                   <InlineTextField
-                    kind="text"
                     label="Lead Source (Other)"
                     value={detailDraft.leadSourceOther}
                     onSave={(value) => updateDetailDraft({ leadSourceOther: value })}
@@ -1955,14 +1941,12 @@ export function CompanyWorkbench() {
                 </datalist>
                 {detailDraft.companyType === "SPIN_OUT" && (
                   <InlineTextField
-                    kind="text"
                     label="Spin-out Ownership %"
                     value={detailDraft.spinOutOwnershipPercent}
                     onSave={(value) => updateDetailDraft({ spinOutOwnershipPercent: value })}
                   />
                 )}
                 <InlineTextField
-                  kind="text"
                   inputType="date"
                   label="Intake Date"
                   value={detailDraft.intakeScheduledAt}
@@ -1973,7 +1957,7 @@ export function CompanyWorkbench() {
 
               <div className="detail-section">
                 <InlineTextareaField
-                  kind="textarea"
+                  multiline
                   label="Description"
                   value={detailDraft.description}
                   onSave={(value) => updateDetailDraft({ description: value })}
@@ -1982,7 +1966,7 @@ export function CompanyWorkbench() {
 
               <div className="detail-section">
                 <InlineTextareaField
-                  kind="textarea"
+                  multiline
                   label="Research Notes"
                   value={detailDraft.researchNotes}
                   onSave={(value) => updateDetailDraft({ researchNotes: value })}

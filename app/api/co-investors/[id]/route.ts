@@ -32,6 +32,14 @@ export async function PATCH(
           include: { contact: true }
         },
         investments: true,
+        interactions: {
+          orderBy: { occurredAt: "desc" },
+          take: 25
+        },
+        nextActions: {
+          orderBy: [{ status: "asc" }, { dueAt: "asc" }, { createdAt: "desc" }],
+          take: 25
+        },
         researchJobs: {
           orderBy: { createdAt: "desc" },
           take: 1
