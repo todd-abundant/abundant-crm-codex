@@ -44,7 +44,7 @@ function parseDate(value?: string | null) {
 
 function buildInvestmentUpdatePayload(
   input: z.infer<typeof patchRequestSchema>,
-  companyName?: string | null
+  companyName?: string
 ) {
   const update: Prisma.HealthSystemInvestmentUpdateInput = {};
 
@@ -160,7 +160,7 @@ export async function PATCH(
         throw new Error("Health system investment not found");
       }
 
-      let companyName: string | null | undefined;
+      let companyName: string | undefined;
       if (input.companyId !== undefined) {
         const company = await tx.company.findUnique({
           where: { id: input.companyId },

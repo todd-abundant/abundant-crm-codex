@@ -7,6 +7,7 @@ import {
   InlineTextField,
   InlineTextareaField
 } from "./inline-detail-field";
+import { SearchMatchModal } from "./search-match-modal";
 
 type SearchCandidate = {
   name: string;
@@ -16,6 +17,14 @@ type SearchCandidate = {
   headquartersCountry?: string;
   summary?: string;
   sourceUrls: string[];
+};
+
+type ManualSearchCandidate = {
+  name: string;
+  website: string;
+  headquartersCity: string;
+  headquartersState: string;
+  headquartersCountry: string;
 };
 
 type HealthSystemRecord = {
@@ -255,6 +264,17 @@ export function HealthSystemWorkbench() {
   const [searchingCandidates, setSearchingCandidates] = useState(false);
   const [searchCandidateError, setSearchCandidateError] = useState<string | null>(null);
   const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(-1);
+  const [searchMatchCandidateCache] = useState(() => new Map<string, SearchCandidate[]>());
+  const [searchAbortController, setSearchAbortController] = useState<AbortController | null>(null);
+  const [matchModalOpen, setMatchModalOpen] = useState(false);
+  const [matchModalManualMode, setMatchModalManualMode] = useState(false);
+  const [manualMatchCandidate, setManualMatchCandidate] = useState<ManualSearchCandidate>({
+    name: "",
+    website: "",
+    headquartersCity: "",
+    headquartersState: "",
+    headquartersCountry: ""
+  });
   const [status, setStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [addingContact, setAddingContact] = useState(false);
   const [contactName, setContactName] = useState("");
@@ -343,8 +363,48 @@ export function HealthSystemWorkbench() {
 
   const createButtonDisabled =
     creatingFromSearch ||
-    searchingCandidates ||
-    (searchCandidates.length > 1 && selectedCandidate === null);
+    (matchModalManualMode
+      ? !manualMatchCandidate.name.trim()
+      : searchingCandidates ||
+        (searchCandidates.length > 1 && selectedCandidate === null));
+
+  function beginManualMatchEntry() {
+    setMatchModalManualMode(true);
+    setSearchAbortController((previous) => {
+      previous?.abort();
+      return previous;
+    });
+    setSearchingCandidates(false);
+    setSearchCandidateError(null);
+    setSearchCandidates([]);
+    setCandidateSearchQuery(query.trim());
+    setSelectedCandidateIndex(-1);
+  }
+
+  function openCreateMatchModal() {
+    const term = query.trim();
+    if (!term || !shouldOfferCreate) {
+      return;
+    }
+
+    setManualMatchCandidate((prev) => {
+      if (prev.name === term) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        name: term
+      };
+    });
+    setSearchCandidates([]);
+    setCandidateSearchQuery("");
+    setSelectedCandidateIndex(-1);
+    setSearchCandidateError(null);
+    setSearchingCandidates(false);
+    setMatchModalManualMode(false);
+    setMatchModalOpen(true);
+  }
 
   async function loadReferenceRecords() {
     const [coInvestorRes, companyRes] = await Promise.all([fetch("/api/co-investors"), fetch("/api/companies")]);
@@ -397,11 +457,16 @@ export function HealthSystemWorkbench() {
     }
   }
 
-  async function searchCandidateMatches(term: string): Promise<SearchCandidate[]> {
+  async function searchCandidateMatches(
+    term: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<SearchCandidate[]> {
+    const trimmed = term.trim();
     const searchRes = await fetch("/api/health-systems/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: term })
+      body: JSON.stringify({ query: trimmed }),
+      signal: options?.signal
     });
 
     if (!searchRes.ok) {
@@ -427,7 +492,10 @@ export function HealthSystemWorkbench() {
 
     try {
       let candidates = searchCandidates;
-      if (candidateSearchQuery !== term || candidates.length === 0) {
+      if (
+        !matchModalManualMode &&
+        (candidateSearchQuery !== term || candidates.length === 0)
+      ) {
         candidates = await searchCandidateMatches(term);
         setSearchCandidates(candidates);
         setCandidateSearchQuery(term);
@@ -439,14 +507,31 @@ export function HealthSystemWorkbench() {
         }
       }
 
-      if (candidates.length > 1 && selectedCandidateIndex < 0) {
+      if (!matchModalManualMode && candidates.length > 1 && selectedCandidateIndex < 0) {
         throw new Error("Select one matching health system before creating.");
       }
 
-      const candidate =
-        candidates.length > 0
+      const candidate = matchModalManualMode
+        ? {
+            name: manualMatchCandidate.name || term,
+            website: manualMatchCandidate.website,
+            headquartersCity: manualMatchCandidate.headquartersCity,
+            headquartersState: manualMatchCandidate.headquartersState,
+            headquartersCountry: manualMatchCandidate.headquartersCountry,
+            summary: "Created from manual entry.",
+            sourceUrls: []
+          }
+        : candidates.length > 0
           ? candidates[selectedCandidateIndex >= 0 ? selectedCandidateIndex : 0]
-          : buildFallbackCandidate(term);
+          : {
+              name: manualMatchCandidate.name || term,
+              website: manualMatchCandidate.website,
+              headquartersCity: manualMatchCandidate.headquartersCity,
+              headquartersState: manualMatchCandidate.headquartersState,
+              headquartersCountry: manualMatchCandidate.headquartersCountry,
+              summary: "Created from manual entry.",
+              sourceUrls: []
+            };
 
       const duplicateRecord = findDuplicateRecord(records, candidate);
       if (duplicateRecord) {
@@ -487,6 +572,16 @@ export function HealthSystemWorkbench() {
       setCandidateSearchQuery("");
       setSelectedCandidateIndex(-1);
       setSearchCandidateError(null);
+      setMatchModalOpen(false);
+      setMatchModalManualMode(false);
+      setManualMatchCandidate({
+        name: "",
+        website: "",
+        headquartersCity: "",
+        headquartersState: "",
+        headquartersCountry: ""
+      });
+      await loadRecords();
       await runQueuedAgent(1);
     } catch (error) {
       setStatus({
@@ -557,7 +652,11 @@ export function HealthSystemWorkbench() {
     setEditingContactEmail(link.contact.email || "");
     setEditingContactPhone(link.contact.phone || "");
     setEditingContactLinkedinUrl(link.contact.linkedinUrl || "");
-    setEditingContactRoleType(link.roleType);
+    const normalizedRoleType =
+      link.roleType === "EXECUTIVE" || link.roleType === "VENTURE_PARTNER" || link.roleType === "OTHER"
+        ? link.roleType
+        : "OTHER";
+    setEditingContactRoleType(normalizedRoleType);
     setStatus(null);
   }
 
@@ -1062,7 +1161,11 @@ export function HealthSystemWorkbench() {
   }, [hasPending]);
 
   useEffect(() => {
+    if (!matchModalOpen) return;
+
     if (!shouldOfferCreate) {
+      setMatchModalOpen(false);
+      setMatchModalManualMode(false);
       setSearchCandidates([]);
       setCandidateSearchQuery("");
       setSelectedCandidateIndex(-1);
@@ -1074,6 +1177,36 @@ export function HealthSystemWorkbench() {
     const term = query.trim();
     if (!term) return;
 
+    if (matchModalManualMode) {
+      return;
+    }
+
+    setManualMatchCandidate((prev) => {
+      if (prev.name === term) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        name: term
+      };
+    });
+
+    const cachedCandidates = searchMatchCandidateCache.get(term.toLowerCase());
+    if (cachedCandidates) {
+      setSearchCandidates(cachedCandidates);
+      setCandidateSearchQuery(term);
+      setSelectedCandidateIndex(cachedCandidates.length === 1 ? 0 : -1);
+      setSearchingCandidates(false);
+      setSearchCandidateError(null);
+      return;
+    }
+
+    searchAbortController?.abort();
+
+    const controller = new AbortController();
+    setSearchAbortController(controller);
+
     let active = true;
 
     const timeout = setTimeout(async () => {
@@ -1081,13 +1214,17 @@ export function HealthSystemWorkbench() {
       setSearchCandidateError(null);
 
       try {
-        const candidates = await searchCandidateMatches(term);
+        const candidates = await searchCandidateMatches(term, { signal: controller.signal });
         if (!active) return;
+        if (!controller.signal.aborted) {
+          searchMatchCandidateCache.set(term.toLowerCase(), candidates);
+        }
         setSearchCandidates(candidates);
         setCandidateSearchQuery(term);
         setSelectedCandidateIndex(candidates.length === 1 ? 0 : -1);
       } catch (error) {
         if (!active) return;
+        if (error instanceof DOMException && error.name === "AbortError") return;
         setSearchCandidates([]);
         setCandidateSearchQuery(term);
         setSelectedCandidateIndex(-1);
@@ -1102,8 +1239,9 @@ export function HealthSystemWorkbench() {
     return () => {
       active = false;
       clearTimeout(timeout);
+      controller.abort();
     };
-  }, [shouldOfferCreate, query]);
+  }, [matchModalOpen, query, shouldOfferCreate, matchModalManualMode]);
 
   useEffect(() => {
     if (filteredRecords.length === 0) {
@@ -1165,8 +1303,8 @@ export function HealthSystemWorkbench() {
             }}
           />
 
-          {query.trim().length >= 2 && (
-            <div className="create-card">
+              {shouldOfferCreate && (
+                <div className="create-card">
               <p className="create-title">New Health System Relationship</p>
               <p className="muted">
                 If this search becomes a new health system, set these flags before creating.
@@ -1194,79 +1332,57 @@ export function HealthSystemWorkbench() {
                   Alliance Member
                 </label>
               </div>
-              {newIsLimitedPartner && (
-                <div>
-                  <label>LP Investment Amount (USD)</label>
-                  <input
-                    value={newLimitedPartnerInvestmentUsd}
-                    onChange={(event) => setNewLimitedPartnerInvestmentUsd(event.target.value)}
-                    placeholder="e.g. 2500000"
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          {shouldOfferCreate && (
-            <div className="create-card">
-              <p className="create-title">No health systems match "{query.trim()}".</p>
-              <p className="muted">Create a new health system and launch the research agent?</p>
-
-              {searchingCandidates && <p className="muted">Searching for possible online matches...</p>}
-
-              {searchCandidateError && <p className="status error">{searchCandidateError}</p>}
-
-              {searchCandidates.length > 0 && (
-                <div className="candidate-list">
-                  {searchCandidates.length > 1 && (
-                    <p className="detail-label">Select the health system match:</p>
-                  )}
-                  {searchCandidates.map((candidate, index) => {
-                    const location = formatLocation(candidate);
-                    const isSelected = selectedCandidateIndex === index;
-                    return (
-                      <label
-                        key={`${candidate.name}-${candidate.headquartersCity || "unknown"}-${index}`}
-                        className={`candidate-option ${isSelected ? "selected" : ""}`}
-                      >
-                        <input
-                          type="radio"
-                          name="health-system-candidate"
-                          checked={isSelected}
-                          onChange={() => setSelectedCandidateIndex(index)}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                          }}
-                        />
-                        <div>
-                          <div className="candidate-name">{candidate.name}</div>
-                          <div className="candidate-location muted">
-                            {location || "Location not identified"}
-                          </div>
-                          {candidate.website && <div className="candidate-location muted">{candidate.website}</div>}
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-
+                {newIsLimitedPartner && (
+                  <div>
+                    <label>LP Investment Amount (USD)</label>
+                    <input
+                      value={newLimitedPartnerInvestmentUsd}
+                      onChange={(event) => setNewLimitedPartnerInvestmentUsd(event.target.value)}
+                      placeholder="e.g. 2500000"
+                    />
+                  </div>
+                )}
               <div className="actions">
-                <button
-                  className="primary"
-                  onClick={createAndResearchFromSearchTerm}
-                  disabled={createButtonDisabled}
-                  title={
-                    searchCandidates.length > 1 && selectedCandidate === null
-                      ? "Select a match before creating"
-                      : undefined
-                  }
-                >
-                  {createButtonDisabled ? (searchingCandidates ? "Checking matches..." : "Select a match") : "Create + Start Research"}
+                <button className="primary" type="button" onClick={openCreateMatchModal}>
+                  Create new entry
                 </button>
               </div>
-            </div>
-          )}
+              </div>
+            )}
+
+          <SearchMatchModal
+            isOpen={matchModalOpen}
+            title="Health System not found"
+            query={query.trim()}
+            searching={searchingCandidates}
+            candidates={searchCandidates}
+            selectedCandidateIndex={selectedCandidateIndex}
+            searchError={searchCandidateError}
+            manualCandidateEnabled={!searchingCandidates && searchCandidates.length === 0}
+            isManualMode={matchModalManualMode}
+            onSelectCandidate={setSelectedCandidateIndex}
+            manualCandidate={manualMatchCandidate}
+            onManualCandidateChange={(candidate) =>
+              setManualMatchCandidate((current) => ({
+                ...current,
+                ...candidate
+              }))
+            }
+            onCreateManually={() => void beginManualMatchEntry()}
+            submitLabel={
+              createButtonDisabled
+                ? searchingCandidates
+                  ? "Checking matches..."
+                  : "Create + Start Research"
+                : "Create + Start Research"
+            }
+            onSubmit={() => void createAndResearchFromSearchTerm()}
+            onClose={() => {
+              setMatchModalOpen(false);
+              setMatchModalManualMode(false);
+            }}
+            submitDisabled={createButtonDisabled}
+          />
 
           <div className="list-container">
             {filteredRecords.length === 0 && !shouldOfferCreate && (

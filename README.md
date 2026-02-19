@@ -43,10 +43,10 @@ cp .env.example .env
 
 3. Ensure `DATABASE_URL` points at your local Postgres instance.
 
-4. Push schema to Postgres
+4. Sync database schema
 
 ```bash
-npm run db:push
+npm run db:sync
 ```
 
 5. Start app
@@ -56,6 +56,8 @@ npm run dev
 ```
 
 Open http://localhost:3000.
+
+For day-to-day collaboration commands (pull, push, conflict handling, and database updates), see `docs/team-git-db-workflow.md`.
 
 ## Notes
 

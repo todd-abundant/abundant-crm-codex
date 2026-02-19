@@ -25,7 +25,7 @@ type TextAreaFieldProps = {
   onSave: (value: string) => void;
   placeholder?: string;
   emptyText?: string;
-  multiline: true;
+  multiline?: true;
 };
 
 type SelectFieldProps = {
@@ -65,7 +65,7 @@ export function InlineTextField({
   inputType = "text",
   placeholder,
   emptyText = emptyDisplayDefault
-}: Omit<TextFieldProps, "kind">) {
+}: Omit<TextFieldProps, "kind"> & { kind?: "text" }) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(value);
 
@@ -133,7 +133,7 @@ export function InlineTextareaField({
   onSave,
   placeholder,
   emptyText = emptyDisplayDefault
-}: Omit<TextAreaFieldProps, "kind">) {
+}: Omit<TextAreaFieldProps, "kind"> & { kind?: "textarea" }) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(value);
 
@@ -190,7 +190,7 @@ export function InlineSelectField({
   onSave,
   options,
   emptyText = emptyDisplayDefault
-}: Omit<SelectFieldProps, "kind">) {
+}: Omit<SelectFieldProps, "kind"> & { kind?: "select" }) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(value);
 
@@ -256,7 +256,7 @@ export function InlineBooleanField({
   onSave,
   trueLabel = "Yes",
   falseLabel = "No"
-}: Omit<BooleanFieldProps, "kind">) {
+}: Omit<BooleanFieldProps, "kind"> & { kind?: "boolean" }) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(value);
 

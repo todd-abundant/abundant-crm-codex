@@ -6,6 +6,7 @@ import {
   InlineTextField,
   InlineTextareaField
 } from "./inline-detail-field";
+import { SearchMatchModal } from "./search-match-modal";
 
 type SearchCandidate = {
   name: string;
@@ -15,6 +16,14 @@ type SearchCandidate = {
   headquartersCountry?: string;
   summary?: string;
   sourceUrls: string[];
+};
+
+type ManualSearchCandidate = {
+  name: string;
+  website: string;
+  headquartersCity: string;
+  headquartersState: string;
+  headquartersCountry: string;
 };
 
 type CoInvestorRecord = {
@@ -229,6 +238,17 @@ export function CoInvestorWorkbench() {
   const [keepListView, setKeepListView] = React.useState(false);
   const [newIsSeedInvestor, setNewIsSeedInvestor] = React.useState(false);
   const [newIsSeriesAInvestor, setNewIsSeriesAInvestor] = React.useState(false);
+  const [searchMatchCandidateCache] = React.useState(() => new Map<string, SearchCandidate[]>());
+  const [searchAbortController, setSearchAbortController] = React.useState<AbortController | null>(null);
+  const [matchModalOpen, setMatchModalOpen] = React.useState(false);
+  const [matchModalManualMode, setMatchModalManualMode] = React.useState(false);
+  const [manualMatchCandidate, setManualMatchCandidate] = React.useState<ManualSearchCandidate>({
+    name: "",
+    website: "",
+    headquartersCity: "",
+    headquartersState: "",
+    headquartersCountry: ""
+  });
 
   const hasPending = React.useMemo(
     () => records.some((record) => record.researchStatus === "QUEUED" || record.researchStatus === "RUNNING"),
@@ -269,8 +289,48 @@ export function CoInvestorWorkbench() {
 
   const createButtonDisabled =
     creatingFromSearch ||
-    searchingCandidates ||
-    (searchCandidates.length > 1 && selectedCandidate === null);
+    (matchModalManualMode
+      ? !manualMatchCandidate.name.trim()
+      : searchingCandidates ||
+        (searchCandidates.length > 1 && selectedCandidate === null));
+
+  function beginManualMatchEntry() {
+    setMatchModalManualMode(true);
+    setSearchAbortController((previous) => {
+      previous?.abort();
+      return previous;
+    });
+    setSearchingCandidates(false);
+    setSearchCandidateError(null);
+    setSearchCandidates([]);
+    setCandidateSearchQuery(query.trim());
+    setSelectedCandidateIndex(-1);
+  }
+
+  function openCreateMatchModal() {
+    const term = query.trim();
+    if (!term || !shouldOfferCreate) {
+      return;
+    }
+
+    setManualMatchCandidate((prev) => {
+      if (prev.name === term) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        name: term
+      };
+    });
+    setSearchCandidates([]);
+    setCandidateSearchQuery("");
+    setSelectedCandidateIndex(-1);
+    setSearchCandidateError(null);
+    setSearchingCandidates(false);
+    setMatchModalManualMode(false);
+    setMatchModalOpen(true);
+  }
 
   async function loadRecords() {
     const res = await fetch("/api/co-investors", { cache: "no-store" });
@@ -292,11 +352,16 @@ export function CoInvestorWorkbench() {
     }
   }
 
-  async function searchCandidateMatches(term: string): Promise<SearchCandidate[]> {
+  async function searchCandidateMatches(
+    term: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<SearchCandidate[]> {
+    const trimmed = term.trim();
     const searchRes = await fetch("/api/co-investors/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: term })
+      body: JSON.stringify({ query: trimmed }),
+      signal: options?.signal
     });
 
     if (!searchRes.ok) {
@@ -322,7 +387,7 @@ export function CoInvestorWorkbench() {
 
     try {
       let candidates = searchCandidates;
-      if (candidateSearchQuery !== term || candidates.length === 0) {
+      if (!matchModalManualMode && (candidateSearchQuery !== term || candidates.length === 0)) {
         candidates = await searchCandidateMatches(term);
         setSearchCandidates(candidates);
         setCandidateSearchQuery(term);
@@ -334,14 +399,31 @@ export function CoInvestorWorkbench() {
         }
       }
 
-      if (candidates.length > 1 && selectedCandidateIndex < 0) {
+      if (!matchModalManualMode && candidates.length > 1 && selectedCandidateIndex < 0) {
         throw new Error("Select one matching co-investor before creating.");
       }
 
-      const candidate =
-        candidates.length > 0
+      const candidate = matchModalManualMode
+        ? {
+            name: manualMatchCandidate.name || term,
+            website: manualMatchCandidate.website,
+            headquartersCity: manualMatchCandidate.headquartersCity,
+            headquartersState: manualMatchCandidate.headquartersState,
+            headquartersCountry: manualMatchCandidate.headquartersCountry,
+            summary: "Created from manual entry.",
+            sourceUrls: []
+          }
+        : candidates.length > 0
           ? candidates[selectedCandidateIndex >= 0 ? selectedCandidateIndex : 0]
-          : buildFallbackCandidate(term);
+          : {
+              name: manualMatchCandidate.name || term,
+              website: manualMatchCandidate.website,
+              headquartersCity: manualMatchCandidate.headquartersCity,
+              headquartersState: manualMatchCandidate.headquartersState,
+              headquartersCountry: manualMatchCandidate.headquartersCountry,
+              summary: "Created from manual entry.",
+              sourceUrls: []
+            };
 
       const duplicateRecord = findDuplicateRecord(records, candidate);
       if (duplicateRecord) {
@@ -378,8 +460,18 @@ export function CoInvestorWorkbench() {
       setCandidateSearchQuery("");
       setSelectedCandidateIndex(-1);
       setSearchCandidateError(null);
+      setMatchModalOpen(false);
+      setMatchModalManualMode(false);
+      setManualMatchCandidate({
+        name: "",
+        website: "",
+        headquartersCity: "",
+        headquartersState: "",
+        headquartersCountry: ""
+      });
       setNewIsSeedInvestor(false);
       setNewIsSeriesAInvestor(false);
+      await loadRecords();
 
       await runQueuedAgent(1);
     } catch (error) {
@@ -458,7 +550,8 @@ export function CoInvestorWorkbench() {
     setEditingContactEmail(link.contact.email || "");
     setEditingContactPhone(link.contact.phone || "");
     setEditingContactLinkedinUrl(link.contact.linkedinUrl || "");
-    setEditingContactRoleType(link.roleType);
+    const normalizedRoleType = link.roleType === "INVESTOR_PARTNER" || link.roleType === "OTHER" ? link.roleType : "OTHER";
+    setEditingContactRoleType(normalizedRoleType);
     setStatus(null);
   }
 
@@ -658,7 +751,11 @@ export function CoInvestorWorkbench() {
   }, [hasPending]);
 
   React.useEffect(() => {
+    if (!matchModalOpen) return;
+
     if (!shouldOfferCreate) {
+      setMatchModalOpen(false);
+      setMatchModalManualMode(false);
       setSearchCandidates([]);
       setCandidateSearchQuery("");
       setSelectedCandidateIndex(-1);
@@ -670,6 +767,35 @@ export function CoInvestorWorkbench() {
     const term = query.trim();
     if (!term) return;
 
+    if (matchModalManualMode) {
+      return;
+    }
+
+    setManualMatchCandidate((prev) => {
+      if (prev.name === term) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        name: term
+      };
+    });
+
+    const cachedCandidates = searchMatchCandidateCache.get(term.toLowerCase());
+    if (cachedCandidates) {
+      setSearchCandidates(cachedCandidates);
+      setCandidateSearchQuery(term);
+      setSelectedCandidateIndex(cachedCandidates.length === 1 ? 0 : -1);
+      setSearchingCandidates(false);
+      setSearchCandidateError(null);
+      return;
+    }
+
+    searchAbortController?.abort();
+    const controller = new AbortController();
+    setSearchAbortController(controller);
+
     let active = true;
 
     const timeout = setTimeout(async () => {
@@ -677,13 +803,17 @@ export function CoInvestorWorkbench() {
       setSearchCandidateError(null);
 
       try {
-        const candidates = await searchCandidateMatches(term);
+        const candidates = await searchCandidateMatches(term, { signal: controller.signal });
         if (!active) return;
+        if (!controller.signal.aborted) {
+          searchMatchCandidateCache.set(term.toLowerCase(), candidates);
+        }
         setSearchCandidates(candidates);
         setCandidateSearchQuery(term);
         setSelectedCandidateIndex(candidates.length === 1 ? 0 : -1);
       } catch (error) {
         if (!active) return;
+        if (error instanceof DOMException && error.name === "AbortError") return;
         setSearchCandidates([]);
         setCandidateSearchQuery(term);
         setSelectedCandidateIndex(-1);
@@ -698,8 +828,9 @@ export function CoInvestorWorkbench() {
     return () => {
       active = false;
       clearTimeout(timeout);
+      controller.abort();
     };
-  }, [shouldOfferCreate, query]);
+  }, [matchModalOpen, query, shouldOfferCreate, matchModalManualMode]);
 
   React.useEffect(() => {
     if (filteredRecords.length === 0) {
@@ -759,7 +890,6 @@ export function CoInvestorWorkbench() {
             <div className="create-card">
               <p className="create-title">No co-investors match "{query.trim()}"</p>
               <p className="muted">Create a new co-investor and launch the research agent?</p>
-
               <div className="row">
                 <label>
                   <input
@@ -778,58 +908,47 @@ export function CoInvestorWorkbench() {
                   Series A Investor
                 </label>
               </div>
-
-              {searchingCandidates && <p className="muted">Searching for possible online matches...</p>}
-
-              {searchCandidateError && <p className="status error">{searchCandidateError}</p>}
-
-              {searchCandidates.length > 0 && (
-                <div className="candidate-list">
-                  {searchCandidates.length > 1 && <p className="detail-label">Select the matching investor:</p>}
-                  {searchCandidates.map((candidate, index) => {
-                    const location = formatLocation(candidate);
-                    const isSelected = selectedCandidateIndex === index;
-                    return (
-                      <label
-                        key={`${candidate.name}-${candidate.headquartersCity || "unknown"}-${index}`}
-                        className={`candidate-option ${isSelected ? "selected" : ""}`}
-                      >
-                        <input
-                          type="radio"
-                          name="co-investor-candidate"
-                          checked={isSelected}
-                          onChange={() => setSelectedCandidateIndex(index)}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                          }}
-                        />
-                        <div>
-                          <div className="candidate-name">{candidate.name}</div>
-                          <div className="candidate-location muted">{location || "Location not identified"}</div>
-                          {candidate.website && <div className="candidate-location muted">{candidate.website}</div>}
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-
               <div className="actions">
-                <button
-                  className="primary"
-                  onClick={createAndResearchFromSearchTerm}
-                  disabled={createButtonDisabled}
-                  title={
-                    searchCandidates.length > 1 && selectedCandidate === null
-                      ? "Select a match before creating"
-                      : undefined
-                  }
-                >
-                  {createButtonDisabled ? (searchingCandidates ? "Checking matches..." : "Select a match") : "Create + Start Research"}
+                <button className="primary" type="button" onClick={openCreateMatchModal}>
+                  Create new entry
                 </button>
               </div>
             </div>
           )}
+
+          <SearchMatchModal
+            isOpen={matchModalOpen}
+            title="Co-investor not found"
+            query={query.trim()}
+            searching={searchingCandidates}
+            candidates={searchCandidates}
+            selectedCandidateIndex={selectedCandidateIndex}
+            searchError={searchCandidateError}
+            manualCandidateEnabled={!searchingCandidates && searchCandidates.length === 0}
+            isManualMode={matchModalManualMode}
+            onSelectCandidate={setSelectedCandidateIndex}
+            manualCandidate={manualMatchCandidate}
+            onManualCandidateChange={(candidate) =>
+              setManualMatchCandidate((current) => ({
+                ...current,
+                ...candidate
+              }))
+            }
+            onCreateManually={() => void beginManualMatchEntry()}
+            submitLabel={
+              createButtonDisabled
+                ? searchingCandidates
+                  ? "Checking matches..."
+                  : "Create + Start Research"
+                : "Create + Start Research"
+            }
+            onSubmit={() => void createAndResearchFromSearchTerm()}
+            onClose={() => {
+              setMatchModalOpen(false);
+              setMatchModalManualMode(false);
+            }}
+            submitDisabled={createButtonDisabled}
+          />
 
           <div className="list-container">
             {filteredRecords.length === 0 && !shouldOfferCreate && (

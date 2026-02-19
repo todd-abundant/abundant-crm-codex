@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyCandidateRequestSchema } from "@/lib/schemas";
-import { runQueuedResearchJobs, verifyCandidateAndQueueResearch } from "@/lib/research-jobs";
+import { verifyCandidateAndQueueResearch } from "@/lib/research-jobs";
 
 export async function POST(request: Request) {
   try {
@@ -13,11 +13,6 @@ export async function POST(request: Request) {
       isAllianceMember,
       isLimitedPartner,
       limitedPartnerInvestmentUsd
-    });
-
-    // Fire-and-forget so enrichment can run after the user confirms a candidate.
-    void runQueuedResearchJobs(1, { healthSystemId: created.healthSystem.id }).catch((error) => {
-      console.error("auto_run_research_job_error", error);
     });
 
     return NextResponse.json({

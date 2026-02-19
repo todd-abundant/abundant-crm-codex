@@ -6,9 +6,16 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint app components lib scripts --ext .js,.jsx,.ts,.tsx,.mjs",
+    "check": "npm run lint && npm run build",
+    "setup:local": "npm install && npm run db:sync",
+    "db:generate": "prisma generate",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:sync": "node scripts/db-sync.mjs",
     "db:push": "prisma db push",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@prisma/client": "6.3.1",
@@ -19,9 +26,12 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.3",
     "@types/node": "^22.13.4",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
+    "eslint": "^9.39.2",
+    "eslint-config-next": "^15.5.12",
     "prisma": "6.3.1",
     "typescript": "^5.7.3"
   }

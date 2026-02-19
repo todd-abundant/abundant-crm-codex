@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { coInvestorVerifyRequestSchema } from "@/lib/schemas";
-import { runQueuedResearchJobs, verifyCandidateAndQueueResearch } from "@/lib/co-investor-jobs";
+import { verifyCandidateAndQueueResearch } from "@/lib/co-investor-jobs";
 
 export async function POST(request: Request) {
   try {
@@ -11,10 +11,6 @@ export async function POST(request: Request) {
       candidate,
       isSeedInvestor,
       isSeriesAInvestor
-    });
-
-    void runQueuedResearchJobs(1, { coInvestorId: created.coInvestor.id }).catch((error) => {
-      console.error("auto_run_co_investor_research_job_error", error);
     });
 
     return NextResponse.json({

@@ -5,6 +5,7 @@ import {
   companySearchCandidateSchema,
   type CompanySearchCandidate
 } from "@/lib/schemas";
+import { getCachedLookup } from "@/lib/search-cache";
 
 export const emptyCompanyDraft: CompanyInput = {
   name: "",
@@ -54,12 +55,14 @@ const searchSchema = {
             items: { type: "string" }
           }
         },
-        required: ["name", "sourceUrls"]
+          required: ["name"]
       }
     }
   },
   required: ["candidates"]
 };
+
+const COMPANY_SEARCH_CACHE_TTL_MS = 5 * 60_000;
 
 const enrichmentSchema = {
   type: "object",
@@ -490,8 +493,57 @@ function parseJsonObject(raw: string): Record<string, unknown> {
   }
 }
 
+function extractJsonPayload(raw: string): Record<string, unknown> {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return {};
+  }
+
+  const strictParsed = parseJsonObject(trimmed);
+  if (Object.keys(strictParsed).length > 0) {
+    return strictParsed;
+  }
+
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    return parseJsonObject(trimmed.slice(start, end + 1));
+  }
+
+  return {};
+}
+
 function compactText(value?: string | null): string {
   return value?.trim() || "";
+}
+
+function normalizeSearchText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeSearchUrls(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => (typeof entry === "string" ? entry.trim() : "")).filter((entry) => Boolean(entry));
+}
+
+function normalizeCompanyCandidate(candidate: unknown): CompanySearchCandidate | null {
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+
+  const rawCandidate = candidate as Record<string, unknown>;
+  const normalized = {
+    name: normalizeSearchText(rawCandidate.name),
+    website: normalizeSearchText(rawCandidate.website),
+    headquartersCity: normalizeSearchText(rawCandidate.headquartersCity),
+    headquartersState: normalizeSearchText(rawCandidate.headquartersState),
+    headquartersCountry: normalizeSearchText(rawCandidate.headquartersCountry),
+    summary: normalizeSearchText(rawCandidate.summary),
+    sourceUrls: normalizeSearchUrls(rawCandidate.sourceUrls)
+  };
+
+  const parsed = companySearchCandidateSchema.safeParse(normalized);
+  return parsed.success ? parsed.data : null;
 }
 
 function firstOfNullable<T>(value?: T | null): T | undefined {
@@ -502,10 +554,11 @@ export async function searchCompanyCandidates(query: string): Promise<{
   candidates: CompanySearchCandidate[];
   researchUsed: boolean;
 }> {
+  const normalizedQuery = query.trim();
   const fallback = {
     candidates: [
       {
-        name: query,
+        name: normalizedQuery,
         headquartersCity: "",
         headquartersState: "",
         headquartersCountry: "",
@@ -518,54 +571,76 @@ export async function searchCompanyCandidates(query: string): Promise<{
     researchUsed: false
   };
 
-  const client = getOpenAIClient();
-  if (!client) {
+  if (!normalizedQuery) {
     return fallback;
   }
 
-  const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
-  const response = await client.responses.create({
-    model,
-    tools: [{ type: "web_search_preview" }],
-    text: {
-      format: {
-        type: "json_schema",
-        name: "company_candidates",
-        schema: searchSchema,
-        strict: false
+  const startMs = Date.now();
+  const result = await getCachedLookup(
+    `company-candidates:${normalizedQuery}`,
+    async () => {
+      const client = getOpenAIClient();
+      if (!client) {
+        return fallback;
       }
-    },
-    input: [
-      {
-        role: "system",
-        content: [
+
+      const model = process.env.OPENAI_SEARCH_MODEL || "gpt-4o-mini";
+      const response = await client.responses.create({
+        model,
+        tools: [{ type: "web_search_preview" }],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "company_candidates",
+            schema: searchSchema,
+            strict: false
+          }
+        },
+        input: [
           {
-            type: "input_text",
-            text:
-              "Find likely digital health companies that could be startup, de novo, or spin-out candidates. Return up to 6 candidates with location and website so user can disambiguate by location."
+            role: "system",
+            content: [
+              {
+                type: "input_text",
+                text:
+                  "Find up to 6 likely digital health companies that best match the query. Return location and website so results can be disambiguated by location."
+              }
+            ]
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: `Find up to 6 likely digital health companies that best match the query "${normalizedQuery}".`
+              }
+            ]
           }
         ]
-      },
-      {
-        role: "user",
-        content: [{ type: "input_text", text: `Company search: ${query}` }]
+      } as any);
+
+      const parsed = extractJsonPayload(response.output_text || "{}");
+      const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : [];
+      const candidates = rawCandidates
+        .map((candidate) => normalizeCompanyCandidate(candidate))
+        .filter((candidate): candidate is CompanySearchCandidate => candidate !== null)
+        .slice(0, 6);
+
+      if (candidates.length === 0) {
+        return fallback;
       }
-    ]
-  } as any);
 
-  const parsed = parseJsonObject(response.output_text?.trim() || "{}");
-  const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : [];
-  const candidates = rawCandidates
-    .map((candidate) => companySearchCandidateSchema.safeParse(candidate))
-    .filter((result) => result.success)
-    .map((result) => result.data)
-    .slice(0, 6);
+      return { candidates, researchUsed: true };
+    },
+    COMPANY_SEARCH_CACHE_TTL_MS
+  );
 
-  if (candidates.length === 0) {
-    return fallback;
-  }
+  const totalMs = Date.now() - startMs;
+  console.log(
+    `search_company_candidates latencyMs=${totalMs} cache=${result.fromCache ? "hit" : "miss"} query="${normalizedQuery}"`
+  );
 
-  return { candidates, researchUsed: true };
+  return result.data;
 }
 
 export async function enrichCompanyFromWeb(seed: MinimalCompany): Promise<CompanyInput> {

@@ -195,6 +195,7 @@ export async function runQueuedResearchJobs(
   maxJobs = 1,
   options?: { healthSystemId?: string }
 ) {
+  const batchStartMs = Date.now();
   const jobs = await prisma.healthSystemResearchJob.findMany({
     where: {
       status: "QUEUED",
@@ -209,6 +210,8 @@ export async function runQueuedResearchJobs(
   let failed = 0;
 
   for (const job of jobs) {
+    const jobStartMs = Date.now();
+    console.log(`health_system_job_run_start healthSystemId=${job.healthSystemId} jobId=${job.id}`);
     await prisma.healthSystemResearchJob.update({
       where: { id: job.id },
       data: { status: "RUNNING", startedAt: new Date(), errorMessage: null }
@@ -321,6 +324,8 @@ export async function runQueuedResearchJobs(
           }))
         ]);
       });
+      const jobDurationMs = Date.now() - jobStartMs;
+      console.log(`health_system_job_run_completed healthSystemId=${job.healthSystemId} jobId=${job.id} durationMs=${jobDurationMs}`);
       completed += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown research failure";
@@ -339,10 +344,17 @@ export async function runQueuedResearchJobs(
           }
         })
       ]);
+      const jobDurationMs = Date.now() - jobStartMs;
+      console.log(
+        `health_system_job_run_failed healthSystemId=${job.healthSystemId} jobId=${job.id} durationMs=${jobDurationMs} error=${message.slice(0, 200)}`
+      );
 
       failed += 1;
     }
   }
+
+  const batchDurationMs = Date.now() - batchStartMs;
+  console.log(`health_system_run_batch durationMs=${batchDurationMs} queuedChecked=${jobs.length} completed=${completed} failed=${failed}`);
 
   return {
     queuedChecked: jobs.length,

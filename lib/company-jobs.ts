@@ -223,6 +223,7 @@ export async function runQueuedResearchJobs(
   maxJobs = 1,
   options?: { companyId?: string }
 ) {
+  const batchStartMs = Date.now();
   const jobs = await prisma.companyResearchJob.findMany({
     where: {
       status: "QUEUED",
@@ -237,6 +238,8 @@ export async function runQueuedResearchJobs(
   let failed = 0;
 
   for (const job of jobs) {
+    const jobStartMs = Date.now();
+    console.log(`company_job_run_start companyId=${job.companyId} jobId=${job.id}`);
     await prisma.companyResearchJob.update({
       where: { id: job.id },
       data: { status: "RUNNING", startedAt: new Date(), errorMessage: null }
@@ -368,7 +371,7 @@ export async function runQueuedResearchJobs(
           }
         }
 
-        await replaceCompanyContactLinks(
+      await replaceCompanyContactLinks(
           tx,
           job.companyId,
           (enriched.contacts ?? []).map((entry) => ({
@@ -389,6 +392,8 @@ export async function runQueuedResearchJobs(
           }))
         );
       });
+      const jobDurationMs = Date.now() - jobStartMs;
+      console.log(`company_job_run_completed companyId=${job.companyId} jobId=${job.id} durationMs=${jobDurationMs}`);
       completed += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown research failure";
@@ -407,10 +412,17 @@ export async function runQueuedResearchJobs(
           }
         })
       ]);
+      const jobDurationMs = Date.now() - jobStartMs;
+      console.log(
+        `company_job_run_failed companyId=${job.companyId} jobId=${job.id} durationMs=${jobDurationMs} error=${message.slice(0, 200)}`
+      );
 
       failed += 1;
     }
   }
+
+  const batchDurationMs = Date.now() - batchStartMs;
+  console.log(`company_run_batch durationMs=${batchDurationMs} queuedChecked=${jobs.length} completed=${completed} failed=${failed}`);
 
   return {
     queuedChecked: jobs.length,

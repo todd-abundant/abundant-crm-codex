@@ -25,7 +25,7 @@ function trimOrNull(value?: string | null) {
   return trimmed ? trimmed : null;
 }
 
-function buildPartnerUpdatePayload(input: z.infer<typeof patchRequestSchema> & { partnerName?: string | null }) {
+function buildPartnerUpdatePayload(input: z.infer<typeof patchRequestSchema> & { partnerName?: string }) {
   const update: Prisma.VenturePartnerUpdateInput = {};
   if (input.title !== undefined) update.title = trimOrNull(input.title);
   if (input.profileUrl !== undefined) update.profileUrl = trimOrNull(input.profileUrl);

@@ -7,6 +7,7 @@ import {
   InlineTextField,
   InlineTextareaField
 } from "./inline-detail-field";
+import { SearchMatchModal } from "./search-match-modal";
 
 type SearchCandidate = {
   name: string;
@@ -16,6 +17,14 @@ type SearchCandidate = {
   headquartersCountry?: string;
   summary?: string;
   sourceUrls: string[];
+};
+
+type ManualSearchCandidate = {
+  name: string;
+  website: string;
+  headquartersCity: string;
+  headquartersState: string;
+  headquartersCountry: string;
 };
 
 type CoInvestorOption = {
@@ -427,6 +436,17 @@ export function CompanyWorkbench() {
   const [searchingCandidates, setSearchingCandidates] = React.useState(false);
   const [searchCandidateError, setSearchCandidateError] = React.useState<string | null>(null);
   const [selectedCandidateIndex, setSelectedCandidateIndex] = React.useState(-1);
+  const [searchMatchCandidateCache] = React.useState(() => new Map<string, SearchCandidate[]>());
+  const [searchAbortController, setSearchAbortController] = React.useState<AbortController | null>(null);
+  const [matchModalOpen, setMatchModalOpen] = React.useState(false);
+  const [matchModalManualMode, setMatchModalManualMode] = React.useState(false);
+  const [manualMatchCandidate, setManualMatchCandidate] = React.useState<ManualSearchCandidate>({
+    name: "",
+    website: "",
+    headquartersCity: "",
+    headquartersState: "",
+    headquartersCountry: ""
+  });
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [addingContact, setAddingContact] = React.useState(false);
   const [contactName, setContactName] = React.useState("");
@@ -524,7 +544,49 @@ export function CompanyWorkbench() {
   const createButtonDisabled =
     creatingFromSearch ||
     (!isManualCreationType(newCompanyType) &&
-      (searchingCandidates || (searchCandidates.length > 1 && selectedCandidate === null)));
+      (matchModalManualMode
+        ? !manualMatchCandidate.name.trim()
+        : searchingCandidates ||
+          (searchCandidates.length > 1 && selectedCandidate === null) ||
+          (searchCandidates.length === 0 && !manualMatchCandidate.name.trim())));
+
+  function beginManualMatchEntry() {
+    setMatchModalManualMode(true);
+    setSearchAbortController((previous) => {
+      previous?.abort();
+      return previous;
+    });
+    setSearchingCandidates(false);
+    setSearchCandidateError(null);
+    setSearchCandidates([]);
+    setCandidateSearchQuery(query.trim());
+    setSelectedCandidateIndex(-1);
+  }
+
+  function openCreateMatchModal() {
+    const term = query.trim();
+    if (!term || !shouldOfferCreate || isManualCreationType(newCompanyType)) {
+      return;
+    }
+
+    setManualMatchCandidate((prev) => {
+      if (prev.name === term) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        name: term
+      };
+    });
+    setSearchCandidates([]);
+    setCandidateSearchQuery("");
+    setSelectedCandidateIndex(-1);
+    setSearchCandidateError(null);
+    setSearchingCandidates(false);
+    setMatchModalManualMode(false);
+    setMatchModalOpen(true);
+  }
 
   function statusForLeadSourceType(
     type: LeadSourceType,
@@ -701,11 +763,15 @@ export function CompanyWorkbench() {
     }
   }
 
-  async function searchCandidateMatches(term: string): Promise<SearchCandidate[]> {
+  async function searchCandidateMatches(
+    term: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<SearchCandidate[]> {
     const searchRes = await fetch("/api/companies/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: term })
+      body: JSON.stringify({ query: term }),
+      signal: options?.signal
     });
 
     if (!searchRes.ok) {
@@ -735,19 +801,29 @@ export function CompanyWorkbench() {
 
       if (!isManual) {
         let candidates = searchCandidates;
-        if (candidateSearchQuery !== term || candidates.length === 0) {
+        if (!matchModalManualMode && (candidateSearchQuery !== term || candidates.length === 0)) {
           candidates = await searchCandidateMatches(term);
           setSearchCandidates(candidates);
           setCandidateSearchQuery(term);
           setSelectedCandidateIndex(candidates.length === 1 ? 0 : -1);
         }
 
-        if (candidates.length > 1 && selectedCandidateIndex < 0) {
+        if (!matchModalManualMode && candidates.length > 1 && selectedCandidateIndex < 0) {
           throw new Error("Select one matching company before creating.");
         }
 
-        if (candidates.length > 0) {
+        if (!matchModalManualMode && candidates.length > 0) {
           candidate = candidates[selectedCandidateIndex >= 0 ? selectedCandidateIndex : 0];
+        } else {
+          candidate = {
+            name: manualMatchCandidate.name || term,
+            website: manualMatchCandidate.website,
+            headquartersCity: manualMatchCandidate.headquartersCity,
+            headquartersState: manualMatchCandidate.headquartersState,
+            headquartersCountry: manualMatchCandidate.headquartersCountry,
+            summary: "Created from manual entry.",
+            sourceUrls: []
+          };
         }
       }
 
@@ -831,6 +907,15 @@ export function CompanyWorkbench() {
       setNewSpinOutOwnershipPercent("");
       setNewLeadSourceHealthSystemId("");
       setNewLeadSourceHealthSystemDraftName("");
+      setMatchModalOpen(false);
+      setMatchModalManualMode(false);
+      setManualMatchCandidate({
+        name: "",
+        website: "",
+        headquartersCity: "",
+        headquartersState: "",
+        headquartersCountry: ""
+      });
       await loadRecords();
 
       if (!isManual) {
@@ -1255,7 +1340,11 @@ export function CompanyWorkbench() {
   }, [hasPending]);
 
   React.useEffect(() => {
+    if (!matchModalOpen) return;
+
     if (!shouldOfferCreate || isManualCreationType(newCompanyType)) {
+      setMatchModalOpen(false);
+      setMatchModalManualMode(false);
       setSearchCandidates([]);
       setCandidateSearchQuery("");
       setSelectedCandidateIndex(-1);
@@ -1267,19 +1356,52 @@ export function CompanyWorkbench() {
     const term = query.trim();
     if (!term) return;
 
+    if (matchModalManualMode) {
+      return;
+    }
+
+    setManualMatchCandidate((prev) => {
+      if (prev.name === term) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        name: term
+      };
+    });
+
+    const cachedCandidates = searchMatchCandidateCache.get(term.toLowerCase());
+    if (cachedCandidates) {
+      setSearchCandidates(cachedCandidates);
+      setCandidateSearchQuery(term);
+      setSelectedCandidateIndex(cachedCandidates.length === 1 ? 0 : -1);
+      setSearchingCandidates(false);
+      setSearchCandidateError(null);
+      return;
+    }
+
+    searchAbortController?.abort();
+    const controller = new AbortController();
+    setSearchAbortController(controller);
+
     let active = true;
     const timeout = setTimeout(async () => {
       setSearchingCandidates(true);
       setSearchCandidateError(null);
 
       try {
-        const candidates = await searchCandidateMatches(term);
+        const candidates = await searchCandidateMatches(term, { signal: controller.signal });
         if (!active) return;
+        if (!controller.signal.aborted) {
+          searchMatchCandidateCache.set(term.toLowerCase(), candidates);
+        }
         setSearchCandidates(candidates);
         setCandidateSearchQuery(term);
         setSelectedCandidateIndex(candidates.length === 1 ? 0 : -1);
       } catch (error) {
         if (!active) return;
+        if (error instanceof DOMException && error.name === "AbortError") return;
         setSearchCandidates([]);
         setCandidateSearchQuery(term);
         setSelectedCandidateIndex(-1);
@@ -1292,8 +1414,9 @@ export function CompanyWorkbench() {
     return () => {
       active = false;
       clearTimeout(timeout);
+      controller.abort();
     };
-  }, [shouldOfferCreate, query, newCompanyType]);
+  }, [matchModalOpen, shouldOfferCreate, query, newCompanyType, matchModalManualMode]);
 
   React.useEffect(() => {
     if (filteredRecords.length === 0) {
@@ -1349,7 +1472,7 @@ export function CompanyWorkbench() {
             }}
           />
 
-          {query.trim().length >= 2 && (
+          {shouldOfferCreate && (
             <div className="create-card">
               <p className="create-title">New Company Relationship</p>
               <div className="row">
@@ -1539,76 +1662,66 @@ export function CompanyWorkbench() {
                   )}
                 </>
               )}
+              {!isManualCreationType(newCompanyType) ? (
+                <div className="actions">
+                  <button className="primary" type="button" onClick={openCreateMatchModal} disabled={creatingFromSearch}>
+                    Create new entry
+                  </button>
+                </div>
+              ) : null}
             </div>
           )}
 
-          {shouldOfferCreate && (
+          {shouldOfferCreate && isManualCreationType(newCompanyType) && (
             <div className="create-card">
               <p className="create-title">No companies match "{query.trim()}".</p>
-              <p className="muted">
-                {isManualCreationType(newCompanyType)
-                  ? "Create a new company manually."
-                  : "Create a new company and launch the research agent."}
-              </p>
-
-              {searchingCandidates && <p className="muted">Searching for possible online matches...</p>}
-              {searchCandidateError && <p className="status error">{searchCandidateError}</p>}
-
-              {searchCandidates.length > 0 && (
-                <div className="candidate-list">
-                  {searchCandidates.length > 1 && <p className="detail-label">Select matching company:</p>}
-                  {searchCandidates.map((candidate, index) => {
-                    const location = formatLocation(candidate);
-                    const isSelected = selectedCandidateIndex === index;
-                    return (
-                      <label
-                        key={`${candidate.name}-${candidate.headquartersCity || "unknown"}-${index}`}
-                        className={`candidate-option ${isSelected ? "selected" : ""}`}
-                      >
-                        <input
-                          type="radio"
-                          name="company-candidate"
-                          checked={isSelected}
-                          onChange={() => setSelectedCandidateIndex(index)}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                          }}
-                        />
-                        <div>
-                          <div className="candidate-name">{candidate.name}</div>
-                          <div className="candidate-location muted">
-                            {location || "Location not identified"}
-                          </div>
-                          {candidate.website && <div className="candidate-location muted">{candidate.website}</div>}
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-
+              <p className="muted">Create a new company manually.</p>
               <div className="actions">
                 <button
                   className="primary"
+                  type="button"
                   onClick={createAndResearchFromSearchTerm}
                   disabled={createButtonDisabled}
-                  title={
-                    searchCandidates.length > 1 && selectedCandidate === null ? "Select a match before creating" : undefined
-                  }
                 >
-                  {createButtonDisabled
-                    ? creatingFromSearch
-                      ? "Creating..."
-                      : isManualCreationType(newCompanyType)
-                        ? "Create Company"
-                        : "Select a match"
-                    : isManualCreationType(newCompanyType)
-                      ? "Create Company"
-                      : "Create + Start Research"}
+                  Create Company
                 </button>
               </div>
             </div>
           )}
+
+          <SearchMatchModal
+            isOpen={matchModalOpen && !isManualCreationType(newCompanyType)}
+            title="Company not found"
+            query={query.trim()}
+            searching={searchingCandidates}
+            candidates={searchCandidates}
+            selectedCandidateIndex={selectedCandidateIndex}
+            searchError={searchCandidateError}
+            manualCandidateEnabled={!searchingCandidates && searchCandidates.length === 0}
+            isManualMode={matchModalManualMode}
+            onSelectCandidate={setSelectedCandidateIndex}
+            manualCandidate={manualMatchCandidate}
+            onManualCandidateChange={(candidate) =>
+              setManualMatchCandidate((current) => ({
+                ...current,
+                ...candidate
+              }))
+            }
+            onCreateManually={() => void beginManualMatchEntry()}
+            submitLabel={
+              createButtonDisabled
+                ? searchingCandidates
+                  ? "Checking matches..."
+                  : "Create + Start Research"
+                : "Create + Start Research"
+            }
+            onSubmit={() => void createAndResearchFromSearchTerm()}
+            onClose={() => {
+              setMatchModalOpen(false);
+              setMatchModalManualMode(false);
+            }}
+            submitDisabled={createButtonDisabled}
+          />
 
           <div className="list-container">
             {filteredRecords.length === 0 && !shouldOfferCreate && (
