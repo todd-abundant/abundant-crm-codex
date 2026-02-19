@@ -43,6 +43,41 @@ main {
   padding: 12px 12px 24px;
 }
 
+.auth-page {
+  min-height: calc(100vh - 80px);
+  display: grid;
+  place-items: center;
+}
+
+.auth-card {
+  width: min(460px, 100%);
+}
+
+.auth-card h1 {
+  margin: 0 0 8px;
+  color: var(--colorBrandPrimary);
+}
+
+.auth-google-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  border-radius: var(--radiusButton);
+  border: 1px solid var(--colorBrandAccent);
+  background: var(--colorBrandAccent);
+  color: #ffffff;
+  padding: 8px 14px;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.auth-google-button:hover,
+.auth-google-button:focus-visible {
+  background: #008881;
+  border-color: #008881;
+}
+
 .hero {
   background: linear-gradient(120deg, var(--colorBrandPrimary), #102844);
   color: #ffffff;
@@ -94,6 +129,31 @@ main {
   gap: 6px;
 }
 
+.top-nav-session {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.top-nav-user {
+  color: #d6e4f2;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.top-nav-role {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  border-radius: 999px;
+  padding: 0 8px;
+  margin-left: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #ecf4fc;
+}
+
 .top-nav-link {
   color: #ecf4fc;
   text-decoration: none;
@@ -103,6 +163,10 @@ main {
   transition: border-color 0.15s ease;
   font-weight: 600;
   font-size: 0.92rem;
+}
+
+.top-nav-link-quiet {
+  border-color: rgba(255, 255, 255, 0.24);
 }
 
 .top-nav-link:hover,
@@ -1010,6 +1074,16 @@ select {
   main {
     padding-left: 8px;
     padding-right: 8px;
+  }
+
+  .top-nav-inner {
+    flex-wrap: wrap;
+  }
+
+  .top-nav-session {
+    width: 100%;
+    justify-content: space-between;
+    padding-bottom: 4px;
   }
 
   .list-row {

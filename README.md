@@ -7,6 +7,7 @@ Enterprise CRM + workflow web app for a seed-stage digital health venture firm.
 - Next.js (App Router, TypeScript)
 - Prisma ORM
 - PostgreSQL
+- Google OAuth (email-based sign-in + internal role model)
 - OpenAI Responses API for natural-language web-research prefill
 
 ## Current MVP scope
@@ -75,12 +76,14 @@ npm run dev
 Open http://localhost:3000.
 
 For day-to-day collaboration commands (pull, push, conflict handling, and database updates), see `docs/team-git-db-workflow.md`.
+For local Google OAuth setup, see `docs/google-oauth-local-setup.md`.
 
 ## Notes
 
 - If `OPENAI_API_KEY` is missing, search still works with a fallback candidate and jobs can still be queued.
 - To run real web research, set `OPENAI_API_KEY`.
-- Authentication and Google Workspace integrations are intentionally deferred.
+- Local sign-in is now Google OAuth based (`/sign-in`).
+- The first user to sign in is auto-assigned `ADMINISTRATOR`.
 - Local database can be started/stopped with:
   - `npm run db:up`
   - `npm run db:down`
