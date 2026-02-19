@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  InlineBooleanField,
+  InlineSelectField,
+  InlineTextField,
+  InlineTextareaField
+} from "./inline-detail-field";
 
 type SearchCandidate = {
   name: string;
@@ -239,7 +245,6 @@ export function HealthSystemWorkbench() {
   const [draftRecordId, setDraftRecordId] = useState<string | null>(null);
   const [detailDraft, setDetailDraft] = useState<DetailDraft | null>(null);
   const [runningAgent, setRunningAgent] = useState(false);
-  const [savingEdits, setSavingEdits] = useState(false);
   const [creatingFromSearch, setCreatingFromSearch] = useState(false);
   const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
   const [newIsLimitedPartner, setNewIsLimitedPartner] = useState(false);
@@ -947,10 +952,25 @@ export function HealthSystemWorkbench() {
     }
   }
 
-  async function saveSelectedRecordEdits() {
-    if (!selectedRecord || !detailDraft) return;
+  function updateDetailDraft(patch: Partial<DetailDraft>) {
+    setDetailDraft((current) => {
+      if (!current || !selectedRecord) return current;
 
-    setSavingEdits(true);
+      const next = { ...current, ...patch };
+      const changed = Object.entries(patch).some(([
+        key,
+        value
+      ]) => (current as Record<string, unknown>)[key] !== value);
+      if (!changed) return current;
+
+      void saveSelectedRecordEdits(next);
+      return next;
+    });
+  }
+
+  async function saveSelectedRecordEdits(draftToSave: DetailDraft | null = detailDraft) {
+    if (!selectedRecord || !draftToSave) return;
+
     setStatus(null);
 
     try {
@@ -958,20 +978,20 @@ export function HealthSystemWorkbench() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: detailDraft.name,
-          legalName: detailDraft.legalName,
-          website: detailDraft.website,
-          headquartersCity: detailDraft.headquartersCity,
-          headquartersState: detailDraft.headquartersState,
-          headquartersCountry: detailDraft.headquartersCountry,
-          netPatientRevenueUsd: toNullableNumber(detailDraft.netPatientRevenueUsd),
-          isLimitedPartner: detailDraft.isLimitedPartner,
-          limitedPartnerInvestmentUsd: toNullableNumber(detailDraft.limitedPartnerInvestmentUsd),
-          isAllianceMember: detailDraft.isAllianceMember,
-          hasInnovationTeam: toNullableBoolean(detailDraft.hasInnovationTeam),
-          hasVentureTeam: toNullableBoolean(detailDraft.hasVentureTeam),
-          ventureTeamSummary: detailDraft.ventureTeamSummary,
-          researchNotes: detailDraft.researchNotes
+          name: draftToSave.name,
+          legalName: draftToSave.legalName,
+          website: draftToSave.website,
+          headquartersCity: draftToSave.headquartersCity,
+          headquartersState: draftToSave.headquartersState,
+          headquartersCountry: draftToSave.headquartersCountry,
+          netPatientRevenueUsd: toNullableNumber(draftToSave.netPatientRevenueUsd),
+          isLimitedPartner: draftToSave.isLimitedPartner,
+          limitedPartnerInvestmentUsd: toNullableNumber(draftToSave.limitedPartnerInvestmentUsd),
+          isAllianceMember: draftToSave.isAllianceMember,
+          hasInnovationTeam: toNullableBoolean(draftToSave.hasInnovationTeam),
+          hasVentureTeam: toNullableBoolean(draftToSave.hasVentureTeam),
+          ventureTeamSummary: draftToSave.ventureTeamSummary,
+          researchNotes: draftToSave.researchNotes
         })
       });
 
@@ -979,7 +999,6 @@ export function HealthSystemWorkbench() {
       if (!res.ok) throw new Error(payload.error || "Failed to save changes");
 
       setStatus({ kind: "ok", text: `Saved changes for ${payload.healthSystem.name}.` });
-      setDraftRecordId(null);
       await loadRecords();
     } catch (error) {
       setStatus({
@@ -987,7 +1006,7 @@ export function HealthSystemWorkbench() {
         text: error instanceof Error ? error.message : "Failed to save changes"
       });
     } finally {
-      setSavingEdits(false);
+      // no-op
     }
   }
 
@@ -1313,162 +1332,123 @@ export function HealthSystemWorkbench() {
                 <h3>{selectedRecord.name}</h3>
               </div>
 
-              <div className="actions">
-                <button className="primary" onClick={saveSelectedRecordEdits} disabled={savingEdits}>
-                  {savingEdits ? "Saving..." : "Save Changes"}
-                </button>
-              </div>
-
               <div className="detail-grid">
-                <div>
-                  <label>Name</label>
-                  <input
-                    value={detailDraft.name}
-                    onChange={(event) => setDetailDraft({ ...detailDraft, name: event.target.value })}
-                  />
-                </div>
-                <div>
-                  <label>Legal Name</label>
-                  <input
-                    value={detailDraft.legalName}
-                    onChange={(event) => setDetailDraft({ ...detailDraft, legalName: event.target.value })}
-                  />
-                </div>
-                <div>
-                  <label>Website</label>
-                  <input
-                    value={detailDraft.website}
-                    onChange={(event) => setDetailDraft({ ...detailDraft, website: event.target.value })}
-                  />
-                </div>
-                <div>
-                  <label>Net Patient Revenue (USD)</label>
-                  <input
-                    value={detailDraft.netPatientRevenueUsd}
-                    onChange={(event) =>
-                      setDetailDraft({ ...detailDraft, netPatientRevenueUsd: event.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label>HQ City</label>
-                  <input
-                    value={detailDraft.headquartersCity}
-                    onChange={(event) =>
-                      setDetailDraft({ ...detailDraft, headquartersCity: event.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label>HQ State</label>
-                  <input
-                    value={detailDraft.headquartersState}
-                    onChange={(event) =>
-                      setDetailDraft({ ...detailDraft, headquartersState: event.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label>HQ Country</label>
-                  <input
-                    value={detailDraft.headquartersCountry}
-                    onChange={(event) =>
-                      setDetailDraft({ ...detailDraft, headquartersCountry: event.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label>Limited Partner</label>
-                  <label className="chip">
-                    <input
-                      type="checkbox"
-                      checked={detailDraft.isLimitedPartner}
-                      onChange={(event) =>
-                        setDetailDraft({
-                          ...detailDraft,
-                          isLimitedPartner: event.target.checked,
-                          limitedPartnerInvestmentUsd: event.target.checked
-                            ? detailDraft.limitedPartnerInvestmentUsd
-                            : ""
-                        })
-                      }
-                    />
-                    Limited Partner
-                  </label>
-                </div>
+                <InlineTextField
+                  kind="text"
+                  label="Name"
+                  value={detailDraft.name}
+                  onSave={(value) => updateDetailDraft({ name: value })}
+                />
+                <InlineTextField
+                  kind="text"
+                  label="Legal Name"
+                  value={detailDraft.legalName}
+                  onSave={(value) => updateDetailDraft({ legalName: value })}
+                />
+                <InlineTextField
+                  kind="text"
+                  label="Website"
+                  value={detailDraft.website}
+                  onSave={(value) => updateDetailDraft({ website: value })}
+                />
+                <InlineTextField
+                  kind="text"
+                  label="Net Patient Revenue (USD)"
+                  value={detailDraft.netPatientRevenueUsd}
+                  inputType="number"
+                  onSave={(value) => updateDetailDraft({ netPatientRevenueUsd: value })}
+                />
+                <InlineTextField
+                  kind="text"
+                  label="HQ City"
+                  value={detailDraft.headquartersCity}
+                  onSave={(value) => updateDetailDraft({ headquartersCity: value })}
+                />
+                <InlineTextField
+                  kind="text"
+                  label="HQ State"
+                  value={detailDraft.headquartersState}
+                  onSave={(value) => updateDetailDraft({ headquartersState: value })}
+                />
+                <InlineTextField
+                  kind="text"
+                  label="HQ Country"
+                  value={detailDraft.headquartersCountry}
+                  onSave={(value) => updateDetailDraft({ headquartersCountry: value })}
+                />
+                <InlineBooleanField
+                  kind="boolean"
+                  label="Limited Partner"
+                  value={detailDraft.isLimitedPartner}
+                  onSave={(nextValue) => {
+                    updateDetailDraft({
+                      isLimitedPartner: nextValue,
+                      limitedPartnerInvestmentUsd: nextValue ? detailDraft.limitedPartnerInvestmentUsd : ""
+                    });
+                  }}
+                  trueLabel="Yes"
+                  falseLabel="No"
+                />
                 {detailDraft.isLimitedPartner && (
-                  <div>
-                    <label>LP Investment Amount (USD)</label>
-                    <input
-                      value={detailDraft.limitedPartnerInvestmentUsd}
-                      onChange={(event) =>
-                        setDetailDraft({ ...detailDraft, limitedPartnerInvestmentUsd: event.target.value })
-                      }
-                    />
-                  </div>
+                  <InlineTextField
+                    kind="text"
+                    label="LP Investment Amount (USD)"
+                    value={detailDraft.limitedPartnerInvestmentUsd}
+                    inputType="number"
+                    onSave={(value) => updateDetailDraft({ limitedPartnerInvestmentUsd: value })}
+                  />
                 )}
-                <div>
-                  <label>Alliance Member</label>
-                  <label className="chip">
-                    <input
-                      type="checkbox"
-                      checked={detailDraft.isAllianceMember}
-                      onChange={(event) =>
-                        setDetailDraft({ ...detailDraft, isAllianceMember: event.target.checked })
-                      }
-                    />
-                    Alliance Member
-                  </label>
-                </div>
-                <div>
-                  <label>Innovation Team</label>
-                  <select
-                    value={detailDraft.hasInnovationTeam}
-                    onChange={(event) =>
-                      setDetailDraft({
-                        ...detailDraft,
-                        hasInnovationTeam: event.target.value as "null" | "true" | "false"
-                      })
-                    }
-                  >
-                    <option value="null">Unknown</option>
-                    <option value="true">Yes</option>
-                    <option value="false">No</option>
-                  </select>
-                </div>
-                <div>
-                  <label>Venture Team</label>
-                  <select
-                    value={detailDraft.hasVentureTeam}
-                    onChange={(event) =>
-                      setDetailDraft({
-                        ...detailDraft,
-                        hasVentureTeam: event.target.value as "null" | "true" | "false"
-                      })
-                    }
-                  >
-                    <option value="null">Unknown</option>
-                    <option value="true">Yes</option>
-                    <option value="false">No</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="detail-section">
-                <label>Venture Team Summary</label>
-                <textarea
-                  value={detailDraft.ventureTeamSummary}
-                  onChange={(event) =>
-                    setDetailDraft({ ...detailDraft, ventureTeamSummary: event.target.value })
+                <InlineBooleanField
+                  kind="boolean"
+                  label="Alliance Member"
+                  value={detailDraft.isAllianceMember}
+                  onSave={(value) => updateDetailDraft({ isAllianceMember: value })}
+                  trueLabel="Yes"
+                  falseLabel="No"
+                />
+                <InlineSelectField
+                  kind="select"
+                  label="Innovation Team"
+                  value={detailDraft.hasInnovationTeam}
+                  onSave={(value) =>
+                    updateDetailDraft({ hasInnovationTeam: value as "null" | "true" | "false" })
                   }
+                  options={[
+                    { value: "null", label: "Unknown" },
+                    { value: "true", label: "Yes" },
+                    { value: "false", label: "No" }
+                  ]}
+                />
+                <InlineSelectField
+                  kind="select"
+                  label="Venture Team"
+                  value={detailDraft.hasVentureTeam}
+                  onSave={(value) =>
+                    updateDetailDraft({ hasVentureTeam: value as "null" | "true" | "false" })
+                  }
+                  options={[
+                    { value: "null", label: "Unknown" },
+                    { value: "true", label: "Yes" },
+                    { value: "false", label: "No" }
+                  ]}
                 />
               </div>
 
               <div className="detail-section">
-                <label>Research Notes</label>
-                <textarea
+                <InlineTextareaField
+                  kind="textarea"
+                  label="Venture Team Summary"
+                  value={detailDraft.ventureTeamSummary}
+                  onSave={(value) => updateDetailDraft({ ventureTeamSummary: value })}
+                />
+              </div>
+
+              <div className="detail-section">
+                <InlineTextareaField
+                  kind="textarea"
+                  label="Research Notes"
                   value={detailDraft.researchNotes}
-                  onChange={(event) => setDetailDraft({ ...detailDraft, researchNotes: event.target.value })}
+                  onSave={(value) => updateDetailDraft({ researchNotes: value })}
                 />
               </div>
 

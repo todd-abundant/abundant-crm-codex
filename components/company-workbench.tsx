@@ -1,6 +1,12 @@
 "use client";
 
 import * as React from "react";
+import {
+  InlineBooleanField,
+  InlineSelectField,
+  InlineTextField,
+  InlineTextareaField
+} from "./inline-detail-field";
 
 type SearchCandidate = {
   name: string;
@@ -380,7 +386,6 @@ export function CompanyWorkbench() {
   const [draftRecordId, setDraftRecordId] = React.useState<string | null>(null);
   const [detailDraft, setDetailDraft] = React.useState<DetailDraft | null>(null);
   const [runningAgent, setRunningAgent] = React.useState(false);
-  const [savingEdits, setSavingEdits] = React.useState(false);
   const [creatingFromSearch, setCreatingFromSearch] = React.useState(false);
   const [deletingRecordId, setDeletingRecordId] = React.useState<string | null>(null);
   const [searchCandidates, setSearchCandidates] = React.useState<SearchCandidate[]>([]);
@@ -905,47 +910,63 @@ export function CompanyWorkbench() {
     }
   }
 
-  async function saveSelectedRecordEdits() {
-    if (!selectedRecord || !detailDraft) return;
+  function updateDetailDraft(patch: Partial<DetailDraft>) {
+    setDetailDraft((current) => {
+      if (!current || !selectedRecord) {
+        return current;
+      }
 
-    setSavingEdits(true);
+      const next = { ...current, ...patch };
+      const changed = Object.entries(patch).some(
+        ([key, value]) => (current as Record<string, unknown>)[key] !== value
+      );
+      if (!changed) {
+        return current;
+      }
+
+      void saveSelectedRecordEdits(next);
+      return next;
+    });
+  }
+
+  async function saveSelectedRecordEdits(draftToSave: DetailDraft | null = detailDraft) {
+    if (!selectedRecord || !draftToSave) return;
+
     setStatus(null);
 
     try {
-      const intakeScheduledAt = detailDraft.intakeStatus === "SCHEDULED" ? detailDraft.intakeScheduledAt : "";
-
       const res = await fetch(`/api/companies/${selectedRecord.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: detailDraft.name,
-          legalName: detailDraft.legalName,
-          website: detailDraft.website,
-          headquartersCity: detailDraft.headquartersCity,
-          headquartersState: detailDraft.headquartersState,
-          headquartersCountry: detailDraft.headquartersCountry,
-          companyType: detailDraft.companyType,
-          primaryCategory: detailDraft.primaryCategory,
-          primaryCategoryOther: detailDraft.primaryCategoryOther,
-          declineReason: detailDraft.declineReason === "" ? null : detailDraft.declineReason,
-          declineReasonOther: detailDraft.declineReasonOther,
-          leadSourceType: detailDraft.leadSourceType,
+          name: draftToSave.name,
+          legalName: draftToSave.legalName,
+          website: draftToSave.website,
+          headquartersCity: draftToSave.headquartersCity,
+          headquartersState: draftToSave.headquartersState,
+          headquartersCountry: draftToSave.headquartersCountry,
+          companyType: draftToSave.companyType,
+          primaryCategory: draftToSave.primaryCategory,
+          primaryCategoryOther: draftToSave.primaryCategoryOther,
+          declineReason: draftToSave.declineReason === "" ? null : draftToSave.declineReason,
+          declineReasonOther: draftToSave.declineReasonOther,
+          leadSourceType: draftToSave.leadSourceType,
           leadSourceHealthSystemId:
-            detailDraft.leadSourceType === "HEALTH_SYSTEM" ? detailDraft.leadSourceHealthSystemId : null,
-          leadSourceNotes: detailDraft.leadSourceNotes,
-          description: detailDraft.description,
-          googleTranscriptUrl: detailDraft.googleTranscriptUrl,
+            draftToSave.leadSourceType === "HEALTH_SYSTEM" ? draftToSave.leadSourceHealthSystemId : null,
+          leadSourceNotes: draftToSave.leadSourceNotes,
+          description: draftToSave.description,
+          googleTranscriptUrl: draftToSave.googleTranscriptUrl,
           spinOutOwnershipPercent:
-            detailDraft.companyType === "SPIN_OUT" ? toNullableNumber(detailDraft.spinOutOwnershipPercent) : null,
-          intakeStatus: detailDraft.intakeStatus,
-          leadSourceOther:
-            detailDraft.leadSourceType === "OTHER" ? detailDraft.leadSourceOther : null,
-          intakeScheduledAt: intakeScheduledAt || null,
+            draftToSave.companyType === "SPIN_OUT" ? toNullableNumber(draftToSave.spinOutOwnershipPercent) : null,
+          intakeStatus: draftToSave.intakeStatus,
+          leadSourceOther: draftToSave.leadSourceType === "OTHER" ? draftToSave.leadSourceOther : null,
+          intakeScheduledAt:
+            draftToSave.intakeStatus === "SCHEDULED" ? draftToSave.intakeScheduledAt : null,
           screeningEvaluationAt:
-            detailDraft.intakeStatus === "SCREENING_EVALUATION" ? new Date().toISOString() : null,
-          researchNotes: detailDraft.researchNotes,
-          healthSystemLinks: detailDraft.healthSystemLinks,
-          coInvestorLinks: detailDraft.coInvestorLinks
+            draftToSave.intakeStatus === "SCREENING_EVALUATION" ? new Date().toISOString() : null,
+          researchNotes: draftToSave.researchNotes,
+          healthSystemLinks: draftToSave.healthSystemLinks,
+          coInvestorLinks: draftToSave.coInvestorLinks
         })
       });
 
@@ -953,15 +974,12 @@ export function CompanyWorkbench() {
       if (!res.ok) throw new Error(payload.error || "Failed to save changes");
 
       setStatus({ kind: "ok", text: `Saved changes for ${payload.company.name}.` });
-      setDraftRecordId(null);
       await loadRecords();
     } catch (error) {
       setStatus({
         kind: "error",
         text: error instanceof Error ? error.message : "Failed to save changes"
       });
-    } finally {
-      setSavingEdits(false);
     }
   }
 
@@ -1443,154 +1461,106 @@ export function CompanyWorkbench() {
                 <h3>{selectedRecord.name}</h3>
               </div>
 
-              <div className="actions">
-                <button className="primary" onClick={saveSelectedRecordEdits} disabled={savingEdits}>
-                  {savingEdits ? "Saving..." : "Save Changes"}
-                </button>
-              </div>
-
               <div className="detail-grid">
-                <div>
-                  <label>Name</label>
-                  <input value={detailDraft.name} onChange={(event) => setDetailDraft({ ...detailDraft, name: event.target.value })} />
-                </div>
-                <div>
-                  <label>Legal Name</label>
-                  <input
-                    value={detailDraft.legalName}
-                    onChange={(event) => setDetailDraft({ ...detailDraft, legalName: event.target.value })}
-                  />
-                </div>
-                <div>
-                  <label>Website</label>
-                  <input value={detailDraft.website} onChange={(event) => setDetailDraft({ ...detailDraft, website: event.target.value })} />
-                </div>
-                <div>
-                  <label>Google Transcript Doc URL</label>
-                  <input
-                    value={detailDraft.googleTranscriptUrl}
-                    onChange={(event) => setDetailDraft({ ...detailDraft, googleTranscriptUrl: event.target.value })}
-                  />
-                </div>
-                <div>
-                  <label>HQ City</label>
-                  <input
-                    value={detailDraft.headquartersCity}
-                    onChange={(event) => setDetailDraft({ ...detailDraft, headquartersCity: event.target.value })}
-                  />
-                </div>
-                <div>
-                  <label>HQ State</label>
-                  <input
-                    value={detailDraft.headquartersState}
-                    onChange={(event) => setDetailDraft({ ...detailDraft, headquartersState: event.target.value })}
-                  />
-                </div>
-                <div>
-                  <label>HQ Country</label>
-                  <input
-                    value={detailDraft.headquartersCountry}
-                    onChange={(event) => setDetailDraft({ ...detailDraft, headquartersCountry: event.target.value })}
-                  />
-                </div>
-                <div>
-                  <label>Company Type</label>
-                  <select
-                    value={detailDraft.companyType}
-                    onChange={(event) =>
-                      setDetailDraft({ ...detailDraft, companyType: event.target.value as CompanyType })
-                    }
-                  >
-                    {companyTypeOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label>Primary Category</label>
-                  <select
-                    value={detailDraft.primaryCategory}
-                    onChange={(event) =>
-                      setDetailDraft({
-                        ...detailDraft,
-                        primaryCategory: event.target.value as PrimaryCategory
-                      })
-                    }
-                  >
-                    {primaryCategoryOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <InlineTextField
+                  kind="text"
+                  label="Name"
+                  value={detailDraft.name}
+                  onSave={(value) => updateDetailDraft({ name: value })}
+                />
+                <InlineTextField
+                  kind="text"
+                  label="Legal Name"
+                  value={detailDraft.legalName}
+                  onSave={(value) => updateDetailDraft({ legalName: value })}
+                />
+                <InlineTextField
+                  kind="text"
+                  label="Website"
+                  value={detailDraft.website}
+                  onSave={(value) => updateDetailDraft({ website: value })}
+                />
+                <InlineTextField
+                  kind="text"
+                  label="Google Transcript Doc URL"
+                  value={detailDraft.googleTranscriptUrl}
+                  onSave={(value) => updateDetailDraft({ googleTranscriptUrl: value })}
+                />
+                <InlineTextField
+                  kind="text"
+                  label="HQ City"
+                  value={detailDraft.headquartersCity}
+                  onSave={(value) => updateDetailDraft({ headquartersCity: value })}
+                />
+                <InlineTextField
+                  kind="text"
+                  label="HQ State"
+                  value={detailDraft.headquartersState}
+                  onSave={(value) => updateDetailDraft({ headquartersState: value })}
+                />
+                <InlineTextField
+                  kind="text"
+                  label="HQ Country"
+                  value={detailDraft.headquartersCountry}
+                  onSave={(value) => updateDetailDraft({ headquartersCountry: value })}
+                />
+                <InlineSelectField
+                  kind="select"
+                  label="Company Type"
+                  value={detailDraft.companyType}
+                  onSave={(value) => updateDetailDraft({ companyType: value as CompanyType })}
+                  options={companyTypeOptions}
+                />
+                <InlineSelectField
+                  kind="select"
+                  label="Primary Category"
+                  value={detailDraft.primaryCategory}
+                  onSave={(value) => updateDetailDraft({ primaryCategory: value as PrimaryCategory })}
+                  options={primaryCategoryOptions}
+                />
                 {detailDraft.primaryCategory === "OTHER" && (
-                  <div>
-                    <label>Primary Category (Other)</label>
-                    <input
-                      value={detailDraft.primaryCategoryOther}
-                      onChange={(event) => setDetailDraft({ ...detailDraft, primaryCategoryOther: event.target.value })}
-                    />
-                  </div>
+                  <InlineTextField
+                    kind="text"
+                    label="Primary Category (Other)"
+                    value={detailDraft.primaryCategoryOther}
+                    onSave={(value) => updateDetailDraft({ primaryCategoryOther: value })}
+                  />
                 )}
-                <div>
-                  <label>Decline Reason</label>
-                  <select
-                    value={detailDraft.declineReason}
-                    onChange={(event) =>
-                      setDetailDraft({
-                        ...detailDraft,
-                        declineReason: event.target.value as DeclineReason | ""
-                      })
-                    }
-                  >
-                    {declineReasonOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <InlineSelectField
+                  kind="select"
+                  label="Decline Reason"
+                  value={detailDraft.declineReason}
+                  onSave={(value) => updateDetailDraft({ declineReason: value as DeclineReason | "" })}
+                  options={declineReasonOptions}
+                />
                 {detailDraft.declineReason === "OTHER" && (
-                  <div>
-                    <label>Decline Reason (Other)</label>
-                    <input
-                      value={detailDraft.declineReasonOther}
-                      onChange={(event) => setDetailDraft({ ...detailDraft, declineReasonOther: event.target.value })}
-                    />
-                  </div>
+                  <InlineTextField
+                    kind="text"
+                    label="Decline Reason (Other)"
+                    value={detailDraft.declineReasonOther}
+                    onSave={(value) => updateDetailDraft({ declineReasonOther: value })}
+                  />
                 )}
-                <div>
-                  <label>Lead Source</label>
-                  <select
-                    value={detailDraft.leadSourceType}
-                    onChange={(event) => {
-                      setDetailLeadSourceHealthSystemDraftName("");
-                      setDetailDraft({
-                        ...detailDraft,
-                        leadSourceType: event.target.value as LeadSourceType,
-                        leadSourceHealthSystemId:
-                          event.target.value === "HEALTH_SYSTEM" ? detailDraft.leadSourceHealthSystemId : "",
-                        leadSourceOther: event.target.value === "OTHER" ? detailDraft.leadSourceOther : ""
-                      });
-                    }}
-                  >
-                    {leadSourceOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <InlineSelectField
+                  kind="select"
+                  label="Lead Source"
+                  value={detailDraft.leadSourceType}
+                  onSave={(value) =>
+                    updateDetailDraft({
+                      leadSourceType: value as LeadSourceType,
+                      leadSourceHealthSystemId: value === "HEALTH_SYSTEM" ? detailDraft.leadSourceHealthSystemId : "",
+                      leadSourceOther: value === "OTHER" ? detailDraft.leadSourceOther : ""
+                    })
+                  }
+                  options={leadSourceOptions}
+                />
                 {detailDraft.leadSourceType === "HEALTH_SYSTEM" ? (
                   <div>
                     <label>Lead Source Health System</label>
                     <select
                       value={detailDraft.leadSourceHealthSystemId}
                       onChange={(event) =>
-                        setDetailDraft({ ...detailDraft, leadSourceHealthSystemId: event.target.value })
+                        updateDetailDraft({ leadSourceHealthSystemId: event.target.value })
                       }
                     >
                       <option value="">Select a health system</option>
@@ -1613,20 +1583,16 @@ export function CompanyWorkbench() {
                             className="secondary"
                             type="button"
                             onClick={() =>
-                              void addLeadSourceHealthSystemFromDraftName(
-                                detailLeadSourceHealthSystemDraftName,
-                                "detail"
-                              )
-                                .catch((error) => {
+                              void addLeadSourceHealthSystemFromDraftName(detailLeadSourceHealthSystemDraftName, "detail").catch(
+                                (error) => {
                                   setStatus({
                                     kind: "error",
                                     text: error instanceof Error ? error.message : "Failed to add health system"
                                   });
-                                })
+                                }
+                              )
                             }
-                            disabled={
-                              creatingLeadSourceForDetail || !detailLeadSourceHealthSystemDraftName.trim()
-                            }
+                            disabled={creatingLeadSourceForDetail || !detailLeadSourceHealthSystemDraftName.trim()}
                           >
                             {creatingLeadSourceForDetail ? "Adding..." : "Create Health System"}
                           </button>
@@ -1635,17 +1601,12 @@ export function CompanyWorkbench() {
                     )}
                   </div>
                 ) : (
-                  <div>
-                    <label>Lead Source (Other)</label>
-                    <input
-                      list="lead-source-suggestions-detail"
-                      value={detailDraft.leadSourceOther}
-                      onChange={(event) =>
-                        setDetailDraft({ ...detailDraft, leadSourceOther: event.target.value })
-                      }
-                      placeholder="Type or choose a source"
-                    />
-                  </div>
+                  <InlineTextField
+                    kind="text"
+                    label="Lead Source (Other)"
+                    value={detailDraft.leadSourceOther}
+                    onSave={(value) => updateDetailDraft({ leadSourceOther: value })}
+                  />
                 )}
                 <datalist id="lead-source-suggestions-detail">
                   {leadSourceOtherOptions.map((source) => (
@@ -1653,63 +1614,46 @@ export function CompanyWorkbench() {
                   ))}
                 </datalist>
                 {detailDraft.companyType === "SPIN_OUT" && (
-                  <div>
-                    <label>Spin-out Ownership %</label>
-                    <input
-                      value={detailDraft.spinOutOwnershipPercent}
-                      onChange={(event) =>
-                        setDetailDraft({ ...detailDraft, spinOutOwnershipPercent: event.target.value })
-                      }
-                      placeholder="Typically 50"
-                    />
-                  </div>
+                  <InlineTextField
+                    kind="text"
+                    label="Spin-out Ownership %"
+                    value={detailDraft.spinOutOwnershipPercent}
+                    onSave={(value) => updateDetailDraft({ spinOutOwnershipPercent: value })}
+                  />
                 )}
-                <div>
-                  <label>Intake Status</label>
-                  <select
-                    value={detailDraft.intakeStatus}
-                    onChange={(event) => {
-                      const next = event.target.value as IntakeStatus;
-                      setDetailDraft({ ...detailDraft, intakeStatus: next });
-                    }}
-                  >
-                    {intakeStatusOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <InlineSelectField
+                  kind="select"
+                  label="Intake Status"
+                  value={detailDraft.intakeStatus}
+                  onSave={(value) => updateDetailDraft({ intakeStatus: value as IntakeStatus })}
+                  options={intakeStatusOptions}
+                />
                 {detailDraft.intakeStatus === "SCHEDULED" && (
-                  <div>
-                    <label>Intake Scheduled Date</label>
-                    <input
-                      type="date"
-                      value={detailDraft.intakeScheduledAt}
-                      onChange={(event) =>
-                        setDetailDraft({
-                          ...detailDraft,
-                          intakeScheduledAt: event.target.value
-                        })
-                      }
-                    />
-                  </div>
+                  <InlineTextField
+                    kind="text"
+                    inputType="date"
+                    label="Intake Scheduled Date"
+                    value={detailDraft.intakeScheduledAt}
+                    onSave={(value) => updateDetailDraft({ intakeScheduledAt: value })}
+                  />
                 )}
               </div>
 
               <div className="detail-section">
-                <label>Description</label>
-                <textarea
+                <InlineTextareaField
+                  kind="textarea"
+                  label="Description"
                   value={detailDraft.description}
-                  onChange={(event) => setDetailDraft({ ...detailDraft, description: event.target.value })}
+                  onSave={(value) => updateDetailDraft({ description: value })}
                 />
               </div>
 
               <div className="detail-section">
-                <label>Research Notes</label>
-                <textarea
+                <InlineTextareaField
+                  kind="textarea"
+                  label="Research Notes"
                   value={detailDraft.researchNotes}
-                  onChange={(event) => setDetailDraft({ ...detailDraft, researchNotes: event.target.value })}
+                  onSave={(value) => updateDetailDraft({ researchNotes: value })}
                 />
               </div>
 

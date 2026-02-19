@@ -1,6 +1,11 @@
 "use client";
 
 import * as React from "react";
+import {
+  InlineBooleanField,
+  InlineTextField,
+  InlineTextareaField
+} from "./inline-detail-field";
 
 type SearchCandidate = {
   name: string;
@@ -191,7 +196,6 @@ export function CoInvestorWorkbench() {
   const [detailDraft, setDetailDraft] = React.useState<DetailDraft | null>(null);
   const [draftRecordId, setDraftRecordId] = React.useState<string | null>(null);
   const [runningAgent, setRunningAgent] = React.useState(false);
-  const [savingEdits, setSavingEdits] = React.useState(false);
   const [creatingFromSearch, setCreatingFromSearch] = React.useState(false);
   const [deletingRecordId, setDeletingRecordId] = React.useState<string | null>(null);
   const [searchCandidates, setSearchCandidates] = React.useState<SearchCandidate[]>([]);
@@ -550,10 +554,28 @@ export function CoInvestorWorkbench() {
     }
   }
 
-  async function saveSelectedRecordEdits() {
-    if (!selectedRecord || !detailDraft) return;
+  function updateDetailDraft(patch: Partial<DetailDraft>) {
+    setDetailDraft((current) => {
+      if (!current || !selectedRecord) {
+        return current;
+      }
 
-    setSavingEdits(true);
+      const next = { ...current, ...patch };
+      const changed = Object.entries(patch).some(
+        ([key, value]) => (current as Record<string, unknown>)[key] !== value
+      );
+      if (!changed) {
+        return current;
+      }
+
+      void saveSelectedRecordEdits(next);
+      return next;
+    });
+  }
+
+  async function saveSelectedRecordEdits(draftToSave: DetailDraft | null = detailDraft) {
+    if (!selectedRecord || !draftToSave) return;
+
     setStatus(null);
 
     try {
@@ -561,16 +583,16 @@ export function CoInvestorWorkbench() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: detailDraft.name,
-          legalName: detailDraft.legalName,
-          website: detailDraft.website,
-          headquartersCity: detailDraft.headquartersCity,
-          headquartersState: detailDraft.headquartersState,
-          headquartersCountry: detailDraft.headquartersCountry,
-          isSeedInvestor: detailDraft.isSeedInvestor,
-          isSeriesAInvestor: detailDraft.isSeriesAInvestor,
-          investmentNotes: detailDraft.investmentNotes,
-          researchNotes: detailDraft.researchNotes
+          name: draftToSave.name,
+          legalName: draftToSave.legalName,
+          website: draftToSave.website,
+          headquartersCity: draftToSave.headquartersCity,
+          headquartersState: draftToSave.headquartersState,
+          headquartersCountry: draftToSave.headquartersCountry,
+          isSeedInvestor: draftToSave.isSeedInvestor,
+          isSeriesAInvestor: draftToSave.isSeriesAInvestor,
+          investmentNotes: draftToSave.investmentNotes,
+          researchNotes: draftToSave.researchNotes
         })
       });
 
@@ -584,8 +606,6 @@ export function CoInvestorWorkbench() {
         kind: "error",
         text: error instanceof Error ? error.message : "Failed to save changes"
       });
-    } finally {
-      setSavingEdits(false);
     }
   }
 
@@ -865,108 +885,88 @@ export function CoInvestorWorkbench() {
           {status && <p className={`status ${status.kind}`}>{status.text}</p>}
         </section>
 
-        <section className="panel">
-          <h2>Co-Investor Detail</h2>
-          {!selectedRecord || !detailDraft ? (
-            <p className="muted">Select a co-investor from the list to view details.</p>
-          ) : (
-            <div className="detail-card">
-              <div className="detail-head">
-                <h3>{selectedRecord.name}</h3>
-              </div>
+          <section className="panel">
+            <h2>Co-Investor Detail</h2>
+            {!selectedRecord || !detailDraft ? (
+              <p className="muted">Select a co-investor from the list to view details.</p>
+            ) : (
+              <div className="detail-card">
+                <div className="detail-head">
+                  <h3>{selectedRecord.name}</h3>
+                </div>
 
-              <div className="actions">
-                <button className="primary" onClick={saveSelectedRecordEdits} disabled={savingEdits}>
-                  {savingEdits ? "Saving..." : "Save Changes"}
-                </button>
-              </div>
-
-              <div className="detail-grid">
-                <div>
-                  <label>Name</label>
-                  <input
+                <div className="detail-grid">
+                  <InlineTextField
+                    kind="text"
+                    label="Name"
                     value={detailDraft.name}
-                    onChange={(event) => setDetailDraft({ ...detailDraft, name: event.target.value })}
+                    onSave={(value) => updateDetailDraft({ name: value })}
                   />
-                </div>
-                <div>
-                  <label>Legal Name</label>
-                  <input
+                  <InlineTextField
+                    kind="text"
+                    label="Legal Name"
                     value={detailDraft.legalName}
-                    onChange={(event) => setDetailDraft({ ...detailDraft, legalName: event.target.value })}
+                    onSave={(value) => updateDetailDraft({ legalName: value })}
                   />
-                </div>
-                <div>
-                  <label>Website</label>
-                  <input
+                  <InlineTextField
+                    kind="text"
+                    label="Website"
                     value={detailDraft.website}
-                    onChange={(event) => setDetailDraft({ ...detailDraft, website: event.target.value })}
+                    onSave={(value) => updateDetailDraft({ website: value })}
                   />
-                </div>
-                <div>
-                  <label>HQ City</label>
-                  <input
+                  <InlineTextField
+                    kind="text"
+                    label="HQ City"
                     value={detailDraft.headquartersCity}
-                    onChange={(event) => setDetailDraft({ ...detailDraft, headquartersCity: event.target.value })}
+                    onSave={(value) => updateDetailDraft({ headquartersCity: value })}
                   />
-                </div>
-                <div>
-                  <label>HQ State</label>
-                  <input
+                  <InlineTextField
+                    kind="text"
+                    label="HQ State"
                     value={detailDraft.headquartersState}
-                    onChange={(event) => setDetailDraft({ ...detailDraft, headquartersState: event.target.value })}
+                    onSave={(value) => updateDetailDraft({ headquartersState: value })}
                   />
-                </div>
-                <div>
-                  <label>HQ Country</label>
-                  <input
+                  <InlineTextField
+                    kind="text"
+                    label="HQ Country"
                     value={detailDraft.headquartersCountry}
-                    onChange={(event) => setDetailDraft({ ...detailDraft, headquartersCountry: event.target.value })}
+                    onSave={(value) => updateDetailDraft({ headquartersCountry: value })}
+                  />
+                  <InlineBooleanField
+                    kind="boolean"
+                    label="Seed Investor"
+                    value={detailDraft.isSeedInvestor}
+                    trueLabel="Yes"
+                    falseLabel="No"
+                    onSave={(value) => updateDetailDraft({ isSeedInvestor: value })}
+                  />
+                  <InlineBooleanField
+                    kind="boolean"
+                    label="Series A Investor"
+                    value={detailDraft.isSeriesAInvestor}
+                    trueLabel="Yes"
+                    falseLabel="No"
+                    onSave={(value) => updateDetailDraft({ isSeriesAInvestor: value })}
                   />
                 </div>
-                <div>
-                  <label>Seed Investor</label>
-                  <label className="chip">
-                    <input
-                      type="checkbox"
-                      checked={detailDraft.isSeedInvestor}
-                      onChange={(event) =>
-                        setDetailDraft({ ...detailDraft, isSeedInvestor: event.target.checked })
-                      }
-                    />
-                    Seed
-                  </label>
-                </div>
-                <div>
-                  <label>Series A Investor</label>
-                  <label className="chip">
-                    <input
-                      type="checkbox"
-                      checked={detailDraft.isSeriesAInvestor}
-                      onChange={(event) =>
-                        setDetailDraft({ ...detailDraft, isSeriesAInvestor: event.target.checked })
-                      }
-                    />
-                    Series A
-                  </label>
-                </div>
-              </div>
 
-              <div className="detail-section">
-                <label>Investment Notes</label>
-                <textarea
-                  value={detailDraft.investmentNotes}
-                  onChange={(event) => setDetailDraft({ ...detailDraft, investmentNotes: event.target.value })}
-                />
-              </div>
+                <div className="detail-section">
+                  <InlineTextareaField
+                    kind="textarea"
+                    label="Investment Notes"
+                    value={detailDraft.investmentNotes}
+                    onSave={(value) => updateDetailDraft({ investmentNotes: value })}
+                  />
+                </div>
 
-              <div className="detail-section">
-                <label>Research Notes</label>
-                <textarea
-                  value={detailDraft.researchNotes}
-                  onChange={(event) => setDetailDraft({ ...detailDraft, researchNotes: event.target.value })}
-                />
-              </div>
+                <div className="detail-section">
+                  <InlineTextareaField
+                    kind="textarea"
+                    label="Research Notes"
+                    value={detailDraft.researchNotes}
+                    onSave={(value) => updateDetailDraft({ researchNotes: value })}
+                  />
+                </div>
 
               {selectedRecord.researchError && (
                 <div className="detail-section">
