@@ -18,6 +18,11 @@ type SearchCandidate = {
   sourceUrls: string[];
 };
 
+type CoInvestorOption = {
+  id: string;
+  name: string;
+};
+
 type ResearchStatus = "DRAFT" | "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
 type IntakeStatus = "NOT_SCHEDULED" | "SCHEDULED" | "COMPLETED" | "SCREENING_EVALUATION";
 type CompanyType = "STARTUP" | "SPIN_OUT" | "DENOVO";
@@ -160,6 +165,20 @@ type DetailDraft = {
   }>;
 };
 
+const companyHealthSystemRelationshipOptions: Array<{ value: "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"; label: string }> =
+  [
+    { value: "CUSTOMER", label: "Customer" },
+    { value: "SPIN_OUT_PARTNER", label: "Spin-out Partner" },
+    { value: "INVESTOR_PARTNER", label: "Investor Partner" },
+    { value: "OTHER", label: "Other" }
+  ];
+
+const companyCoInvestorRelationshipOptions: Array<{ value: "INVESTOR" | "PARTNER" | "OTHER"; label: string }> = [
+  { value: "INVESTOR", label: "Investor" },
+  { value: "PARTNER", label: "Partner" },
+  { value: "OTHER", label: "Other" }
+];
+
 const companyTypeOptions: Array<{ value: CompanyType; label: string }> = [
   { value: "STARTUP", label: "Startup" },
   { value: "SPIN_OUT", label: "Spin-out" },
@@ -208,13 +227,6 @@ const declineReasonOptions: Array<{ value: DeclineReason | ""; label: string }> 
 const leadSourceOptions: Array<{ value: LeadSourceType; label: string }> = [
   { value: "OTHER", label: "Other" },
   { value: "HEALTH_SYSTEM", label: "Health System" }
-];
-
-const intakeStatusOptions: Array<{ value: IntakeStatus; label: string }> = [
-  { value: "NOT_SCHEDULED", label: "Not Scheduled" },
-  { value: "SCHEDULED", label: "Scheduled" },
-  { value: "COMPLETED", label: "Completed" },
-  { value: "SCREENING_EVALUATION", label: "Screening Evaluation" }
 ];
 
 function formatLocation(record: {
@@ -293,11 +305,20 @@ function statusClass(status: ResearchStatus) {
   return "draft";
 }
 
-function intakeStatusClass(status: IntakeStatus) {
+function intakeStatusClass(status: IntakeStatus, intakeScheduledAt?: string | null) {
   if (status === "SCREENING_EVALUATION") return "done";
   if (status === "COMPLETED") return "done";
-  if (status === "SCHEDULED") return "queued";
+  if (status === "SCHEDULED" && intakeScheduledAt) return "queued";
   return "draft";
+}
+
+function intakeStatusLabel(status: IntakeStatus, intakeScheduledAt: string) {
+  const scheduledLabel = toDateInputValue(intakeScheduledAt);
+
+  if (status === "SCREENING_EVALUATION") return "Screening Evaluation";
+  if (status === "COMPLETED") return "Completed";
+  if (status === "SCHEDULED" && scheduledLabel) return scheduledLabel;
+  return "Not Scheduled";
 }
 
 function toNullableNumber(value: string): number | null {
@@ -334,6 +355,18 @@ function buildFallbackHealthSystemCandidate(term: string) {
     headquartersState: "",
     headquartersCountry: "",
     summary: "Created from company lead source.",
+    sourceUrls: []
+  };
+}
+
+function buildFallbackCoInvestorCandidate(term: string) {
+  return {
+    name: term,
+    website: "",
+    headquartersCity: "",
+    headquartersState: "",
+    headquartersCountry: "",
+    summary: "Created from company detail.",
     sourceUrls: []
   };
 }
@@ -382,6 +415,7 @@ export function CompanyWorkbench() {
   const [query, setQuery] = React.useState("");
   const [records, setRecords] = React.useState<CompanyRecord[]>([]);
   const [healthSystems, setHealthSystems] = React.useState<HealthSystemOption[]>([]);
+  const [coInvestors, setCoInvestors] = React.useState<CoInvestorOption[]>([]);
   const [selectedRecordId, setSelectedRecordId] = React.useState<string | null>(null);
   const [draftRecordId, setDraftRecordId] = React.useState<string | null>(null);
   const [detailDraft, setDetailDraft] = React.useState<DetailDraft | null>(null);
@@ -416,6 +450,23 @@ export function CompanyWorkbench() {
   >("COMPANY_CONTACT");
   const [updatingContact, setUpdatingContact] = React.useState(false);
   const [deletingContactLinkId, setDeletingContactLinkId] = React.useState<string | null>(null);
+  const [addingHealthSystemLink, setAddingHealthSystemLink] = React.useState(false);
+  const [creatingHealthSystemLinkFromName, setCreatingHealthSystemLinkFromName] = React.useState(false);
+  const [newHealthSystemLinkId, setNewHealthSystemLinkId] = React.useState("");
+  const [newHealthSystemRelationshipType, setNewHealthSystemRelationshipType] = React.useState<
+    "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
+  >("CUSTOMER");
+  const [newHealthSystemNotes, setNewHealthSystemNotes] = React.useState("");
+  const [newHealthSystemInvestmentAmountUsd, setNewHealthSystemInvestmentAmountUsd] = React.useState("");
+  const [newHealthSystemOwnershipPercent, setNewHealthSystemOwnershipPercent] = React.useState("");
+  const [newHealthSystemDraftName, setNewHealthSystemDraftName] = React.useState("");
+  const [addingCoInvestorLink, setAddingCoInvestorLink] = React.useState(false);
+  const [creatingCoInvestorLinkFromName, setCreatingCoInvestorLinkFromName] = React.useState(false);
+  const [newCoInvestorId, setNewCoInvestorId] = React.useState("");
+  const [newCoInvestorRelationshipType, setNewCoInvestorRelationshipType] = React.useState<"INVESTOR" | "PARTNER" | "OTHER">("INVESTOR");
+  const [newCoInvestorNotes, setNewCoInvestorNotes] = React.useState("");
+  const [newCoInvestorInvestmentAmountUsd, setNewCoInvestorInvestmentAmountUsd] = React.useState("");
+  const [newCoInvestorDraftName, setNewCoInvestorDraftName] = React.useState("");
   const [keepListView, setKeepListView] = React.useState(false);
   const [newCompanyType, setNewCompanyType] = React.useState<CompanyType>("STARTUP");
   const [newPrimaryCategory, setNewPrimaryCategory] = React.useState<PrimaryCategory>("OTHER");
@@ -559,6 +610,45 @@ export function CompanyWorkbench() {
     }
   }
 
+  async function createCoInvestorFromName(name: string): Promise<string> {
+    const existing = coInvestors.find((investor) => normalizeForMatch(investor.name) === normalizeForMatch(name));
+    if (existing) {
+      return existing.id;
+    }
+
+    const candidate = buildFallbackCoInvestorCandidate(name);
+    const verifyRes = await fetch("/api/co-investors/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        candidate,
+        isSeedInvestor: false,
+        isSeriesAInvestor: false
+      })
+    });
+
+    const verifyPayload = await verifyRes.json();
+    if (!verifyRes.ok) {
+      if (verifyRes.status === 409) {
+        const freshRes = await fetch("/api/co-investors", { cache: "no-store" });
+        const freshPayload = await freshRes.json();
+        const list = Array.isArray(freshPayload.coInvestors) ? freshPayload.coInvestors : [];
+        const found = list.find((coInvestor: { id: string; name: string }) =>
+          normalizeForMatch(coInvestor.name) === normalizeForMatch(name)
+        );
+        if (found?.id) {
+          await loadCoInvestors();
+          return found.id;
+        }
+      }
+
+      throw new Error(verifyPayload.error || "Failed to add co-investor");
+    }
+
+    await loadCoInvestors();
+    return verifyPayload.coInvestor.id;
+  }
+
   async function readDescriptorFileFromUpload(file: File) {
     const text = await file.text();
     const trimmedText = text.trim();
@@ -571,6 +661,13 @@ export function CompanyWorkbench() {
     const payload = await res.json();
     const list = Array.isArray(payload.healthSystems) ? payload.healthSystems : [];
     setHealthSystems(list.map((system: { id: string; name: string }) => ({ id: system.id, name: system.name })));
+  }
+
+  async function loadCoInvestors() {
+    const res = await fetch("/api/co-investors", { cache: "no-store" });
+    const payload = await res.json();
+    const list = Array.isArray(payload.coInvestors) ? payload.coInvestors : [];
+    setCoInvestors(list.map((coInvestor: { id: string; name: string }) => ({ id: coInvestor.id, name: coInvestor.name })));
   }
 
   async function loadLeadSourceOtherOptions() {
@@ -910,6 +1007,121 @@ export function CompanyWorkbench() {
     }
   }
 
+  function resetHealthSystemLinkForm() {
+    setNewHealthSystemLinkId("");
+    setNewHealthSystemRelationshipType("CUSTOMER");
+    setNewHealthSystemNotes("");
+    setNewHealthSystemInvestmentAmountUsd("");
+    setNewHealthSystemOwnershipPercent("");
+    setNewHealthSystemDraftName("");
+  }
+
+  function resetCoInvestorLinkForm() {
+    setNewCoInvestorId("");
+    setNewCoInvestorRelationshipType("INVESTOR");
+    setNewCoInvestorNotes("");
+    setNewCoInvestorInvestmentAmountUsd("");
+    setNewCoInvestorDraftName("");
+  }
+
+  async function addHealthSystemLinkToSelectedRecord() {
+    if (!selectedRecord || !detailDraft) return;
+
+    const selectedId = newHealthSystemLinkId || "";
+    const draftName = newHealthSystemDraftName.trim();
+    if (!selectedId && !draftName) {
+      setStatus({ kind: "error", text: "Select or add a health system before linking." });
+      return;
+    }
+
+    setAddingHealthSystemLink(true);
+    setStatus(null);
+
+    try {
+      let healthSystemId = selectedId;
+      if (!healthSystemId) {
+        setCreatingHealthSystemLinkFromName(true);
+        healthSystemId = await createHealthSystemFromName(draftName);
+      }
+
+      if (detailDraft.healthSystemLinks.some((link) => link.healthSystemId === healthSystemId)) {
+        throw new Error("This health system is already linked to the company.");
+      }
+
+      const nextLinks = [
+        ...detailDraft.healthSystemLinks,
+        {
+          healthSystemId,
+          relationshipType: newHealthSystemRelationshipType,
+          notes: newHealthSystemNotes,
+          investmentAmountUsd: newHealthSystemInvestmentAmountUsd,
+          ownershipPercent: newHealthSystemOwnershipPercent
+        }
+      ];
+      updateDetailDraft({ healthSystemLinks: nextLinks });
+      const linkedName =
+        healthSystems.find((system) => system.id === healthSystemId)?.name || draftName || "Health system";
+      setStatus({ kind: "ok", text: `${linkedName} linked.` });
+      resetHealthSystemLinkForm();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add health system"
+      });
+    } finally {
+      setCreatingHealthSystemLinkFromName(false);
+      setAddingHealthSystemLink(false);
+    }
+  }
+
+  async function addCoInvestorLinkToSelectedRecord() {
+    if (!selectedRecord || !detailDraft) return;
+
+    const selectedId = newCoInvestorId || "";
+    const draftName = newCoInvestorDraftName.trim();
+    if (!selectedId && !draftName) {
+      setStatus({ kind: "error", text: "Select or add a co-investor before linking." });
+      return;
+    }
+
+    setAddingCoInvestorLink(true);
+    setStatus(null);
+
+    try {
+      let coInvestorId = selectedId;
+      if (!coInvestorId) {
+        setCreatingCoInvestorLinkFromName(true);
+        coInvestorId = await createCoInvestorFromName(draftName);
+      }
+
+      if (detailDraft.coInvestorLinks.some((link) => link.coInvestorId === coInvestorId)) {
+        throw new Error("This co-investor is already linked to the company.");
+      }
+
+      const nextLinks = [
+        ...detailDraft.coInvestorLinks,
+        {
+          coInvestorId,
+          relationshipType: newCoInvestorRelationshipType,
+          notes: newCoInvestorNotes,
+          investmentAmountUsd: newCoInvestorInvestmentAmountUsd
+        }
+      ];
+      updateDetailDraft({ coInvestorLinks: nextLinks });
+      const linkedName = coInvestors.find((coInvestor) => coInvestor.id === coInvestorId)?.name || draftName || "Co-investor";
+      setStatus({ kind: "ok", text: `${linkedName} linked.` });
+      resetCoInvestorLinkForm();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add co-investor"
+      });
+    } finally {
+      setCreatingCoInvestorLinkFromName(false);
+      setAddingCoInvestorLink(false);
+    }
+  }
+
   function updateDetailDraft(patch: Partial<DetailDraft>) {
     setDetailDraft((current) => {
       if (!current || !selectedRecord) {
@@ -933,6 +1145,12 @@ export function CompanyWorkbench() {
     if (!selectedRecord || !draftToSave) return;
 
     setStatus(null);
+    const intakeStatusForSave =
+      draftToSave.intakeStatus === "COMPLETED" || draftToSave.intakeStatus === "SCREENING_EVALUATION"
+        ? draftToSave.intakeStatus
+        : draftToSave.intakeScheduledAt
+          ? "SCHEDULED"
+          : "NOT_SCHEDULED";
 
     try {
       const res = await fetch(`/api/companies/${selectedRecord.id}`, {
@@ -958,10 +1176,9 @@ export function CompanyWorkbench() {
           googleTranscriptUrl: draftToSave.googleTranscriptUrl,
           spinOutOwnershipPercent:
             draftToSave.companyType === "SPIN_OUT" ? toNullableNumber(draftToSave.spinOutOwnershipPercent) : null,
-          intakeStatus: draftToSave.intakeStatus,
+          intakeStatus: intakeStatusForSave,
           leadSourceOther: draftToSave.leadSourceType === "OTHER" ? draftToSave.leadSourceOther : null,
-          intakeScheduledAt:
-            draftToSave.intakeStatus === "SCHEDULED" ? draftToSave.intakeScheduledAt : null,
+          intakeScheduledAt: intakeStatusForSave === "NOT_SCHEDULED" ? null : draftToSave.intakeScheduledAt,
           screeningEvaluationAt:
             draftToSave.intakeStatus === "SCREENING_EVALUATION" ? new Date().toISOString() : null,
           researchNotes: draftToSave.researchNotes,
@@ -1016,6 +1233,10 @@ export function CompanyWorkbench() {
 
     loadHealthSystems().catch(() => {
       setStatus({ kind: "error", text: "Failed to load health systems for lead source." });
+    });
+
+    loadCoInvestors().catch(() => {
+      setStatus({ kind: "error", text: "Failed to load co-investors." });
     });
 
     loadLeadSourceOtherOptions().catch(() => {
@@ -1098,6 +1319,8 @@ export function CompanyWorkbench() {
     if (selectedRecord.id !== draftRecordId) {
       setDetailDraft(draftFromRecord(selectedRecord));
       setDraftRecordId(selectedRecord.id);
+      resetHealthSystemLinkForm();
+      resetCoInvestorLinkForm();
       setDetailLeadSourceHealthSystemDraftName("");
     }
   }, [selectedRecord, draftRecordId]);
@@ -1428,8 +1651,8 @@ export function CompanyWorkbench() {
                     </div>
                   </div>
                   <div className="list-row-meta">
-                    <span className={`status-pill ${intakeStatusClass(record.intakeStatus)}`}>
-                      {record.intakeStatus}
+                    <span className={`status-pill ${intakeStatusClass(record.intakeStatus, record.intakeScheduledAt)}`}>
+                      {intakeStatusLabel(record.intakeStatus, record.intakeScheduledAt || "")}
                     </span>
                     <button
                       className="ghost small"
@@ -1621,22 +1844,14 @@ export function CompanyWorkbench() {
                     onSave={(value) => updateDetailDraft({ spinOutOwnershipPercent: value })}
                   />
                 )}
-                <InlineSelectField
-                  kind="select"
-                  label="Intake Status"
-                  value={detailDraft.intakeStatus}
-                  onSave={(value) => updateDetailDraft({ intakeStatus: value as IntakeStatus })}
-                  options={intakeStatusOptions}
+                <InlineTextField
+                  kind="text"
+                  inputType="date"
+                  label="Intake Date"
+                  value={detailDraft.intakeScheduledAt}
+                  emptyText="Not Scheduled"
+                  onSave={(value) => updateDetailDraft({ intakeScheduledAt: value })}
                 />
-                {detailDraft.intakeStatus === "SCHEDULED" && (
-                  <InlineTextField
-                    kind="text"
-                    inputType="date"
-                    label="Intake Scheduled Date"
-                    value={detailDraft.intakeScheduledAt}
-                    onSave={(value) => updateDetailDraft({ intakeScheduledAt: value })}
-                  />
-                )}
               </div>
 
               <div className="detail-section">
@@ -1867,34 +2082,202 @@ export function CompanyWorkbench() {
                 </div>
               </div>
 
-              {selectedRecord.healthSystemLinks.length === 0 ? (
-                <p className="muted">No linked health systems yet.</p>
-              ) : (
-                <div className="detail-section">
-                  <p className="detail-label">Linked Health Systems</p>
-                  {selectedRecord.healthSystemLinks.map((link) => (
+              <div className="detail-section">
+                <p className="detail-label">Linked Health Systems</p>
+                {selectedRecord.healthSystemLinks.length === 0 ? (
+                  <>
+                    <p className="muted">No linked health systems yet.</p>
+                    <div className="detail-grid">
+                      <div>
+                        <label>Existing Health System</label>
+                        <select
+                          value={newHealthSystemLinkId}
+                          onChange={(event) => setNewHealthSystemLinkId(event.target.value)}
+                        >
+                          <option value="">Select a health system</option>
+                          {healthSystems.map((system) => (
+                            <option key={system.id} value={system.id}>
+                              {system.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label>Relationship Type</label>
+                        <select
+                          value={newHealthSystemRelationshipType}
+                          onChange={(event) =>
+                            setNewHealthSystemRelationshipType(
+                              event.target.value as "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
+                            )
+                          }
+                        >
+                          {companyHealthSystemRelationshipOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label>Investment Amount (USD)</label>
+                        <input
+                          value={newHealthSystemInvestmentAmountUsd}
+                          onChange={(event) => setNewHealthSystemInvestmentAmountUsd(event.target.value)}
+                          type="number"
+                          min="0"
+                          step="any"
+                          placeholder="0"
+                        />
+                      </div>
+                      <div>
+                        <label>Ownership %</label>
+                        <input
+                          value={newHealthSystemOwnershipPercent}
+                          onChange={(event) => setNewHealthSystemOwnershipPercent(event.target.value)}
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="any"
+                          placeholder="0"
+                        />
+                      </div>
+                      <div>
+                        <label>Notes</label>
+                        <input
+                          value={newHealthSystemNotes}
+                          onChange={(event) => setNewHealthSystemNotes(event.target.value)}
+                          placeholder="Notes"
+                        />
+                      </div>
+                      <div>
+                        <label>Or add new health system</label>
+                        <input
+                          value={newHealthSystemDraftName}
+                          onChange={(event) => setNewHealthSystemDraftName(event.target.value)}
+                          placeholder="Type health system name"
+                        />
+                      </div>
+                    </div>
+                    <div className="actions">
+                      <button
+                        className="secondary"
+                        onClick={() => void addHealthSystemLinkToSelectedRecord()}
+                        disabled={
+                          addingHealthSystemLink ||
+                          creatingHealthSystemLinkFromName ||
+                          (!newHealthSystemLinkId && !newHealthSystemDraftName.trim())
+                        }
+                      >
+                        {creatingHealthSystemLinkFromName
+                          ? "Creating..."
+                          : addingHealthSystemLink
+                            ? "Adding..."
+                            : "Add Health System"}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  selectedRecord.healthSystemLinks.map((link) => (
                     <div key={link.id} className="detail-list-item">
                       <strong>{link.healthSystem.name}</strong> - {link.relationshipType}
                       {link.investmentAmountUsd !== null ? ` | Invested/Allocated: ${link.investmentAmountUsd}` : ""}
                       {link.ownershipPercent !== null ? ` | Ownership: ${link.ownershipPercent}%` : ""}
                     </div>
-                  ))}
-                </div>
-              )}
+                  ))
+                )}
+              </div>
 
-              {selectedRecord.coInvestorLinks.length === 0 ? (
-                <p className="muted">No linked co-investors yet.</p>
-              ) : (
-                <div className="detail-section">
-                  <p className="detail-label">Linked Co-Investors</p>
-                  {selectedRecord.coInvestorLinks.map((link) => (
+              <div className="detail-section">
+                <p className="detail-label">Linked Co-Investors</p>
+                {selectedRecord.coInvestorLinks.length === 0 ? (
+                  <>
+                    <p className="muted">No linked co-investors yet.</p>
+                    <div className="detail-grid">
+                      <div>
+                        <label>Existing Co-Investor</label>
+                        <select
+                          value={newCoInvestorId}
+                          onChange={(event) => setNewCoInvestorId(event.target.value)}
+                        >
+                          <option value="">Select a co-investor</option>
+                          {coInvestors.map((coInvestor) => (
+                            <option key={coInvestor.id} value={coInvestor.id}>
+                              {coInvestor.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label>Relationship Type</label>
+                        <select
+                          value={newCoInvestorRelationshipType}
+                          onChange={(event) =>
+                            setNewCoInvestorRelationshipType(event.target.value as "INVESTOR" | "PARTNER" | "OTHER")
+                          }
+                        >
+                          {companyCoInvestorRelationshipOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label>Investment Amount (USD)</label>
+                        <input
+                          value={newCoInvestorInvestmentAmountUsd}
+                          onChange={(event) => setNewCoInvestorInvestmentAmountUsd(event.target.value)}
+                          type="number"
+                          min="0"
+                          step="any"
+                          placeholder="0"
+                        />
+                      </div>
+                      <div>
+                        <label>Notes</label>
+                        <input
+                          value={newCoInvestorNotes}
+                          onChange={(event) => setNewCoInvestorNotes(event.target.value)}
+                          placeholder="Notes"
+                        />
+                      </div>
+                      <div>
+                        <label>Or add new co-investor</label>
+                        <input
+                          value={newCoInvestorDraftName}
+                          onChange={(event) => setNewCoInvestorDraftName(event.target.value)}
+                          placeholder="Type co-investor name"
+                        />
+                      </div>
+                    </div>
+                    <div className="actions">
+                      <button
+                        className="secondary"
+                        onClick={() => void addCoInvestorLinkToSelectedRecord()}
+                        disabled={
+                          addingCoInvestorLink ||
+                          creatingCoInvestorLinkFromName ||
+                          (!newCoInvestorId && !newCoInvestorDraftName.trim())
+                        }
+                      >
+                        {creatingCoInvestorLinkFromName
+                          ? "Creating..."
+                          : addingCoInvestorLink
+                            ? "Adding..."
+                            : "Add Co-Investor"}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  selectedRecord.coInvestorLinks.map((link) => (
                     <div key={link.id} className="detail-list-item">
                       <strong>{link.coInvestor.name}</strong> - {link.relationshipType}
                       {link.investmentAmountUsd !== null ? ` | Investment: ${link.investmentAmountUsd}` : ""}
                     </div>
-                  ))}
-                </div>
-              )}
+                  ))
+                )}
+              </div>
 
               {selectedRecord.researchError && (
                 <div className="detail-section">

@@ -634,26 +634,29 @@ a {
 }
 
 .inline-edit-display {
-  min-height: 36px;
-  padding: 8px 12px;
-  border: 1px solid var(--colorBorder);
-  border-radius: var(--radiusInput);
-  background: var(--colorSurface);
+  min-height: auto;
+  padding: 2px 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   color: var(--colorTextPrimary);
   cursor: pointer;
   line-height: 1.3;
+  word-break: break-word;
 }
 
 .inline-edit-display:hover,
 .inline-edit-display:focus-visible {
-  border-color: var(--colorBrandAccent);
+  text-decoration: underline;
+  text-decoration-color: var(--colorBrandAccent);
+  text-underline-offset: 2px;
 }
 
 .inline-edit-display--multiline {
-  min-height: 124px;
+  min-height: auto;
   white-space: pre-wrap;
   line-height: 1.45;
-  padding: 12px;
+  padding: 2px 0;
 }
 
 .inline-edit-empty {
