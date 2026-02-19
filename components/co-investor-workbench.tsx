@@ -152,6 +152,10 @@ function statusClass(status: CoInvestorRecord["researchStatus"]) {
   return "draft";
 }
 
+function isResearchInProgress(status: CoInvestorRecord["researchStatus"]) {
+  return status === "QUEUED" || status === "RUNNING";
+}
+
 function formatUsd(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") return "-";
   const numeric = typeof value === "number" ? value : Number(value);
@@ -236,8 +240,6 @@ export function CoInvestorWorkbench() {
   const [updatingContact, setUpdatingContact] = React.useState(false);
   const [deletingContactLinkId, setDeletingContactLinkId] = React.useState<string | null>(null);
   const [keepListView, setKeepListView] = React.useState(false);
-  const [newIsSeedInvestor, setNewIsSeedInvestor] = React.useState(false);
-  const [newIsSeriesAInvestor, setNewIsSeriesAInvestor] = React.useState(false);
   const [searchMatchCandidateCache] = React.useState(() => new Map<string, SearchCandidate[]>());
   const [searchAbortController, setSearchAbortController] = React.useState<AbortController | null>(null);
   const [matchModalOpen, setMatchModalOpen] = React.useState(false);
@@ -438,8 +440,8 @@ export function CoInvestorWorkbench() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           candidate,
-          isSeedInvestor: newIsSeedInvestor,
-          isSeriesAInvestor: newIsSeriesAInvestor
+          isSeedInvestor: false,
+          isSeriesAInvestor: false
         })
       });
 
@@ -469,8 +471,6 @@ export function CoInvestorWorkbench() {
         headquartersState: "",
         headquartersCountry: ""
       });
-      setNewIsSeedInvestor(false);
-      setNewIsSeriesAInvestor(false);
       await loadRecords();
 
       await runQueuedAgent(1);
@@ -890,27 +890,9 @@ export function CoInvestorWorkbench() {
             <div className="create-card">
               <p className="create-title">No co-investors match "{query.trim()}"</p>
               <p className="muted">Create a new co-investor and launch the research agent?</p>
-              <div className="row">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={newIsSeedInvestor}
-                    onChange={(event) => setNewIsSeedInvestor(event.target.checked)}
-                  />
-                  Seed Stage Investor
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={newIsSeriesAInvestor}
-                    onChange={(event) => setNewIsSeriesAInvestor(event.target.checked)}
-                  />
-                  Series A Investor
-                </label>
-              </div>
               <div className="actions">
                 <button className="primary" type="button" onClick={openCreateMatchModal}>
-                  Create new entry
+                  Search online
                 </button>
               </div>
             </div>
@@ -1096,6 +1078,9 @@ export function CoInvestorWorkbench() {
 
               <div className="detail-section">
                 <p className="detail-label">Contacts</p>
+                {isResearchInProgress(selectedRecord.researchStatus) ? (
+                  <p className="muted">Research is underway, contact discovery may appear shortly.</p>
+                ) : null}
                 {selectedRecord.contactLinks.length === 0 ? (
                   <p className="muted">No contacts linked yet.</p>
                 ) : (

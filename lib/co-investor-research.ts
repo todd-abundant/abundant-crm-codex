@@ -155,6 +155,130 @@ function compactText(value?: string | null): string {
   return value?.trim() || "";
 }
 
+function trimText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeUrl(value: unknown): string {
+  const text = trimText(value);
+  if (!text) return "";
+
+  const withProtocol = /^https?:\/\//i.test(text) ? text : `https://${text}`;
+  try {
+    const parsed = new URL(withProtocol);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    const path = parsed.pathname.replace(/\/+$/g, "");
+    return `https://${host}${path || ""}`;
+  } catch {
+    return "";
+  }
+}
+
+function normalizeEmail(value: unknown): string {
+  const text = trimText(value).toLowerCase();
+  if (!text) return "";
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text) ? text : "";
+}
+
+function normalizeBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "yes", "1"].includes(normalized)) return true;
+    if (["false", "no", "0"].includes(normalized)) return false;
+  }
+
+  return undefined;
+}
+
+function parseNumericString(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value !== "string") return null;
+
+  const normalized = value.trim().toLowerCase().replace(/,/g, "");
+  if (!normalized) return null;
+
+  const multiplier = normalized.includes("m") ? 1_000_000 : normalized.includes("k") ? 1_000 : 1;
+  const numberOnly = normalized.replace(/[^0-9.+-]/g, "");
+  const parsed = Number.parseFloat(numberOnly);
+  if (!Number.isFinite(parsed)) return null;
+
+  return parsed * multiplier;
+}
+
+function normalizeCoInvestorParsed(parsed: Record<string, unknown>): Record<string, unknown> {
+  const normalizedPartners = Array.isArray(parsed.partners)
+    ? parsed.partners
+        .map((entry) => {
+          if (!entry || typeof entry !== "object" || entry === null) return null;
+          const candidate = entry as Record<string, unknown>;
+          const name = trimText(candidate.name);
+          if (!name) return null;
+
+          return {
+            name,
+            title: trimText(candidate.title),
+            email: normalizeEmail(candidate.email),
+            phone: trimText(candidate.phone),
+            url: normalizeUrl(candidate.url)
+          };
+        })
+        .filter((entry): entry is { name: string; title: string; email: string; phone: string; url: string } =>
+          entry !== null
+        )
+    : [];
+
+  const normalizedInvestments = Array.isArray(parsed.investments)
+    ? parsed.investments
+        .map((entry) => {
+          if (!entry || typeof entry !== "object" || entry === null) return null;
+          const candidate = entry as Record<string, unknown>;
+          const portfolioCompanyName = trimText(candidate.portfolioCompanyName);
+          if (!portfolioCompanyName) return null;
+
+          return {
+            portfolioCompanyName,
+            investmentAmountUsd: parseNumericString(candidate.investmentAmountUsd),
+            investmentDate: trimText(candidate.investmentDate),
+            investmentStage: trimText(candidate.investmentStage),
+            leadPartnerName: trimText(candidate.leadPartnerName),
+            sourceUrl: normalizeUrl(candidate.sourceUrl)
+          };
+        })
+        .filter(
+          (
+            entry
+          ): entry is {
+            portfolioCompanyName: string;
+            investmentAmountUsd: number | null;
+            investmentDate: string;
+            investmentStage: string;
+            leadPartnerName: string;
+            sourceUrl: string;
+          } => entry !== null
+        )
+    : [];
+
+  return {
+    ...parsed,
+    name: trimText(parsed.name),
+    legalName: trimText(parsed.legalName),
+    website: normalizeUrl(parsed.website),
+    headquartersCity: trimText(parsed.headquartersCity),
+    headquartersState: trimText(parsed.headquartersState),
+    headquartersCountry: trimText(parsed.headquartersCountry),
+    isSeedInvestor: normalizeBoolean(parsed.isSeedInvestor),
+    isSeriesAInvestor: normalizeBoolean(parsed.isSeriesAInvestor),
+    investmentNotes: trimText(parsed.investmentNotes),
+    researchNotes: trimText(parsed.researchNotes),
+    partners: normalizedPartners,
+    investments: normalizedInvestments
+  };
+}
+
 function normalizeSearchText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -336,7 +460,8 @@ export async function enrichCoInvestorFromWeb(seed: MinimalCoInvestor): Promise<
   } as any);
 
   const parsed = parseJsonObject(response.output_text?.trim() || "{}");
-  const validated = coInvestorInputSchema.partial().safeParse(parsed);
+  const normalizedParsed = normalizeCoInvestorParsed(parsed);
+  const validated = coInvestorInputSchema.partial().safeParse(normalizedParsed);
 
   if (!validated.success) {
     return mergeDraft({

@@ -314,6 +314,10 @@ function statusClass(status: ResearchStatus) {
   return "draft";
 }
 
+function isResearchInProgress(status: ResearchStatus) {
+  return status === "QUEUED" || status === "RUNNING";
+}
+
 function intakeStatusClass(status: IntakeStatus, intakeScheduledAt?: string | null) {
   if (status === "SCREENING_EVALUATION") return "done";
   if (status === "COMPLETED") return "done";
@@ -1665,7 +1669,7 @@ export function CompanyWorkbench() {
               {!isManualCreationType(newCompanyType) ? (
                 <div className="actions">
                   <button className="primary" type="button" onClick={openCreateMatchModal} disabled={creatingFromSearch}>
-                    Create new entry
+                    Search online
                   </button>
                 </div>
               ) : null}
@@ -1987,6 +1991,9 @@ export function CompanyWorkbench() {
 
               <div className="detail-section">
                 <p className="detail-label">Contacts</p>
+                {isResearchInProgress(selectedRecord.researchStatus) ? (
+                  <p className="muted">Research is underway, contact discovery may appear shortly.</p>
+                ) : null}
                 {selectedRecord.contactLinks.length === 0 ? (
                   <p className="muted">No contacts linked yet.</p>
                 ) : (

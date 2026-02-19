@@ -176,6 +176,10 @@ function statusClass(status: HealthSystemRecord["researchStatus"]) {
   return "draft";
 }
 
+function isResearchInProgress(status: HealthSystemRecord["researchStatus"]) {
+  return status === "QUEUED" || status === "RUNNING";
+}
+
 function toNullableBoolean(value: "null" | "true" | "false") {
   if (value === "null") return null;
   return value === "true";
@@ -1344,7 +1348,7 @@ export function HealthSystemWorkbench() {
                 )}
               <div className="actions">
                 <button className="primary" type="button" onClick={openCreateMatchModal}>
-                  Create new entry
+                  Search online
                 </button>
               </div>
               </div>
@@ -1577,6 +1581,9 @@ export function HealthSystemWorkbench() {
 
               <div className="detail-section">
                 <p className="detail-label">Contacts</p>
+                {isResearchInProgress(selectedRecord.researchStatus) ? (
+                  <p className="muted">Research is underway, contact discovery may appear shortly.</p>
+                ) : null}
                 {selectedRecord.contactLinks.length === 0 ? (
                   <p className="muted">No contacts linked yet.</p>
                 ) : (

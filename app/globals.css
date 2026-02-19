@@ -217,19 +217,13 @@ label {
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   font-size: 14px;
   min-height: 32px;
-}
-
-.chip input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  margin: 0;
 }
 
 .actions {
@@ -766,28 +760,6 @@ select {
   padding-right: 32px;
 }
 
-input[type="checkbox"],
-input[type="radio"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--colorBrandAccent);
-  border: 1px solid var(--colorLine);
-  border-radius: 4px;
-  transition: transform 0.14s ease, accent-color 0.14s ease, box-shadow 0.14s ease;
-}
-
-input[type="checkbox"]:focus-visible,
-input[type="radio"]:focus-visible,
-input[type="checkbox"]:focus,
-input[type="radio"]:focus {
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(0, 163, 157, 0.18);
-}
-
-input[type="checkbox"]:active,
-input[type="radio"]:active {
-  transform: scale(0.95);
-}
 
 @media (max-width: 920px) {
   .grid {
