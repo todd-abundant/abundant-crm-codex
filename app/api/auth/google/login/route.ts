@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { GOOGLE_SCOPES } from "@/lib/auth/constants";
 import {
   resolveGoogleRedirectUri,
+  resolvePublicOrigin,
   sanitizeNextPath,
   setOAuthNextCookie,
   setOAuthStateCookie
@@ -10,7 +11,7 @@ import {
 export async function GET(request: Request) {
   const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
   if (!clientId) {
-    const failUrl = new URL("/sign-in?error=google_config", request.url);
+    const failUrl = new URL("/sign-in?error=google_config", resolvePublicOrigin(request));
     return NextResponse.redirect(failUrl);
   }
 

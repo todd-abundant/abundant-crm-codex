@@ -12,7 +12,12 @@ function isAdminRoute(pathname: string) {
 }
 
 function isWorkbenchPage(pathname: string) {
-  return pathname === "/health-systems" || pathname.startsWith("/co-investors") || pathname.startsWith("/companies");
+  return (
+    pathname === "/health-systems" ||
+    pathname.startsWith("/co-investors") ||
+    pathname.startsWith("/companies") ||
+    pathname.startsWith("/narrative-agent")
+  );
 }
 
 function isWorkbenchApi(pathname: string) {
@@ -20,6 +25,7 @@ function isWorkbenchApi(pathname: string) {
     pathname.startsWith("/api/health-systems") ||
     pathname.startsWith("/api/co-investors") ||
     pathname.startsWith("/api/companies") ||
+    pathname.startsWith("/api/narrative-agent") ||
     pathname.startsWith("/api/debug")
   );
 }

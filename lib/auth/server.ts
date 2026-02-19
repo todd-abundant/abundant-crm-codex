@@ -45,6 +45,25 @@ function shouldUseSecureCookies() {
   return process.env.NODE_ENV === "production";
 }
 
+export function resolvePublicOrigin(request: Request) {
+  const configuredRedirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI?.trim();
+  if (configuredRedirectUri) {
+    try {
+      return new URL(configuredRedirectUri).origin;
+    } catch {
+      // Fall back to forwarded headers or request URL.
+    }
+  }
+
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  if (forwardedProto && forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+
+  return new URL(request.url).origin;
+}
+
 function sanitizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
@@ -62,8 +81,7 @@ export function resolveGoogleRedirectUri(request: Request) {
     return process.env.GOOGLE_OAUTH_REDIRECT_URI.trim();
   }
 
-  const requestUrl = new URL(request.url);
-  return `${requestUrl.origin}/api/auth/google/callback`;
+  return `${resolvePublicOrigin(request)}/api/auth/google/callback`;
 }
 
 export async function createSessionTokenForUser(user: {

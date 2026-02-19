@@ -77,6 +77,7 @@ Open http://localhost:3000.
 
 For day-to-day collaboration commands (pull, push, conflict handling, and database updates), see `docs/team-git-db-workflow.md`.
 For local Google OAuth setup, see `docs/google-oauth-local-setup.md`.
+For Google Cloud deploy + upgrade setup (Cloud Run + Cloud SQL + migrations), see `docs/google-cloud-deployment.md`.
 
 ## Notes
 

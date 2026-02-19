@@ -5,6 +5,7 @@ import {
   readOAuthNextCookie,
   readOAuthStateCookie,
   resolveGoogleRedirectUri,
+  resolvePublicOrigin,
   setAuthCookie,
   upsertGoogleUser
 } from "@/lib/auth/server";
@@ -28,7 +29,8 @@ type GoogleUserInfo = {
 };
 
 function redirectToSignIn(request: Request, error: string) {
-  return NextResponse.redirect(new URL(`/sign-in?error=${encodeURIComponent(error)}`, request.url));
+  const signInUrl = new URL(`/sign-in?error=${encodeURIComponent(error)}`, resolvePublicOrigin(request));
+  return NextResponse.redirect(signInUrl);
 }
 
 export async function GET(request: Request) {
@@ -112,7 +114,7 @@ export async function GET(request: Request) {
 
   const nextPath = await readOAuthNextCookie();
   const sessionToken = await createSessionTokenForUser(user);
-  const response = NextResponse.redirect(new URL(nextPath, request.url));
+  const response = NextResponse.redirect(new URL(nextPath, resolvePublicOrigin(request)));
 
   setAuthCookie(response, sessionToken);
   clearOAuthCookies(response);

@@ -36,6 +36,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   <Link href="/companies" className="top-nav-link">
                     Companies
                   </Link>
+                  <Link href="/narrative-agent" className="top-nav-link">
+                    Workbench (beta)
+                  </Link>
                 </>
               ) : null}
               {showAdminTab ? (
