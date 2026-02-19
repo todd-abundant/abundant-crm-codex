@@ -14,15 +14,21 @@ export async function GET() {
       id: true,
       email: true,
       name: true,
-      role: true,
       isActive: true,
       createdAt: true,
-      lastLoginAt: true
+      lastLoginAt: true,
+      roles: {
+        select: { role: true },
+        orderBy: { role: "asc" }
+      }
     }
   });
 
   return NextResponse.json({
-    users,
+    users: users.map((user) => ({
+      ...user,
+      roles: user.roles.map((item) => item.role)
+    })),
     currentUserId: auth.user.id
   });
 }

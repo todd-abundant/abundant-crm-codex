@@ -78,6 +78,21 @@ main {
   border-color: #008881;
 }
 
+.admin-role-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-role-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--colorTextPrimary);
+  font-size: 13px;
+  margin: 0;
+}
+
 .hero {
   background: linear-gradient(120deg, var(--colorBrandPrimary), #102844);
   color: #ffffff;

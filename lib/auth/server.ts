@@ -2,6 +2,7 @@ import { type UserRole } from "@prisma/client";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { canAccessAdmin } from "@/lib/auth/permissions";
 import {
   AUTH_COOKIE_MAX_AGE_SECONDS,
   AUTH_COOKIE_NAME,
@@ -16,7 +17,7 @@ type AuthenticatedUser = {
   email: string;
   name: string | null;
   image: string | null;
-  role: UserRole;
+  roles: UserRole[];
   isActive: boolean;
 };
 
@@ -68,7 +69,7 @@ export function resolveGoogleRedirectUri(request: Request) {
 export async function createSessionTokenForUser(user: {
   id: string;
   email: string;
-  role: UserRole;
+  roles: UserRole[];
   name?: string | null;
   image?: string | null;
 }) {
@@ -77,7 +78,7 @@ export async function createSessionTokenForUser(user: {
     {
       sub: user.id,
       email: user.email,
-      role: user.role,
+      roles: user.roles,
       iat: now,
       exp: now + AUTH_COOKIE_MAX_AGE_SECONDS,
       name: user.name || null,
@@ -187,13 +188,22 @@ export async function getCurrentUser() {
         email: true,
         name: true,
         image: true,
-        role: true,
-        isActive: true
+        isActive: true,
+        roles: {
+          select: { role: true }
+        }
       }
     });
 
     if (!user || !user.isActive) return null;
-    return user;
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      image: user.image,
+      isActive: user.isActive,
+      roles: user.roles.map((item) => item.role)
+    };
   } catch (error) {
     console.error("auth_load_current_user_error", error);
     return null;
@@ -209,7 +219,7 @@ export async function requireAdminApi() {
     } satisfies AdminApiCheck;
   }
 
-  if (user.role !== "ADMINISTRATOR") {
+  if (!canAccessAdmin(user.roles)) {
     return {
       ok: false,
       response: NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -223,7 +233,7 @@ export async function upsertGoogleUser(profile: GoogleUserProfile) {
   const email = sanitizeEmail(profile.email);
   const now = new Date();
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const existing = await tx.user.findUnique({
       where: { email },
       select: {
@@ -247,33 +257,52 @@ export async function upsertGoogleUser(profile: GoogleUserProfile) {
           email: true,
           name: true,
           image: true,
-          role: true,
-          isActive: true
+          isActive: true,
+          roles: {
+            select: { role: true }
+          }
         }
       });
     }
 
     const userCount = await tx.user.count();
-    const role: UserRole = userCount === 0 ? "ADMINISTRATOR" : "USER";
+    const seedRoles: UserRole[] = userCount === 0 ? ["ADMINISTRATOR", "USER"] : ["USER"];
 
-    return tx.user.create({
-      data: {
-        email,
-        name: profile.name || null,
+      return tx.user.create({
+        data: {
+          email,
+          name: profile.name || null,
         image: profile.picture || null,
         googleSub: profile.sub,
-        role,
         isActive: true,
-        lastLoginAt: now
+        lastLoginAt: now,
+        roles: {
+          createMany: {
+            data: seedRoles.map((role) => ({ role }))
+          }
+        }
       },
       select: {
         id: true,
         email: true,
         name: true,
         image: true,
-        role: true,
-        isActive: true
+        isActive: true,
+        roles: {
+          select: { role: true }
+        }
       }
     });
   });
+
+  if (!result) return null;
+
+  return {
+    id: result.id,
+    email: result.email,
+    name: result.name,
+    image: result.image,
+    isActive: result.isActive,
+    roles: result.roles.map((item) => item.role)
+  };
 }

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { requireAdminApi } from "@/lib/auth/server";
 
 const updateUserRoleSchema = z.object({
-  role: z.enum(["EXECUTIVE", "USER", "ADMINISTRATOR"])
+  roles: z.array(z.enum(["EXECUTIVE", "USER", "ADMINISTRATOR"])).min(1)
 });
 
 export async function PATCH(
@@ -20,8 +20,9 @@ export async function PATCH(
     const { id } = await context.params;
     const body = await request.json();
     const input = updateUserRoleSchema.parse(body);
+    const uniqueRoles = Array.from(new Set(input.roles));
 
-    if (id === auth.user.id && input.role !== "ADMINISTRATOR") {
+    if (id === auth.user.id && !uniqueRoles.includes("ADMINISTRATOR")) {
       return NextResponse.json(
         { error: "You cannot remove your own administrator role." },
         { status: 400 }
@@ -31,20 +32,33 @@ export async function PATCH(
     const user = await prisma.user.update({
       where: { id },
       data: {
-        role: input.role
+        roles: {
+          deleteMany: {},
+          createMany: {
+            data: uniqueRoles.map((role) => ({ role }))
+          }
+        }
       },
       select: {
         id: true,
         email: true,
         name: true,
-        role: true,
         isActive: true,
         createdAt: true,
-        lastLoginAt: true
+        lastLoginAt: true,
+        roles: {
+          select: { role: true },
+          orderBy: { role: "asc" }
+        }
       }
     });
 
-    return NextResponse.json({ user });
+    return NextResponse.json({
+      user: {
+        ...user,
+        roles: user.roles.map((item) => item.role)
+      }
+    });
   } catch (error) {
     console.error("update_user_role_error", error);
     return NextResponse.json({ error: "Failed to update user role." }, { status: 400 });

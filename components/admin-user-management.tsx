@@ -8,7 +8,7 @@ type AdminUser = {
   id: string;
   email: string;
   name: string | null;
-  role: UserRole;
+  roles: UserRole[];
   isActive: boolean;
   createdAt: string;
   lastLoginAt: string | null;
@@ -31,7 +31,7 @@ export function AdminUserManagement({ currentUserId }: { currentUserId: string }
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [roleDrafts, setRoleDrafts] = useState<Record<string, UserRole>>({});
+  const [roleDrafts, setRoleDrafts] = useState<Record<string, UserRole[]>>({});
   const [status, setStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
   async function loadUsers() {
@@ -47,8 +47,8 @@ export function AdminUserManagement({ currentUserId }: { currentUserId: string }
       const records = Array.isArray(payload.users) ? (payload.users as AdminUser[]) : [];
       setUsers(records);
       setRoleDrafts(
-        records.reduce<Record<string, UserRole>>((accumulator, user) => {
-          accumulator[user.id] = user.role;
+        records.reduce<Record<string, UserRole[]>>((accumulator, user) => {
+          accumulator[user.id] = user.roles;
           return accumulator;
         }, {})
       );
@@ -67,13 +67,19 @@ export function AdminUserManagement({ currentUserId }: { currentUserId: string }
   }, []);
 
   const hasUnsavedChanges = useMemo(
-    () => users.some((user) => roleDrafts[user.id] && roleDrafts[user.id] !== user.role),
+    () =>
+      users.some((user) => {
+        const draft = roleDrafts[user.id] || [];
+        const current = user.roles;
+        if (draft.length !== current.length) return true;
+        return draft.some((role) => !current.includes(role));
+      }),
     [roleDrafts, users]
   );
 
   async function saveRole(userId: string) {
-    const nextRole = roleDrafts[userId];
-    if (!nextRole) return;
+    const nextRoles = roleDrafts[userId];
+    if (!nextRoles || nextRoles.length === 0) return;
 
     setSavingId(userId);
     setStatus(null);
@@ -82,7 +88,7 @@ export function AdminUserManagement({ currentUserId }: { currentUserId: string }
       const response = await fetch(`/api/admin/users/${userId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: nextRole })
+        body: JSON.stringify({ roles: nextRoles })
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -92,7 +98,7 @@ export function AdminUserManagement({ currentUserId }: { currentUserId: string }
       setUsers((previous) =>
         previous.map((user) => {
           if (user.id !== userId) return user;
-          return { ...user, role: payload.user.role as UserRole };
+          return { ...user, roles: payload.user.roles as UserRole[] };
         })
       );
       setStatus({ kind: "ok", text: "Role updated." });
@@ -138,7 +144,7 @@ export function AdminUserManagement({ currentUserId }: { currentUserId: string }
               <tr>
                 <th>User</th>
                 <th>Email</th>
-                <th>Role</th>
+                <th>Roles</th>
                 <th>Status</th>
                 <th>Created</th>
                 <th>Last Login</th>
@@ -147,31 +153,46 @@ export function AdminUserManagement({ currentUserId }: { currentUserId: string }
             </thead>
             <tbody>
               {users.map((user) => {
-                const selectedRole = roleDrafts[user.id] || user.role;
-                const changed = selectedRole !== user.role;
+                const selectedRoles = roleDrafts[user.id] || user.roles;
+                const changed =
+                  selectedRoles.length !== user.roles.length ||
+                  selectedRoles.some((role) => !user.roles.includes(role));
                 const isSelf = user.id === currentUserId;
-                const saveDisabled = !changed || savingId === user.id || (isSelf && selectedRole !== "ADMINISTRATOR");
+                const saveDisabled =
+                  !changed || savingId === user.id || (isSelf && !selectedRoles.includes("ADMINISTRATOR"));
 
                 return (
                   <tr key={user.id}>
                     <td>{user.name || "-"}</td>
                     <td>{user.email}</td>
                     <td>
-                      <select
-                        value={selectedRole}
-                        onChange={(event) => {
-                          setRoleDrafts((previous) => ({
-                            ...previous,
-                            [user.id]: event.target.value as UserRole
-                          }));
-                        }}
-                      >
-                        {roleOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="admin-role-grid">
+                        {roleOptions.map((option) => {
+                          const checked = selectedRoles.includes(option.value);
+                          return (
+                            <label key={option.value} className="admin-role-option">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(event) => {
+                                  setRoleDrafts((previous) => {
+                                    const existing = previous[user.id] || [];
+                                    const next = event.target.checked
+                                      ? [...existing, option.value]
+                                      : existing.filter((role) => role !== option.value);
+
+                                    return {
+                                      ...previous,
+                                      [user.id]: Array.from(new Set(next))
+                                    };
+                                  });
+                                }}
+                              />
+                              {option.label}
+                            </label>
+                          );
+                        })}
+                      </div>
                     </td>
                     <td>{user.isActive ? "Active" : "Inactive"}</td>
                     <td>{formatDate(user.createdAt)}</td>
@@ -181,7 +202,7 @@ export function AdminUserManagement({ currentUserId }: { currentUserId: string }
                         className="primary small"
                         onClick={() => void saveRole(user.id)}
                         disabled={saveDisabled}
-                        title={isSelf && selectedRole !== "ADMINISTRATOR" ? "Cannot remove your own admin role." : ""}
+                        title={isSelf && !selectedRoles.includes("ADMINISTRATOR") ? "Cannot remove your own admin role." : ""}
                       >
                         {savingId === user.id ? "Saving..." : "Save"}
                       </button>

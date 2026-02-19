@@ -7,6 +7,7 @@ This project uses Google OAuth for sign-in and maps users to internal roles:
 - `USER`
 
 The very first signed-in user is automatically created as `ADMINISTRATOR`.
+Users can hold multiple roles at once.
 
 ## 1. Create a Google Cloud project
 

@@ -83,7 +83,8 @@ For local Google OAuth setup, see `docs/google-oauth-local-setup.md`.
 - If `OPENAI_API_KEY` is missing, search still works with a fallback candidate and jobs can still be queued.
 - To run real web research, set `OPENAI_API_KEY`.
 - Local sign-in is now Google OAuth based (`/sign-in`).
-- The first user to sign in is auto-assigned `ADMINISTRATOR`.
+- Users can have multiple roles (`ADMINISTRATOR`, `USER`, `EXECUTIVE`).
+- The first user to sign in is auto-assigned `ADMINISTRATOR` and `USER`.
 - Local database can be started/stopped with:
   - `npm run db:up`
   - `npm run db:down`

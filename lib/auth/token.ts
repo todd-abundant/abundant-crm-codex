@@ -3,7 +3,7 @@ type AuthRole = "EXECUTIVE" | "USER" | "ADMINISTRATOR";
 export type AuthTokenPayload = {
   sub: string;
   email: string;
-  role: AuthRole;
+  roles: AuthRole[];
   exp: number;
   iat: number;
   name?: string | null;
@@ -77,7 +77,9 @@ function isValidPayload(payload: unknown): payload is AuthTokenPayload {
     candidate.sub.length > 0 &&
     typeof candidate.email === "string" &&
     candidate.email.length > 0 &&
-    isValidRole(candidate.role) &&
+    Array.isArray(candidate.roles) &&
+    candidate.roles.length > 0 &&
+    candidate.roles.every((role) => isValidRole(role)) &&
     typeof candidate.exp === "number" &&
     Number.isFinite(candidate.exp) &&
     typeof candidate.iat === "number" &&
