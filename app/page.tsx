@@ -28,6 +28,14 @@ export default async function HomePage() {
           </p>
         ) : null}
       </section>
+
+      <section className="panel">
+        <h2>With Appreciation</h2>
+        <p className="muted">
+          Thank you to <strong>Nick Siderys</strong> and <strong>Hanna Helms</strong> for your contributions to
+          AbundantCRM.
+        </p>
+      </section>
     </main>
   );
 }
