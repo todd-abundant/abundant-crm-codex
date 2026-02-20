@@ -27,6 +27,14 @@ type ExecutionReport = {
   }>;
 };
 
+type ChatMessage = {
+  id: string;
+  role: "assistant" | "user";
+  kind: "text" | "plan" | "result" | "error";
+  text: string;
+  planSnapshot?: NarrativePlan;
+};
+
 const entityTypeOptions: Array<{ value: NarrativeEntityType; label: string }> = [
   { value: "HEALTH_SYSTEM", label: "Health System" },
   { value: "COMPANY", label: "Company" },
@@ -249,8 +257,27 @@ function buildDefaultAction(kind: NarrativeAction["kind"]): NarrativeAction {
   };
 }
 
+function createChatMessageId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function summarizePlanForChat(plan: NarrativePlan) {
+  return `I drafted ${plan.actions.length} plan step${
+    plan.actions.length === 1 ? "" : "s"
+  }. Review it below, then continue iterating or accept and run.`;
+}
+
 export function NarrativeAgentWorkbench() {
   const [narrative, setNarrative] = useState("");
+  const [userTurns, setUserTurns] = useState<string[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    {
+      id: "assistant-welcome",
+      role: "assistant",
+      kind: "text",
+      text: "Describe the changes you want. I will draft an execution plan, then you can iterate or accept and run it."
+    }
+  ]);
   const [plan, setPlan] = useState<NarrativePlan | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [executing, setExecuting] = useState(false);
@@ -436,6 +463,36 @@ export function NarrativeAgentWorkbench() {
       setWizardIndex(wizardActionIds.length - 1);
     }
   }, [wizardOpen, wizardActionIds, wizardIndex]);
+
+  function appendChatMessage(message: Omit<ChatMessage, "id">) {
+    setChatMessages((current) => [
+      ...current,
+      {
+        ...message,
+        id: createChatMessageId(message.role)
+      }
+    ]);
+  }
+
+  function resetWorkbenchState() {
+    setPlan(null);
+    setUserTurns([]);
+    setResultByActionId({});
+    setCompletedActionIds([]);
+    setWizardOpen(false);
+    setWizardIndex(0);
+    setStatus(null);
+    setError(null);
+    setNarrative("");
+    setChatMessages([
+      {
+        id: "assistant-welcome",
+        role: "assistant",
+        kind: "text",
+        text: "Describe the changes you want. I will draft an execution plan, then you can iterate or accept and run it."
+      }
+    ]);
+  }
 
   function updateAction(actionId: string, updater: (action: NarrativeAction) => NarrativeAction) {
     setPlan((current) => {
