@@ -141,7 +141,7 @@ export async function POST(request: Request) {
             {
               type: "input_text",
               text:
-                "Find up to 6 likely US-based health system candidates that best match the query. Return headquarters city/state/country and website to disambiguate results."
+                "Find up to 6 likely US-based health system parent organizations that best match the query. Exclude service lines, departments, physician groups, innovation programs, or other sub-brands unless they are clearly independent health systems. Prefer canonical organization records with official websites. Return headquarters city/state/country and website to disambiguate results."
             }
           ]
         },
@@ -150,7 +150,9 @@ export async function POST(request: Request) {
           content: [
             {
               type: "input_text",
-              text: `Find up to 6 US-based health systems that match the query "${trimmedQuery}".`
+              text:
+                `Find up to 6 US-based health system parent organizations that match "${trimmedQuery}". ` +
+                "Do not return sub-brands or program pages."
             }
           ]
         }

@@ -18,6 +18,6 @@ fi
 echo "Fetching latest refs from origin..."
 git fetch origin
 
-echo "Pulling latest commits for '${BRANCH}' with rebase..."
-git pull --rebase origin "${BRANCH}"
+echo "Pulling latest commits for '${BRANCH}' with rebase and autostash..."
+git pull --rebase --autostash origin "${BRANCH}"
 echo "Pull complete."

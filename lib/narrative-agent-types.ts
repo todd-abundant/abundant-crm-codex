@@ -56,6 +56,7 @@ export const narrativeEntityDraftSchema = z.object({
   primaryCategory: companyPrimaryCategorySchema.optional(),
   primaryCategoryOther: z.string().optional(),
   leadSourceType: z.enum(["HEALTH_SYSTEM", "OTHER"]).optional(),
+  leadSourceHealthSystemId: z.string().optional(),
   leadSourceHealthSystemName: z.string().optional(),
   leadSourceOther: z.string().optional(),
   description: z.string().optional()
@@ -72,7 +73,12 @@ export const narrativeEntityPatchSchema = z.object({
   headquartersCountry: z.string().optional(),
   researchNotes: z.string().optional(),
   investmentNotes: z.string().optional(),
-  description: z.string().optional()
+  description: z.string().optional(),
+  leadSourceType: z.enum(["HEALTH_SYSTEM", "OTHER"]).optional(),
+  leadSourceHealthSystemId: z.string().optional(),
+  leadSourceHealthSystemName: z.string().optional(),
+  leadSourceOther: z.string().optional(),
+  leadSourceNotes: z.string().optional()
 });
 
 export type NarrativeEntityPatch = z.infer<typeof narrativeEntityPatchSchema>;
@@ -166,6 +172,7 @@ export type NarrativeAction = z.infer<typeof narrativeActionSchema>;
 
 export const narrativePlanSchema = z.object({
   narrative: z.string().min(1),
+  phase: z.enum(["CLARIFICATION", "PLAN"]).default("PLAN"),
   summary: z.string().default(""),
   modelDigest: z.string().optional(),
   warnings: z.array(z.string()).default([]),

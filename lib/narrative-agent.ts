@@ -60,6 +60,10 @@ const extractionSchema = {
   additionalProperties: false,
   properties: {
     summary: { type: "string" },
+    warnings: {
+      type: "array",
+      items: { type: "string" }
+    },
     actions: {
       type: "array",
       items: {
@@ -114,6 +118,21 @@ type NarrativeExecutionReport = {
   results: NarrativeExecutionResult[];
   createdEntities: CreatedEntityReference[];
 };
+
+const AUTO_MATCH_CONFIDENCE_THRESHOLD = 0.8;
+const REQUIREMENTS_LOCK_PHRASES = [
+  "build execution plan",
+  "create execution plan",
+  "draft execution plan",
+  "generate execution plan",
+  "finalize requirements",
+  "requirements are final",
+  "requirements confirmed",
+  "proceed with plan",
+  "go ahead with plan",
+  "ready for execution plan",
+  "plan is approved"
+];
 
 function getOpenAIClient(): OpenAI | null {
   if (!process.env.OPENAI_API_KEY) return null;
@@ -173,6 +192,18 @@ function normalizeForLookup(value: string): string {
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function hasRequirementsLockSignal(narrative: string): boolean {
+  const normalizedNarrative = normalizeForLookup(narrative);
+  if (!normalizedNarrative) return false;
+  return REQUIREMENTS_LOCK_PHRASES.some((phrase) =>
+    normalizedNarrative.includes(normalizeForLookup(phrase))
+  );
+}
+
+function hasHighConfidenceMatch(match: NarrativeEntityMatch | null | undefined): boolean {
+  return (match?.confidence || 0) >= AUTO_MATCH_CONFIDENCE_THRESHOLD;
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> {
@@ -288,7 +319,11 @@ function buildActionId(kind: NarrativeAction["kind"], index: number, label?: str
   return compactLabel ? `${base}-${compactLabel}` : base;
 }
 
-function normalizeDraft(rawDraft: unknown, fallbackName: string): NarrativeEntityDraft | null {
+function normalizeDraft(
+  rawDraft: unknown,
+  fallbackName: string,
+  entityType?: NarrativeEntityType
+): NarrativeEntityDraft | null {
   const draft = objectLike(rawDraft);
   const companyTypeParsed = companyTypeSchema.safeParse(cleanText(draft.companyType).toUpperCase());
   const categoryParsed = companyPrimaryCategorySchema.safeParse(
@@ -299,7 +334,7 @@ function normalizeDraft(rawDraft: unknown, fallbackName: string): NarrativeEntit
   );
 
   const parsed = narrativeEntityDraftSchema.safeParse({
-    name: cleanText(draft.name) || fallbackName,
+    name: cleanEntityNameForDraft(cleanText(draft.name) || fallbackName, entityType),
     legalName: cleanOptionalText(draft.legalName),
     website: cleanOptionalText(draft.website),
     headquartersCity: cleanOptionalText(draft.headquartersCity),
@@ -321,6 +356,7 @@ function normalizeDraft(rawDraft: unknown, fallbackName: string): NarrativeEntit
         : cleanText(draft.leadSourceType).toUpperCase() === "OTHER"
           ? "OTHER"
           : undefined,
+    leadSourceHealthSystemId: cleanOptionalText(draft.leadSourceHealthSystemId),
     leadSourceHealthSystemName: cleanOptionalText(draft.leadSourceHealthSystemName),
     leadSourceOther: cleanOptionalText(draft.leadSourceOther),
     description: cleanOptionalText(draft.description)
@@ -340,7 +376,17 @@ function normalizePatch(rawPatch: unknown): NarrativeEntityPatch {
     headquartersCountry: cleanOptionalText(patch.headquartersCountry),
     researchNotes: cleanOptionalText(patch.researchNotes || patch.notes),
     investmentNotes: cleanOptionalText(patch.investmentNotes),
-    description: cleanOptionalText(patch.description)
+    description: cleanOptionalText(patch.description),
+    leadSourceType:
+      cleanText(patch.leadSourceType).toUpperCase() === "HEALTH_SYSTEM"
+        ? "HEALTH_SYSTEM"
+        : cleanText(patch.leadSourceType).toUpperCase() === "OTHER"
+          ? "OTHER"
+          : undefined,
+    leadSourceHealthSystemId: cleanOptionalText(patch.leadSourceHealthSystemId),
+    leadSourceHealthSystemName: cleanOptionalText(patch.leadSourceHealthSystemName),
+    leadSourceOther: cleanOptionalText(patch.leadSourceOther),
+    leadSourceNotes: cleanOptionalText(patch.leadSourceNotes)
   });
 
   if (!parsed.success) {
@@ -369,6 +415,93 @@ function cleanNarrativeNameFragment(value: string): string {
     .trim();
 }
 
+function cleanEntityNameForDraft(value: string, entityType?: NarrativeEntityType): string {
+  const cleanValue = cleanNarrativeNameFragment(value);
+  if (!cleanValue) return "";
+
+  let next = cleanValue
+    .replace(
+      /^(?:a|an|the)\s+(?:company|co[\s-]?investor|health\s*system|healthcare\s*system)\s+(?:called|named)\s+/i,
+      ""
+    )
+    .replace(
+      /^(?:company|co[\s-]?investor|health\s*system|healthcare\s*system)\s+(?:called|named)\s+/i,
+      ""
+    )
+    .replace(/^(?:called|named)\s+/i, "");
+
+  if (entityType === "COMPANY") {
+    next = next
+      .replace(/^(?:a|an|the)\s+company\s+/i, "")
+      .replace(/^company\s+/i, "");
+  }
+
+  if (entityType === "CO_INVESTOR") {
+    next = next
+      .replace(/^(?:a|an|the)\s+co[\s-]?investor\s+/i, "")
+      .replace(/^co[\s-]?investor\s+/i, "")
+      .replace(/^(?:a|an|the)\s+investor\s+/i, "")
+      .replace(/^investor\s+/i, "");
+  }
+
+  if (entityType === "HEALTH_SYSTEM") {
+    next = next
+      .replace(/^(?:a|an|the)\s+health\s*system\s+/i, "")
+      .replace(/^(?:a|an|the)\s+healthcare\s*system\s+/i, "");
+  }
+
+  return cleanNarrativeNameFragment(next) || cleanValue;
+}
+
+function normalizeEntityNameForLookup(value: string, entityType?: NarrativeEntityType): string {
+  const cleaned = cleanEntityNameForDraft(value, entityType);
+  if (!cleaned) return "";
+
+  if (entityType === "HEALTH_SYSTEM") {
+    const withoutGenericSuffix = cleanNarrativeNameFragment(
+      cleaned.replace(/\b(?:health\s*system|healthcare\s*system)\b$/i, "")
+    );
+    if (withoutGenericSuffix) {
+      return normalizeForLookup(withoutGenericSuffix);
+    }
+  }
+
+  return normalizeForLookup(cleaned);
+}
+
+function hasCoInvestorSignals(normalizedValue: string): boolean {
+  return /\b(innovation fund|fund|ventures?|venture arm|venture fund|capital|vc|investor|investments?)\b/.test(
+    normalizedValue
+  );
+}
+
+function hasHealthSystemSignals(normalizedValue: string): boolean {
+  return /\b(health system|healthcare system|hospital|medical center|clinic)\b/.test(normalizedValue);
+}
+
+function looksLikeHealthSystemEntityName(value: string): boolean {
+  const normalizedValue = normalizeForLookup(value);
+  return Boolean(
+    normalizedValue &&
+      hasHealthSystemSignals(normalizedValue) &&
+      !hasCoInvestorSignals(normalizedValue)
+  );
+}
+
+function inferIntroducerType(introducerName: string): "HEALTH_SYSTEM" | "CO_INVESTOR" {
+  const normalized = normalizeForLookup(introducerName);
+  if (!normalized) return "CO_INVESTOR";
+
+  const hasCoInvestorSignal = hasCoInvestorSignals(normalized);
+  const hasHealthSystemSignal = hasHealthSystemSignals(normalized);
+
+  if (hasHealthSystemSignal && !hasCoInvestorSignal) {
+    return "HEALTH_SYSTEM";
+  }
+
+  return "CO_INVESTOR";
+}
+
 function inferHealthSystemNameFromIntroducer(introducerName: string): string {
   const cleanIntroducer = cleanNarrativeNameFragment(introducerName).replace(/^the\s+/i, "");
   if (!cleanIntroducer) return "";
@@ -381,11 +514,15 @@ function inferHealthSystemNameFromIntroducer(introducerName: string): string {
     .replace(/\s+/g, " ")
     .trim();
 
-  return stripped || cleanIntroducer;
+  return (
+    cleanEntityNameForDraft(stripped || cleanIntroducer, "HEALTH_SYSTEM") ||
+    cleanEntityNameForDraft(cleanIntroducer, "HEALTH_SYSTEM")
+  );
 }
 
 type IntroductionSignal = {
   introducerName: string;
+  introducerType: "HEALTH_SYSTEM" | "CO_INVESTOR";
   companyName: string;
   healthSystemHint: string;
 };
@@ -406,14 +543,16 @@ function extractIntroductionSignals(narrative: string): IntroductionSignal[] {
     if (!match) continue;
 
     const rawIntroducer = cleanNarrativeNameFragment(match[1] || "");
-    const rawCompany = cleanNarrativeNameFragment(match[2] || "");
+    const rawCompany = cleanEntityNameForDraft(cleanNarrativeNameFragment(match[2] || ""), "COMPANY");
 
     if (!rawIntroducer || !rawCompany) continue;
+    const introducerType = inferIntroducerType(rawIntroducer);
     const healthSystemHint = inferHealthSystemNameFromIntroducer(rawIntroducer);
     if (!healthSystemHint) continue;
 
     signals.push({
       introducerName: rawIntroducer,
+      introducerType,
       companyName: rawCompany,
       healthSystemHint
     });
@@ -435,8 +574,11 @@ function applyIntroductionHeuristics(
   let addedActions = 0;
 
   for (const signal of signals) {
-    const normalizedCompany = normalizeForLookup(signal.companyName);
-    const normalizedIntroducer = normalizeForLookup(signal.introducerName);
+    const normalizedCompany = normalizeEntityNameForLookup(signal.companyName, "COMPANY");
+    const normalizedIntroducer =
+      signal.introducerType === "HEALTH_SYSTEM"
+        ? normalizeEntityNameForLookup(signal.introducerName, "HEALTH_SYSTEM")
+        : normalizeEntityNameForLookup(signal.introducerName, "CO_INVESTOR");
     if (!normalizedCompany || !normalizedIntroducer) {
       continue;
     }
@@ -445,7 +587,7 @@ function applyIntroductionHeuristics(
       (action): action is CreateEntityAction =>
         action.kind === "CREATE_ENTITY" &&
         action.entityType === "COMPANY" &&
-        normalizeForLookup(action.draft.name) === normalizedCompany
+        normalizeEntityNameForLookup(action.draft.name, "COMPANY") === normalizedCompany
     );
 
     if (existingCompanyCreate) {
@@ -476,11 +618,15 @@ function applyIntroductionHeuristics(
       }
     }
 
+    if (signal.introducerType === "HEALTH_SYSTEM") {
+      continue;
+    }
+
     const existingCoInvestorCreate = nextActions.find(
       (action): action is CreateEntityAction =>
         action.kind === "CREATE_ENTITY" &&
         action.entityType === "CO_INVESTOR" &&
-        normalizeForLookup(action.draft.name) === normalizedIntroducer
+        normalizeEntityNameForLookup(action.draft.name, "CO_INVESTOR") === normalizedIntroducer
     );
 
     if (!existingCoInvestorCreate) {
@@ -513,8 +659,8 @@ function applyIntroductionHeuristics(
     const existingLinkAction = nextActions.find(
       (action): action is LinkCompanyCoInvestorAction =>
         action.kind === "LINK_COMPANY_CO_INVESTOR" &&
-        normalizeForLookup(action.companyName) === normalizedCompany &&
-        normalizeForLookup(action.coInvestorName) === normalizedIntroducer
+        normalizeEntityNameForLookup(action.companyName, "COMPANY") === normalizedCompany &&
+        normalizeEntityNameForLookup(action.coInvestorName, "CO_INVESTOR") === normalizedIntroducer
     );
 
     if (existingLinkAction) {
@@ -564,6 +710,386 @@ function applyIntroductionHeuristics(
   };
 }
 
+function mergeUniqueStrings(...values: Array<string | undefined>): string | undefined {
+  const merged = values
+    .map((value) => cleanText(value))
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return merged || undefined;
+}
+
+function dedupeExtractedActions(actions: NarrativeAction[]): NarrativeAction[] {
+  const deduped: NarrativeAction[] = [];
+  const indexByKey = new Map<string, number>();
+
+  function actionKey(action: NarrativeAction): string {
+    if (action.kind === "CREATE_ENTITY") {
+      return `CREATE:${action.entityType}:${normalizeEntityNameForLookup(action.draft.name, action.entityType)}`;
+    }
+
+    if (action.kind === "UPDATE_ENTITY") {
+      return `UPDATE:${action.entityType}:${normalizeEntityNameForLookup(action.targetName, action.entityType)}`;
+    }
+
+    if (action.kind === "ADD_CONTACT") {
+      return `CONTACT:${action.parentType}:${normalizeEntityNameForLookup(action.parentName, action.parentType)}:${normalizeEntityNameForLookup(action.contact.name)}`;
+    }
+
+    return `LINK:${normalizeEntityNameForLookup(action.companyName, "COMPANY")}:${normalizeEntityNameForLookup(action.coInvestorName, "CO_INVESTOR")}:${action.relationshipType}`;
+  }
+
+  for (const action of actions) {
+    const key = actionKey(action);
+    const existingIndex = indexByKey.get(key);
+
+    if (existingIndex === undefined) {
+      deduped.push(action);
+      indexByKey.set(key, deduped.length - 1);
+      continue;
+    }
+
+    const current = deduped[existingIndex];
+    if (!current) continue;
+
+    if (current.kind === "CREATE_ENTITY" && action.kind === "CREATE_ENTITY") {
+      const mergedDraft: NarrativeEntityDraft = { ...current.draft };
+      for (const [fieldKey, fieldValue] of Object.entries(action.draft)) {
+        const keyName = fieldKey as keyof NarrativeEntityDraft;
+        const currentValue = mergedDraft[keyName];
+        const hasCurrentValue =
+          currentValue !== undefined &&
+          currentValue !== null &&
+          (typeof currentValue !== "string" || currentValue.trim() !== "");
+        const hasIncomingValue =
+          fieldValue !== undefined &&
+          fieldValue !== null &&
+          (typeof fieldValue !== "string" || fieldValue.trim() !== "");
+        if (!hasCurrentValue && hasIncomingValue) {
+          mergedDraft[keyName] = fieldValue as never;
+        }
+      }
+
+      if (!mergedDraft.name || mergedDraft.name.length > action.draft.name.length) {
+        mergedDraft.name = cleanEntityNameForDraft(action.draft.name, action.entityType) || mergedDraft.name;
+      }
+
+      deduped[existingIndex] = {
+        ...current,
+        include: current.include || action.include,
+        confidence: Math.max(current.confidence || 0, action.confidence || 0),
+        rationale: mergeUniqueStrings(current.rationale, action.rationale),
+        issues: Array.from(new Set([...current.issues, ...action.issues])),
+        draft: mergedDraft
+      };
+      continue;
+    }
+
+    if (current.kind === "UPDATE_ENTITY" && action.kind === "UPDATE_ENTITY") {
+      deduped[existingIndex] = {
+        ...current,
+        include: current.include || action.include,
+        confidence: Math.max(current.confidence || 0, action.confidence || 0),
+        rationale: mergeUniqueStrings(current.rationale, action.rationale),
+        issues: Array.from(new Set([...current.issues, ...action.issues])),
+        patch: {
+          ...action.patch,
+          ...current.patch
+        }
+      };
+      continue;
+    }
+
+    if (current.kind === "ADD_CONTACT" && action.kind === "ADD_CONTACT") {
+      deduped[existingIndex] = {
+        ...current,
+        include: current.include || action.include,
+        confidence: Math.max(current.confidence || 0, action.confidence || 0),
+        rationale: mergeUniqueStrings(current.rationale, action.rationale),
+        issues: Array.from(new Set([...current.issues, ...action.issues])),
+        contact: {
+          ...action.contact,
+          ...current.contact
+        }
+      };
+      continue;
+    }
+
+    if (current.kind === "LINK_COMPANY_CO_INVESTOR" && action.kind === "LINK_COMPANY_CO_INVESTOR") {
+      deduped[existingIndex] = {
+        ...current,
+        include: current.include || action.include,
+        confidence: Math.max(current.confidence || 0, action.confidence || 0),
+        rationale: mergeUniqueStrings(current.rationale, action.rationale),
+        issues: Array.from(new Set([...current.issues, ...action.issues])),
+        notes: mergeUniqueStrings(current.notes, action.notes),
+        investmentAmountUsd: current.investmentAmountUsd ?? action.investmentAmountUsd
+      };
+    }
+  }
+
+  return deduped;
+}
+
+function summarizeActionRequirement(action: NarrativeAction): string {
+  if (action.kind === "CREATE_ENTITY") {
+    return `Create ${action.entityType.replace("_", " ").toLowerCase()}: ${action.draft.name}.`;
+  }
+
+  if (action.kind === "UPDATE_ENTITY") {
+    return `Update ${action.entityType.replace("_", " ").toLowerCase()}: ${action.targetName}.`;
+  }
+
+  if (action.kind === "ADD_CONTACT") {
+    return `Add contact ${action.contact.name} to ${action.parentName}.`;
+  }
+
+  return `Link company ${action.companyName} with co-investor ${action.coInvestorName}.`;
+}
+
+function entityTypeLabel(entityType: NarrativeEntityType): string {
+  if (entityType === "HEALTH_SYSTEM") return "health system";
+  if (entityType === "COMPANY") return "company";
+  return "co-investor";
+}
+
+function formatConfidencePercent(confidence?: number): string {
+  if (confidence === undefined || confidence === null) return "";
+  return `${Math.round(confidence * 100)}%`;
+}
+
+function hasMatchConfidenceBelowAutoThreshold(
+  match: NarrativeEntityMatch | null | undefined
+): match is NarrativeEntityMatch {
+  if (!match) return false;
+  return !hasHighConfidenceMatch(match);
+}
+
+function findMatchById(
+  matches: NarrativeEntityMatch[],
+  id: string | undefined
+): NarrativeEntityMatch | undefined {
+  if (!id) return undefined;
+  return matches.find((match) => match.id === id);
+}
+
+function summarizeAutoResolvedMatches(actions: NarrativeAction): string | null {
+  if (actions.kind === "CREATE_ENTITY" && actions.selection.mode === "USE_EXISTING") {
+    const selectedMatch = findMatchById(actions.existingMatches, actions.selection.existingId)
+      || actions.existingMatches[0];
+    if (selectedMatch) {
+      return `Using existing ${entityTypeLabel(actions.entityType)} record ${selectedMatch.name} (${formatConfidencePercent(
+        selectedMatch.confidence
+      )}).`;
+    }
+  }
+
+  if (actions.kind === "UPDATE_ENTITY" && actions.selectedTargetId) {
+    const selectedMatch = findMatchById(actions.targetMatches, actions.selectedTargetId);
+    if (selectedMatch) {
+      return `Update target resolved to existing ${entityTypeLabel(actions.entityType)} ${selectedMatch.name} (${formatConfidencePercent(
+        selectedMatch.confidence
+      )}).`;
+    }
+  }
+
+  if (actions.kind === "ADD_CONTACT" && actions.selectedParentId) {
+    const selectedMatch = findMatchById(actions.parentMatches, actions.selectedParentId);
+    if (selectedMatch) {
+      return `Contact parent resolved to existing ${entityTypeLabel(actions.parentType)} ${selectedMatch.name} (${formatConfidencePercent(
+        selectedMatch.confidence
+      )}).`;
+    }
+  }
+
+  if (actions.kind === "LINK_COMPANY_CO_INVESTOR") {
+    const selectedCompany = findMatchById(actions.companyMatches, actions.selectedCompanyId);
+    const selectedCoInvestor = findMatchById(actions.coInvestorMatches, actions.selectedCoInvestorId);
+    if (selectedCompany && selectedCoInvestor) {
+      return `Relationship resolved to existing company ${selectedCompany.name} and co-investor ${selectedCoInvestor.name}.`;
+    }
+    if (selectedCompany) {
+      return `Relationship company resolved to existing record ${selectedCompany.name} (${formatConfidencePercent(
+        selectedCompany.confidence
+      )}).`;
+    }
+    if (selectedCoInvestor) {
+      return `Relationship co-investor resolved to existing record ${selectedCoInvestor.name} (${formatConfidencePercent(
+        selectedCoInvestor.confidence
+      )}).`;
+    }
+  }
+
+  return null;
+}
+
+function buildClarificationSummary(
+  extractedSummary: string,
+  actions: NarrativeAction[]
+): string {
+  const candidateCount = actions.length;
+  const fallbackSummary = `I identified ${candidateCount} candidate change${
+    candidateCount === 1 ? "" : "s"
+  }.`;
+  const baseSummary = extractedSummary || fallbackSummary;
+
+  const autoResolvedNotes = actions
+    .map((action) => summarizeAutoResolvedMatches(action))
+    .filter((entry): entry is string => Boolean(entry));
+  if (autoResolvedNotes.length === 0) {
+    return `${baseSummary} I will confirm one detail at a time before drafting the first execution plan.`;
+  }
+
+  const notePreview = autoResolvedNotes.slice(0, 2).join(" ");
+  const additionalNotes =
+    autoResolvedNotes.length > 2
+      ? ` (+${autoResolvedNotes.length - 2} additional auto-match${
+          autoResolvedNotes.length === 3 ? "" : "es"
+        }).`
+      : "";
+
+  return `${baseSummary} I already resolved ${autoResolvedNotes.length} existing match${
+    autoResolvedNotes.length === 1 ? "" : "es"
+  }. ${notePreview}${additionalNotes}`.trim();
+}
+
+function buildActionClarificationQuestion(action: NarrativeAction): string | null {
+  if (action.kind === "CREATE_ENTITY") {
+    if (action.entityType === "CO_INVESTOR" && looksLikeHealthSystemEntityName(action.draft.name)) {
+      return `"${action.draft.name}" looks like a health system, not a co-investor. Should I treat it as a health-system lead source instead of creating a co-investor?`;
+    }
+
+    const topExisting = action.existingMatches[0];
+    if (hasMatchConfidenceBelowAutoThreshold(topExisting)) {
+      return `I found a possible existing ${entityTypeLabel(action.entityType)} for "${action.draft.name}": ${topExisting.name} (${formatConfidencePercent(
+        topExisting.confidence
+      )}). Should I use this existing record or create a new one?`;
+    }
+
+    if (
+      action.selection.mode === "CREATE_FROM_WEB" &&
+      action.webCandidates.length > 1 &&
+      action.selection.webCandidateIndex === undefined
+    ) {
+      const options = action.webCandidates
+        .slice(0, 3)
+        .map((candidate) => `"${candidate.name}"`)
+        .join(", ");
+      return `I found multiple web entities for "${action.draft.name}" (${options}). Which one should I use?`;
+    }
+
+    return null;
+  }
+
+  if (action.kind === "UPDATE_ENTITY") {
+    if (action.selectedTargetId || action.linkedCreateActionId) return null;
+    const topMatch = action.targetMatches[0];
+    if (hasMatchConfidenceBelowAutoThreshold(topMatch)) {
+      return `I found a possible existing ${entityTypeLabel(action.entityType)} update target for "${
+        action.targetName
+      }": ${topMatch.name} (${formatConfidencePercent(topMatch.confidence)}). Should I update this record?`;
+    }
+    return `I could not confidently resolve which ${entityTypeLabel(action.entityType)} to update for "${
+      action.targetName
+    }". Which record should be updated?`;
+  }
+
+  if (action.kind === "ADD_CONTACT") {
+    if (action.selectedParentId || action.linkedCreateActionId) return null;
+    const topMatch = action.parentMatches[0];
+    if (hasMatchConfidenceBelowAutoThreshold(topMatch)) {
+      return `I found a possible existing ${entityTypeLabel(action.parentType)} for contact "${
+        action.contact.name
+      }": ${topMatch.name} (${formatConfidencePercent(topMatch.confidence)}). Should I attach the contact there?`;
+    }
+    return `I could not confidently resolve the parent ${entityTypeLabel(action.parentType)} for contact "${
+      action.contact.name
+    }". Which record should I use?`;
+  }
+
+  const healthSystemIssue = action.issues.find((issue) =>
+    normalizeForLookup(issue).includes("appears to be a health system")
+  );
+  if (healthSystemIssue) {
+    return `"${action.coInvestorName}" appears to be a health system. Should I set it as the lead-source health system for "${action.companyName}" and keep co-investor links only for named funds?`;
+  }
+
+  if (!action.selectedCompanyId && !action.companyCreateActionId) {
+    const topCompany = action.companyMatches[0];
+    if (hasMatchConfidenceBelowAutoThreshold(topCompany)) {
+      return `I found a possible existing company for this relationship: ${topCompany.name} (${formatConfidencePercent(
+        topCompany.confidence
+      )}). Should I use it?`;
+    }
+    return `I could not confidently resolve the company for the relationship "${action.companyName} ↔ ${action.coInvestorName}". Which company should I use?`;
+  }
+
+  if (!action.selectedCoInvestorId && !action.coInvestorCreateActionId) {
+    const topCoInvestor = action.coInvestorMatches[0];
+    if (hasMatchConfidenceBelowAutoThreshold(topCoInvestor)) {
+      return `I found a possible existing co-investor for this relationship: ${topCoInvestor.name} (${formatConfidencePercent(
+        topCoInvestor.confidence
+      )}). Should I use it?`;
+    }
+    return `I could not confidently resolve the co-investor for "${action.companyName} ↔ ${action.coInvestorName}". Which co-investor should I use?`;
+  }
+
+  return null;
+}
+
+function isClarificationWarningCandidate(warning: string): boolean {
+  const normalized = normalizeForLookup(warning);
+  if (!normalized) return false;
+  if (normalized.startsWith("candidate requirement")) return false;
+  if (normalized.includes("requirement review is in progress")) return false;
+  if (normalized.includes("when ready reply with")) return false;
+  if (normalized.includes("applied intro heuristic")) return false;
+  if (normalized.includes("consolidated duplicate actions")) return false;
+
+  return (
+    warning.includes("?") ||
+    normalized.startsWith("please confirm") ||
+    normalized.startsWith("do you want") ||
+    normalized.startsWith("should i") ||
+    normalized.startsWith("which ")
+  );
+}
+
+function isOperationalWarning(warning: string): boolean {
+  return !isClarificationWarningCandidate(warning);
+}
+
+function buildClarificationQuestionQueue(
+  actions: NarrativeAction[],
+  extractionWarnings: string[]
+): string[] {
+  const queued: string[] = [];
+  const seen = new Set<string>();
+
+  const pushIfNew = (value: string | null | undefined) => {
+    const cleaned = cleanText(value);
+    if (!cleaned) return;
+    const key = normalizeForLookup(cleaned);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    queued.push(cleaned);
+  };
+
+  for (const action of actions) {
+    pushIfNew(buildActionClarificationQuestion(action));
+  }
+
+  for (const warning of extractionWarnings) {
+    const cleaned = cleanText(warning);
+    if (cleaned && isClarificationWarningCandidate(cleaned)) {
+      pushIfNew(cleaned);
+    }
+  }
+
+  return queued;
+}
+
 function convertRawExtractionAction(rawAction: unknown, index: number): NarrativeAction | null {
   const source = objectLike(rawAction);
   const kind = parseActionKind(source.kind);
@@ -588,8 +1114,11 @@ function convertRawExtractionAction(rawAction: unknown, index: number): Narrativ
       cleanText(source.companyName) ||
       cleanText(source.coInvestorName);
 
-    const draft = normalizeDraft(source.draft, fallbackName);
+    const draft = normalizeDraft(source.draft, fallbackName, entityType);
     if (!draft?.name) return null;
+    if (entityType === "CO_INVESTOR" && looksLikeHealthSystemEntityName(draft.name)) {
+      return null;
+    }
 
     const parsed = createEntityActionSchema.safeParse({
       id: buildActionId(kind, index, draft.name),
@@ -617,8 +1146,10 @@ function convertRawExtractionAction(rawAction: unknown, index: number): Narrativ
       parseEntityType(source.kind);
     if (!entityType) return null;
 
-    const targetName =
-      cleanText(source.targetName) || cleanText(objectLike(source.patch).name) || cleanText(source.parentName);
+    const targetName = cleanEntityNameForDraft(
+      cleanText(source.targetName) || cleanText(objectLike(source.patch).name) || cleanText(source.parentName),
+      entityType
+    );
     if (!targetName) return null;
 
     const parsed = updateEntityActionSchema.safeParse({
@@ -645,7 +1176,10 @@ function convertRawExtractionAction(rawAction: unknown, index: number): Narrativ
     if (!parentType) return null;
 
     const contactObject = objectLike(source.contact);
-    const parentName = cleanText(source.parentName) || cleanText(source.targetName);
+    const parentName = cleanEntityNameForDraft(
+      cleanText(source.parentName) || cleanText(source.targetName),
+      parentType
+    );
     const contactName = cleanText(contactObject.name) || cleanText(source.targetName);
 
     if (!parentName || !contactName) return null;
@@ -674,9 +1208,10 @@ function convertRawExtractionAction(rawAction: unknown, index: number): Narrativ
     return parsed.success ? parsed.data : null;
   }
 
-  const companyName = cleanText(source.companyName);
-  const coInvestorName = cleanText(source.coInvestorName);
+  const companyName = cleanEntityNameForDraft(cleanText(source.companyName), "COMPANY");
+  const coInvestorName = cleanEntityNameForDraft(cleanText(source.coInvestorName), "CO_INVESTOR");
   if (!companyName || !coInvestorName) return null;
+  if (looksLikeHealthSystemEntityName(coInvestorName)) return null;
 
   const parsed = linkCompanyCoInvestorActionSchema.safeParse({
     id: buildActionId(kind, index, `${companyName}-${coInvestorName}`),
@@ -744,16 +1279,20 @@ async function fetchEntityMatches(
   entityType: NarrativeEntityType,
   name: string
 ): Promise<NarrativeEntityMatch[]> {
-  const cleanName = name.trim();
+  const cleanName = cleanNarrativeNameFragment(name);
   if (!cleanName) return [];
+  const normalizedName = cleanEntityNameForDraft(cleanName, entityType);
+  const queryNames = Array.from(new Set([cleanName, normalizedName].filter(Boolean)));
+  const nameWhere = queryNames.flatMap((queryName) => [
+    { name: { equals: queryName, mode: "insensitive" as const } },
+    { name: { contains: queryName, mode: "insensitive" as const } }
+  ]);
+  const scoreName = normalizedName || cleanName;
 
   if (entityType === "HEALTH_SYSTEM") {
     const candidates = await prisma.healthSystem.findMany({
       where: {
-        OR: [
-          { name: { equals: cleanName, mode: "insensitive" } },
-          { name: { contains: cleanName, mode: "insensitive" } }
-        ]
+        OR: nameWhere
       },
       select: {
         id: true,
@@ -768,7 +1307,7 @@ async function fetchEntityMatches(
 
     return candidates
       .map((candidate) => {
-        const scored = scoreNameMatch(cleanName, candidate.name);
+        const scored = scoreNameMatch(scoreName, candidate.name);
         return {
           id: candidate.id,
           entityType,
@@ -787,10 +1326,7 @@ async function fetchEntityMatches(
   if (entityType === "COMPANY") {
     const candidates = await prisma.company.findMany({
       where: {
-        OR: [
-          { name: { equals: cleanName, mode: "insensitive" } },
-          { name: { contains: cleanName, mode: "insensitive" } }
-        ]
+        OR: nameWhere
       },
       select: {
         id: true,
@@ -805,7 +1341,7 @@ async function fetchEntityMatches(
 
     return candidates
       .map((candidate) => {
-        const scored = scoreNameMatch(cleanName, candidate.name);
+        const scored = scoreNameMatch(scoreName, candidate.name);
         return {
           id: candidate.id,
           entityType,
@@ -823,10 +1359,7 @@ async function fetchEntityMatches(
 
   const candidates = await prisma.coInvestor.findMany({
     where: {
-      OR: [
-        { name: { equals: cleanName, mode: "insensitive" } },
-        { name: { contains: cleanName, mode: "insensitive" } }
-      ]
+      OR: nameWhere
     },
     select: {
       id: true,
@@ -841,7 +1374,7 @@ async function fetchEntityMatches(
 
   return candidates
     .map((candidate) => {
-      const scored = scoreNameMatch(cleanName, candidate.name);
+      const scored = scoreNameMatch(scoreName, candidate.name);
       return {
         id: candidate.id,
         entityType,
@@ -866,7 +1399,7 @@ async function resolveHealthSystemLeadSourceId(name: string): Promise<string | n
   if (!topMatch?.id) return null;
 
   const confidence = topMatch.confidence || 0;
-  return confidence >= 0.64 ? topMatch.id : null;
+  return confidence >= AUTO_MATCH_CONFIDENCE_THRESHOLD ? topMatch.id : null;
 }
 
 type CompanyLeadSourceResolution = {
@@ -880,6 +1413,22 @@ async function resolveCompanyLeadSource(
 ): Promise<CompanyLeadSourceResolution> {
   const requestedType = draft.leadSourceType || "OTHER";
   if (requestedType === "HEALTH_SYSTEM") {
+    const explicitHealthSystemId = toNullableString(draft.leadSourceHealthSystemId);
+    if (explicitHealthSystemId) {
+      const existingHealthSystem = await prisma.healthSystem.findUnique({
+        where: { id: explicitHealthSystemId },
+        select: { id: true }
+      });
+
+      if (existingHealthSystem) {
+        return {
+          leadSourceType: "HEALTH_SYSTEM",
+          leadSourceHealthSystemId: existingHealthSystem.id,
+          leadSourceOther: null
+        };
+      }
+    }
+
     const preferredName =
       toNullableString(draft.leadSourceHealthSystemName) ||
       toNullableString(draft.leadSourceOther) ||
@@ -981,12 +1530,32 @@ async function extractActionsFromNarrative(params: {
     process.env.OPENAI_SEARCH_MODEL ||
     "gpt-4.1-mini";
   const systemPrompt =
-    "You are an operations extraction assistant for a healthcare venture CRM. " +
-    "Read a narrative and output concrete CRM actions only when there is enough evidence. " +
+    "You are Workbench Analyst, a senior CRM data analyst working with a stakeholder. " +
+    "The input is ongoing conversation context, not just one sentence. " +
+    "Before drafting the first execution plan, work conversationally to refine requirements with the stakeholder. " +
+    "Your job each turn is to: " +
+    "(1) restate confirmed requirements in plain English, " +
+    "(2) identify unresolved questions or assumptions in plain English, and " +
+    "(3) propose executable CRM actions only for confirmed changes. " +
+    "Ask at most one clarification question per turn. " +
+    "If clarification is still needed, return actions as an empty array and put only that single question in warnings. " +
+    "When requirements are clear, return actions for an execution plan. " +
+    "If the stakeholder says 'build execution plan' or 'requirements confirmed', treat that as permission to draft the plan immediately. " +
     "Allowed actions: CREATE_ENTITY, UPDATE_ENTITY, ADD_CONTACT, LINK_COMPANY_CO_INVESTOR. " +
     "For CREATE_ENTITY and UPDATE_ENTITY include entityType as HEALTH_SYSTEM, COMPANY, or CO_INVESTOR. " +
-    "If the narrative says one party introduced us to a company, include a company/co-investor link action and preserve intro context in notes. " +
-    "Use concise rationales and confidence values between 0 and 1.";
+    "Match policy: if an existing CRM record match is at least 80% confidence, assume using existing instead of creating a new record. " +
+    "Use the provided data model snapshot as source of truth for supported entities/fields. " +
+    "Relationship rules: health systems and co-investors are different entities; a health system is not a co-investor unless the narrative explicitly names an investment arm/fund as the investor. " +
+    "If a health system introduced us to a company, model that as company lead source (HEALTH_SYSTEM), not a co-investor relationship. " +
+    "When lead source changes are requested for an existing company, use UPDATE_ENTITY on COMPANY and include patch fields leadSourceType plus leadSourceHealthSystemName/leadSourceOther/leadSourceNotes as needed. " +
+    "If a fund or investment arm is described as an investor, create/link the co-investor relationship to the company. " +
+    "Avoid duplicates and aliases (for example 'Vitalize Care' and 'a company called Vitalize Care' are the same company). " +
+    "Prefer canonical names; remove filler phrases like 'a company called'. " +
+    "Do not ask the stakeholder to provide low-level required schema defaults (timestamps, status enums, internal IDs) when those can be system-defaulted. " +
+    "Ask only domain clarifications needed to choose entities, relationships, and intent. " +
+    "If a request is ambiguous, do not guess: keep uncertain items out of actions and put specific clarification prompts in warnings. " +
+    "If the stakeholder asks for deletes, note that delete execution is not supported in warnings and do not fabricate delete actions. " +
+    "Return concise rationales and confidence values between 0 and 1.";
 
   const userPrompt =
     `Narrative:\n${params.narrative}\n\n` +
@@ -1018,6 +1587,9 @@ async function extractActionsFromNarrative(params: {
 
     const payload = extractJsonPayload(response.output_text || "{}");
     const summary = safeTextForSummary(cleanText(payload.summary));
+    const extractedWarnings = Array.isArray(payload.warnings)
+      ? payload.warnings.map((entry) => cleanText(entry)).filter(Boolean)
+      : [];
     const rawActions = Array.isArray(payload.actions) ? payload.actions : [];
     const converted = rawActions
       .map((rawAction, index) => convertRawExtractionAction(rawAction, index))
@@ -1026,7 +1598,7 @@ async function extractActionsFromNarrative(params: {
     return {
       summary,
       actions: converted,
-      warnings: []
+      warnings: extractedWarnings
     };
   } catch (error) {
     console.error("narrative_agent_extract_error", error);
@@ -1042,7 +1614,7 @@ function createActionLookup(actions: NarrativeAction[]) {
   const map = new Map<string, string>();
   for (const action of actions) {
     if (action.kind !== "CREATE_ENTITY") continue;
-    const key = `${action.entityType}:${normalizeForLookup(action.draft.name)}`;
+    const key = `${action.entityType}:${normalizeEntityNameForLookup(action.draft.name, action.entityType)}`;
     map.set(key, action.id);
   }
   return map;
@@ -1053,7 +1625,7 @@ function lookupCreateAction(
   entityType: NarrativeEntityType,
   name: string
 ): string | undefined {
-  const key = `${entityType}:${normalizeForLookup(name)}`;
+  const key = `${entityType}:${normalizeEntityNameForLookup(name, entityType)}`;
   return createLookup.get(key);
 }
 
@@ -1067,16 +1639,28 @@ async function hydrateAction(
 
     const nextIssues = [...action.issues];
     let selection = action.selection;
+    let nextDraft = action.draft;
 
-    if (existingMatches.length > 0) {
+    const topExistingMatch = existingMatches[0];
+    const topExistingHighConfidence = hasHighConfidenceMatch(topExistingMatch);
+
+    if (topExistingMatch && topExistingHighConfidence) {
       selection = {
         mode: "USE_EXISTING",
-        existingId: existingMatches[0].id
+        existingId: topExistingMatch.id
       };
       if (existingMatches.length > 1) {
-        nextIssues.push("Multiple existing CRM matches found. Confirm the correct record before execution.");
+        nextIssues.push(
+          `Existing CRM matches found; auto-selecting ${topExistingMatch.name} because confidence is at least ${Math.round(
+            AUTO_MATCH_CONFIDENCE_THRESHOLD * 100
+          )}%.`
+        );
       } else {
-        nextIssues.push("Likely duplicate exists. Defaulting to existing record.");
+        nextIssues.push(
+          `High-confidence existing match found (${Math.round(
+            (topExistingMatch.confidence || 0) * 100
+          )}%). Defaulting to existing record.`
+        );
       }
     } else if (webCandidates.length === 1) {
       selection = {
@@ -1095,8 +1679,62 @@ async function hydrateAction(
       nextIssues.push("No web match found. Manual create is selected.");
     }
 
+    if (topExistingMatch && !topExistingHighConfidence) {
+      nextIssues.push(
+        `Potential existing match found (${Math.round((topExistingMatch.confidence || 0) * 100)}%), below ${Math.round(
+          AUTO_MATCH_CONFIDENCE_THRESHOLD * 100
+        )}% auto-select threshold. Confirm whether to use existing or create new.`
+      );
+    }
+
+    if (action.entityType === "COMPANY" && action.draft.leadSourceType === "HEALTH_SYSTEM") {
+      const leadSourceName =
+        cleanNarrativeNameFragment(action.draft.leadSourceHealthSystemName || action.draft.leadSourceOther || "") ||
+        "";
+      if (leadSourceName) {
+        const leadSourceMatches = await fetchEntityMatches("HEALTH_SYSTEM", leadSourceName);
+        const topLeadSourceMatch = leadSourceMatches[0];
+
+        if (topLeadSourceMatch?.id && hasHighConfidenceMatch(topLeadSourceMatch)) {
+          const leadSourceConfidence = topLeadSourceMatch.confidence || 0;
+          nextDraft = {
+            ...nextDraft,
+            leadSourceType: "HEALTH_SYSTEM",
+            leadSourceHealthSystemId: topLeadSourceMatch.id,
+            leadSourceHealthSystemName: topLeadSourceMatch.name,
+            leadSourceOther: undefined
+          };
+
+          if (leadSourceMatches.length > 1) {
+            nextIssues.push(
+              `Multiple lead-source health system matches found. Defaulting to ${topLeadSourceMatch.name}.`
+            );
+          } else if (leadSourceConfidence >= AUTO_MATCH_CONFIDENCE_THRESHOLD) {
+            nextIssues.push(`Lead source matched to existing health system: ${topLeadSourceMatch.name}.`);
+          }
+        } else if (topLeadSourceMatch) {
+          nextDraft = {
+            ...nextDraft,
+            leadSourceHealthSystemId: undefined
+          };
+          nextIssues.push(
+            `Possible lead-source health system match (${Math.round(
+              (topLeadSourceMatch.confidence || 0) * 100
+            )}%) is below ${Math.round(
+              AUTO_MATCH_CONFIDENCE_THRESHOLD * 100
+            )}% threshold. Confirm before execution.`
+          );
+        } else {
+          nextIssues.push(
+            `No existing health system match found for lead source "${leadSourceName}".`
+          );
+        }
+      }
+    }
+
     return {
       ...action,
+      draft: nextDraft,
       existingMatches,
       webCandidates,
       selection,
@@ -1107,16 +1745,26 @@ async function hydrateAction(
   if (action.kind === "UPDATE_ENTITY") {
     const targetMatches = await fetchEntityMatches(action.entityType, action.targetName);
     const linkedCreateActionId = lookupCreateAction(createLookup, action.entityType, action.targetName);
+    const topTargetMatch = targetMatches[0];
+    const selectedTargetId = hasHighConfidenceMatch(topTargetMatch) ? topTargetMatch?.id : undefined;
 
     const nextIssues = [...action.issues];
     if (targetMatches.length === 0 && !linkedCreateActionId) {
       nextIssues.push("No matching existing record found for update target.");
+    } else if (!selectedTargetId && !linkedCreateActionId && topTargetMatch) {
+      nextIssues.push(
+        `Potential update target match (${Math.round(
+          (topTargetMatch.confidence || 0) * 100
+        )}%) is below ${Math.round(
+          AUTO_MATCH_CONFIDENCE_THRESHOLD * 100
+        )}% threshold. Confirm target before execution.`
+      );
     }
 
     return {
       ...action,
       targetMatches,
-      selectedTargetId: targetMatches[0]?.id,
+      selectedTargetId,
       linkedCreateActionId,
       issues: Array.from(new Set(nextIssues))
     };
@@ -1125,17 +1773,25 @@ async function hydrateAction(
   if (action.kind === "ADD_CONTACT") {
     const parentMatches = await fetchEntityMatches(action.parentType, action.parentName);
     const linkedCreateActionId = lookupCreateAction(createLookup, action.parentType, action.parentName);
+    const topParentMatch = parentMatches[0];
+    const selectedParentId = hasHighConfidenceMatch(topParentMatch) ? topParentMatch?.id : undefined;
 
     const nextIssues = [...action.issues];
     if (parentMatches.length === 0 && !linkedCreateActionId) {
       nextIssues.push("No matching parent record found for contact link.");
+    } else if (!selectedParentId && !linkedCreateActionId && topParentMatch) {
+      nextIssues.push(
+        `Potential parent match (${Math.round((topParentMatch.confidence || 0) * 100)}%) is below ${Math.round(
+          AUTO_MATCH_CONFIDENCE_THRESHOLD * 100
+        )}% threshold. Confirm parent before execution.`
+      );
     }
 
     return {
       ...action,
       roleType: action.roleType || defaultRoleForParent(action.parentType),
       parentMatches,
-      selectedParentId: parentMatches[0]?.id,
+      selectedParentId,
       linkedCreateActionId,
       issues: Array.from(new Set(nextIssues))
     };
@@ -1143,23 +1799,51 @@ async function hydrateAction(
 
   const companyMatches = await fetchEntityMatches("COMPANY", action.companyName);
   const coInvestorMatches = await fetchEntityMatches("CO_INVESTOR", action.coInvestorName);
+  const healthSystemMatchesForCoInvestor = await fetchEntityMatches("HEALTH_SYSTEM", action.coInvestorName);
   const companyCreateActionId = lookupCreateAction(createLookup, "COMPANY", action.companyName);
   const coInvestorCreateActionId = lookupCreateAction(createLookup, "CO_INVESTOR", action.coInvestorName);
+  const topCompanyMatch = companyMatches[0];
+  const topCoInvestorMatch = coInvestorMatches[0];
+  const selectedCompanyId = hasHighConfidenceMatch(topCompanyMatch) ? topCompanyMatch?.id : undefined;
+  const selectedCoInvestorId = hasHighConfidenceMatch(topCoInvestorMatch)
+    ? topCoInvestorMatch?.id
+    : undefined;
 
   const nextIssues = [...action.issues];
   if (companyMatches.length === 0 && !companyCreateActionId) {
     nextIssues.push("No matching company record found for relationship.");
+  } else if (!selectedCompanyId && !companyCreateActionId && topCompanyMatch) {
+    nextIssues.push(
+      `Potential company match (${Math.round((topCompanyMatch.confidence || 0) * 100)}%) is below ${Math.round(
+        AUTO_MATCH_CONFIDENCE_THRESHOLD * 100
+      )}% threshold. Confirm company before execution.`
+    );
   }
   if (coInvestorMatches.length === 0 && !coInvestorCreateActionId) {
-    nextIssues.push("No matching co-investor record found for relationship.");
+    const healthSystemAlias = healthSystemMatchesForCoInvestor[0];
+    if (healthSystemAlias) {
+      nextIssues.push(
+        `"${action.coInvestorName}" appears to be a health system (${healthSystemAlias.name}), not a co-investor.`
+      );
+    } else {
+      nextIssues.push("No matching co-investor record found for relationship.");
+    }
+  } else if (!selectedCoInvestorId && !coInvestorCreateActionId && topCoInvestorMatch) {
+    nextIssues.push(
+      `Potential co-investor match (${Math.round(
+        (topCoInvestorMatch.confidence || 0) * 100
+      )}%) is below ${Math.round(
+        AUTO_MATCH_CONFIDENCE_THRESHOLD * 100
+      )}% threshold. Confirm co-investor before execution.`
+    );
   }
 
   return {
     ...action,
     companyMatches,
     coInvestorMatches,
-    selectedCompanyId: companyMatches[0]?.id,
-    selectedCoInvestorId: coInvestorMatches[0]?.id,
+    selectedCompanyId,
+    selectedCoInvestorId,
     companyCreateActionId,
     coInvestorCreateActionId,
     issues: Array.from(new Set(nextIssues))
@@ -1170,16 +1854,50 @@ export async function buildNarrativePlan(narrative: string): Promise<NarrativePl
   const modelDigest = getNarrativeAgentModelDigest();
   const extraction = await extractActionsFromNarrative({ narrative, modelDigest });
   const heuristic = applyIntroductionHeuristics(narrative, extraction.actions);
+  const dedupedActions = dedupeExtractedActions(heuristic.actions);
+  const requirementsLocked = hasRequirementsLockSignal(narrative);
 
-  const createLookup = createActionLookup(heuristic.actions);
+  const createLookup = createActionLookup(dedupedActions);
   const hydratedActions: NarrativeAction[] = [];
 
-  for (const action of heuristic.actions) {
+  for (const action of dedupedActions) {
     const hydrated = await hydrateAction(action, createLookup);
     hydratedActions.push(hydrated);
   }
 
   const warnings = [...extraction.warnings, ...heuristic.warnings];
+  if (dedupedActions.length < heuristic.actions.length) {
+    warnings.push(
+      `Consolidated duplicate actions (${heuristic.actions.length} extracted → ${dedupedActions.length} unique).`
+    );
+  }
+
+  const clarificationQuestions =
+    !requirementsLocked && hydratedActions.length > 0
+      ? buildClarificationQuestionQueue(hydratedActions, extraction.warnings)
+      : [];
+
+  if (!requirementsLocked && hydratedActions.length > 0 && clarificationQuestions.length > 0) {
+    const candidatePreview = hydratedActions
+      .slice(0, 5)
+      .map((action) => summarizeActionRequirement(action))
+      .join(" ");
+
+    return narrativePlanSchema.parse({
+      narrative,
+      phase: "CLARIFICATION",
+      summary: [
+        buildClarificationSummary(extraction.summary, hydratedActions),
+        candidatePreview ? `Candidate requirements so far: ${candidatePreview}` : null
+      ]
+        .filter(Boolean)
+        .join(" "),
+      modelDigest,
+      warnings: clarificationQuestions,
+      actions: hydratedActions
+    });
+  }
+
   if (hydratedActions.length === 0) {
     warnings.push("No actionable items were extracted. You can edit the narrative and try again.");
   }
@@ -1190,11 +1908,16 @@ export async function buildNarrativePlan(narrative: string): Promise<NarrativePl
       ? `Extracted ${hydratedActions.length} action${hydratedActions.length === 1 ? "" : "s"}.`
       : "No actions extracted.");
 
+  const planWarnings = Array.from(new Set(warnings.map((warning) => cleanText(warning)).filter(Boolean))).filter(
+    (warning) => isOperationalWarning(warning)
+  );
+
   return narrativePlanSchema.parse({
     narrative,
+    phase: "PLAN",
     summary,
     modelDigest,
-    warnings: Array.from(new Set(warnings)),
+    warnings: planWarnings,
     actions: hydratedActions
   });
 }
@@ -1495,7 +2218,7 @@ async function executeUpdateEntityAction(
 ): Promise<CreatedEntityReference> {
   const targetId = resolveLinkedId(
     action.selectedTargetId,
-    action.targetMatches[0]?.id,
+    undefined,
     action.linkedCreateActionId,
     createdByActionId
   );
@@ -1571,6 +2294,60 @@ async function executeUpdateEntityAction(
     const description = applyNullableStringPatch(action.patch, "description");
     if (description !== undefined) data.description = description;
 
+    const leadSourceTypePatch =
+      action.patch.leadSourceType ||
+      (action.patch.leadSourceHealthSystemId || action.patch.leadSourceHealthSystemName
+        ? "HEALTH_SYSTEM"
+        : action.patch.leadSourceOther
+          ? "OTHER"
+          : undefined);
+
+    if (leadSourceTypePatch === "HEALTH_SYSTEM") {
+      const explicitHealthSystemId = toNullableString(action.patch.leadSourceHealthSystemId);
+      let resolvedHealthSystemId: string | null = null;
+
+      if (explicitHealthSystemId) {
+        const existingHealthSystem = await prisma.healthSystem.findUnique({
+          where: { id: explicitHealthSystemId },
+          select: { id: true }
+        });
+        if (existingHealthSystem) {
+          resolvedHealthSystemId = existingHealthSystem.id;
+        }
+      }
+
+      if (!resolvedHealthSystemId) {
+        const leadSourceName =
+          toNullableString(action.patch.leadSourceHealthSystemName) ||
+          toNullableString(action.patch.leadSourceOther) ||
+          null;
+        if (leadSourceName) {
+          resolvedHealthSystemId = await resolveHealthSystemLeadSourceId(leadSourceName);
+        }
+      }
+
+      if (resolvedHealthSystemId) {
+        data.leadSourceType = "HEALTH_SYSTEM";
+        data.leadSourceHealthSystem = { connect: { id: resolvedHealthSystemId } };
+        data.leadSourceOther = null;
+      } else {
+        const fallbackOther =
+          toNullableString(action.patch.leadSourceHealthSystemName) ||
+          toNullableString(action.patch.leadSourceOther) ||
+          "Narrative intake";
+        data.leadSourceType = "OTHER";
+        data.leadSourceHealthSystem = { disconnect: true };
+        data.leadSourceOther = fallbackOther;
+      }
+    } else if (leadSourceTypePatch === "OTHER") {
+      data.leadSourceType = "OTHER";
+      data.leadSourceHealthSystem = { disconnect: true };
+      data.leadSourceOther = toNullableString(action.patch.leadSourceOther) || "Narrative intake";
+    }
+
+    const leadSourceNotes = applyNullableStringPatch(action.patch, "leadSourceNotes");
+    if (leadSourceNotes !== undefined) data.leadSourceNotes = leadSourceNotes;
+
     data.researchUpdatedAt = new Date();
 
     const updated = await prisma.company.update({
@@ -1635,7 +2412,7 @@ async function executeAddContactAction(
 ): Promise<{ parentId: string; contactName: string }> {
   const parentId = resolveLinkedId(
     action.selectedParentId,
-    action.parentMatches[0]?.id,
+    undefined,
     action.linkedCreateActionId,
     createdByActionId
   );
@@ -1744,7 +2521,7 @@ async function executeLinkCompanyCoInvestorAction(
 ): Promise<{ companyId: string; coInvestorId: string }> {
   const companyId = resolveLinkedId(
     action.selectedCompanyId,
-    action.companyMatches[0]?.id,
+    undefined,
     action.companyCreateActionId,
     createdByActionId
   );
@@ -1755,7 +2532,7 @@ async function executeLinkCompanyCoInvestorAction(
 
   const coInvestorId = resolveLinkedId(
     action.selectedCoInvestorId,
-    action.coInvestorMatches[0]?.id,
+    undefined,
     action.coInvestorCreateActionId,
     createdByActionId
   );

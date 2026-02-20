@@ -361,7 +361,7 @@ export async function searchCoInvestorCandidates(query: string): Promise<{
                 {
                   type: "input_text",
                   text:
-                    "Search the web to find seed and series A digital health investors that are US based whose name matches the user query. Return up to 6 candidates with location and website so a user can disambiguate by location."
+                    "Search the web to find up to 6 US-based seed and Series A digital health investor organizations whose names best match the query. Exclude individual people, portfolio companies, funds without a clear manager organization, and program pages unless they are clearly the primary investing organization. Prefer canonical organization records with official websites. Return headquarters city/state/country and website to disambiguate results."
                 }
               ]
             },
@@ -371,7 +371,8 @@ export async function searchCoInvestorCandidates(query: string): Promise<{
                 {
                   type: "input_text",
                   text:
-                    `Search the web to find seed and series A digital health investors that are US based whose name matches "${normalizedQuery}".  Return up to 6 candidates with location and website so a user can disambiguate by location.`
+                    `Find up to 6 US-based seed and Series A digital health investor organizations that best match "${normalizedQuery}". ` +
+                    "Do not return individual people, fund programs, or non-investor entities."
                 }
               ]
             }

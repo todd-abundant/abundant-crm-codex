@@ -16,7 +16,8 @@ function isWorkbenchPage(pathname: string) {
     pathname === "/health-systems" ||
     pathname.startsWith("/co-investors") ||
     pathname.startsWith("/companies") ||
-    pathname.startsWith("/narrative-agent")
+    pathname.startsWith("/narrative-agent") ||
+    pathname.startsWith("/workbench")
   );
 }
 
@@ -26,6 +27,7 @@ function isWorkbenchApi(pathname: string) {
     pathname.startsWith("/api/co-investors") ||
     pathname.startsWith("/api/companies") ||
     pathname.startsWith("/api/narrative-agent") ||
+    pathname.startsWith("/api/workbench") ||
     pathname.startsWith("/api/debug")
   );
 }
@@ -38,10 +40,21 @@ function isStaticAsset(pathname: string) {
   return pathname.startsWith("/_next/") || pathname === "/favicon.ico" || pathname === "/icon.svg";
 }
 
+function isLocalDebugBypass(request: NextRequest, pathname: string) {
+  if (pathname !== "/api/debug/health-system-search") return false;
+  if (process.env.NODE_ENV === "production") return false;
+
+  const host = request.nextUrl.hostname.toLowerCase();
+  return host === "localhost" || host === "127.0.0.1";
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (isStaticAsset(pathname)) {
+    return NextResponse.next();
+  }
+  if (isLocalDebugBypass(request, pathname)) {
     return NextResponse.next();
   }
   if (pathname === "/api/auth/session") {

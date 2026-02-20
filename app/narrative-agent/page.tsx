@@ -1,5 +1,5 @@
-import { NarrativeAgentWorkbench } from "@/components/narrative-agent-workbench";
+import { redirect } from "next/navigation";
 
-export default function NarrativeAgentPage() {
-  return <NarrativeAgentWorkbench />;
+export default function NarrativeAgentRedirectPage() {
+  redirect("/workbench");
 }

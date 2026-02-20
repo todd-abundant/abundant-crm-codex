@@ -603,7 +603,7 @@ export async function searchCompanyCandidates(query: string): Promise<{
               {
                 type: "input_text",
                 text:
-                  "Find up to 6 likely digital health companies that best match the query. Return location and website so results can be disambiguated by location."
+                  "Find up to 6 likely digital health company parent organizations that best match the query. Exclude products, business units, incubator programs, department pages, and news/listicle pages unless they are clearly independent companies. Prefer canonical company records with official websites. Return headquarters city/state/country and website to disambiguate results."
               }
             ]
           },
@@ -612,7 +612,9 @@ export async function searchCompanyCandidates(query: string): Promise<{
             content: [
               {
                 type: "input_text",
-                text: `Find up to 6 likely digital health companies that best match the query "${normalizedQuery}".`
+                text:
+                  `Find up to 6 likely digital health company parent organizations that best match "${normalizedQuery}". ` +
+                  "Do not return product names, program pages, or non-company entities."
               }
             ]
           }
