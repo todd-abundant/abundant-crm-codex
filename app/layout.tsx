@@ -50,10 +50,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <div className="top-nav-session">
               {currentUser ? (
                 <>
-                  <span className="top-nav-user">
-                    {currentUser.name || currentUser.email}{" "}
-                    <span className="top-nav-role">{currentUser.roles.join(", ")}</span>
-                  </span>
+                  <Link href="/settings" className="top-nav-user top-nav-link-quiet">
+                    {currentUser.name || currentUser.email}
+                  </Link>
                   <a className="top-nav-link top-nav-link-quiet" href="/api/auth/logout">
                     Sign out
                   </a>

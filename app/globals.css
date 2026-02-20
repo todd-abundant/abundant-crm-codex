@@ -1609,3 +1609,41 @@ select {
     width: 100%;
   }
 }
+
+.settings-panel {
+  max-width: 560px;
+}
+
+.settings-form {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-actions {
+  margin-top: 6px;
+}
+
+.settings-actions button {
+  border: 1px solid var(--colorBrandAccent);
+  border-radius: var(--radiusButton);
+  background: var(--colorBrandAccent);
+  color: #ffffff;
+  padding: 8px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-actions button:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.settings-ok {
+  color: var(--success);
+  margin: 2px 0 0;
+}
+
+.settings-error {
+  color: var(--danger);
+  margin: 2px 0 0;
+}
