@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { DateInputField, normalizeDateValue } from "./date-input-field";
 
 type SelectOption = {
   value: string;
@@ -256,12 +257,10 @@ export function InlineTextField({
 }: Omit<TextFieldProps, "kind">) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(value);
-  const [expanded, setExpanded] = React.useState(false);
 
   React.useEffect(() => {
     if (!editing) {
       setDraft(value);
-      setExpanded(false);
     }
   }, [value, editing]);
 
@@ -273,6 +272,40 @@ export function InlineTextField({
   };
 
   if (editing) {
+    if (inputType === "date") {
+      return (
+        <div className="inline-edit-field">
+          <label>{label}</label>
+          <div
+            className="inline-date-edit"
+            onBlurCapture={(event) => {
+              const nextFocus = event.relatedTarget as Node | null;
+              if (nextFocus && event.currentTarget.contains(nextFocus)) return;
+              const source = event.target as HTMLInputElement | null;
+              const rawValue = source && typeof source.value === "string" ? source.value : draft;
+              commit(normalizeDateValue(rawValue));
+            }}
+          >
+            <DateInputField
+              value={draft}
+              onChange={setDraft}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  (event.currentTarget as HTMLInputElement).blur();
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  commit(value);
+                }
+              }}
+              autoFocus
+            />
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="inline-edit-field">
         <label>{label}</label>
@@ -329,19 +362,17 @@ export function InlineTextareaField({
 }: Omit<TextAreaFieldProps, "kind">) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(value);
-  const [expanded, setExpanded] = React.useState(false);
 
   React.useEffect(() => {
     if (!editing) {
       setDraft(value);
-      setExpanded(false);
     }
   }, [value, editing]);
 
-  const commit = () => {
+  const commit = (nextValue: string) => {
     setEditing(false);
-    if (draft !== value) {
-      onSave(draft);
+    if (nextValue !== value) {
+      onSave(nextValue);
     }
   };
 
@@ -358,12 +389,19 @@ export function InlineTextareaField({
           value={draft}
           placeholder={placeholder}
           onChange={(event) => setDraft(event.target.value)}
+          onBlur={(event) => commit(event.target.value)}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              (event.currentTarget as HTMLTextAreaElement).blur();
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              cancel();
+            }
+          }}
           autoFocus
         />
-        <div className="inline-note-actions">
-          <button type="button" className="inline-expand-toggle" onClick={commit}>Save</button>
-          <button type="button" className="inline-expand-toggle inline-expand-toggle--secondary" onClick={cancel}>Cancel</button>
-        </div>
       </div>
     );
   }
@@ -371,28 +409,27 @@ export function InlineTextareaField({
   return (
     <div className="inline-edit-field">
       <label>{label}</label>
-      <div className="inline-edit-display inline-edit-display--multiline">
+      <div
+        className="inline-edit-display inline-edit-display--multiline"
+        role="button"
+        tabIndex={0}
+        onClick={() => setEditing(true)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setEditing(true);
+          }
+        }}
+      >
         <ReadValue isEmpty={!value}>
           {value ? (
             <span className="inline-rich-text">
-              {renderMultilineValue(value, insight, expanded)}
+              {renderMultilineValue(value, insight, true)}
             </span>
           ) : (
             <span>{emptyText}</span>
           )}
         </ReadValue>
-        <div className="inline-note-actions">
-          <button
-            type="button"
-            className="inline-expand-toggle"
-            onClick={() => setExpanded((current) => !current)}
-          >
-            {expanded ? "Show less" : "Show full notes"}
-          </button>
-          <button type="button" className="inline-expand-toggle inline-expand-toggle--secondary" onClick={() => setEditing(true)}>
-            Edit notes
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -428,10 +465,22 @@ export function InlineSelectField({
         <select
           value={draft}
           onChange={(event) => {
-            const nextValue = event.target.value;
-            setDraft(nextValue);
-            commit(nextValue);
+            setDraft(event.target.value);
           }}
+          onBlur={(event) => {
+            commit(event.target.value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              (event.currentTarget as HTMLSelectElement).blur();
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              commit(value);
+            }
+          }}
+          autoFocus
         >
           {options.map((option) => (
             <option key={option.value} value={option.value}>
@@ -484,22 +533,34 @@ export function InlineBooleanField({
     return (
       <div className="inline-edit-field">
         <label>{label}</label>
-        <label className="chip">
-          <input
-            type="checkbox"
-            checked={draft}
-            onChange={(event) => {
-              const nextValue = event.target.checked;
-              setDraft(nextValue);
+        <select
+          value={draft ? "true" : "false"}
+          onChange={(event) => {
+            setDraft(event.target.value === "true");
+          }}
+          onBlur={(event) => {
+            const nextValue = event.target.value === "true";
+            setEditing(false);
+            if (nextValue !== value) {
+              onSave(nextValue);
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              (event.currentTarget as HTMLSelectElement).blur();
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setDraft(value);
               setEditing(false);
-              if (nextValue !== value) {
-                onSave(nextValue);
-              }
-            }}
-            autoFocus
-          />
-          {draft ? trueLabel : falseLabel}
-        </label>
+            }
+          }}
+          autoFocus
+        >
+          <option value="true">{trueLabel}</option>
+          <option value="false">{falseLabel}</option>
+        </select>
       </div>
     );
   }

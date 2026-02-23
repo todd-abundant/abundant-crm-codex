@@ -31,7 +31,7 @@ import {
   upsertCoInvestorContactLink,
   upsertHealthSystemContactLink
 } from "@/lib/contact-resolution";
-import { getNarrativeAgentModelDigest } from "@/lib/model-introspection";
+import { getNarrativeAgentModelDigest, getNarrativeAgentModelNarrative } from "@/lib/model-introspection";
 import {
   type AddContactAction,
   type CreateEntityAction,
@@ -256,6 +256,57 @@ function parseEntityType(value: unknown): NarrativeEntityType | null {
   return null;
 }
 
+function inferEntityTypeFromRawKind(value: unknown): NarrativeEntityType | null {
+  const raw = cleanText(value)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!raw) return null;
+
+  if (raw.includes("HEALTH") && raw.includes("SYSTEM")) {
+    return "HEALTH_SYSTEM";
+  }
+  if (raw.includes("COMPANY")) {
+    return "COMPANY";
+  }
+  if (raw.includes("CO") && raw.includes("INVESTOR")) {
+    return "CO_INVESTOR";
+  }
+  if (raw.includes("INVESTOR")) {
+    return "CO_INVESTOR";
+  }
+
+  return null;
+}
+
+function inferEntityTypeFromActionSource(
+  source: Record<string, unknown>,
+  actionKind?: NarrativeAction["kind"]
+): NarrativeEntityType | null {
+  const direct =
+    parseEntityType(source.entityType) ||
+    parseEntityType(source.parentType) ||
+    parseEntityType(source.targetType) ||
+    parseEntityType(source.kind);
+  if (direct) return direct;
+
+  const fromKind = inferEntityTypeFromRawKind(source.kind);
+  if (fromKind) return fromKind;
+
+  const patch = objectLike(source.patch);
+  if (cleanText(patch.leadSourceType) || cleanText(patch.leadSourceHealthSystemName)) {
+    return "COMPANY";
+  }
+
+  if (actionKind === "UPDATE_ENTITY") {
+    if (cleanText(source.companyName)) return "COMPANY";
+    if (cleanText(source.coInvestorName)) return "CO_INVESTOR";
+    if (cleanText(source.healthSystemName)) return "HEALTH_SYSTEM";
+  }
+
+  return null;
+}
+
 function parseActionKind(value: unknown): NarrativeAction["kind"] | null {
   const raw = cleanText(value)
     .toUpperCase()
@@ -291,6 +342,15 @@ function parseActionKind(value: unknown): NarrativeAction["kind"] | null {
   }
 
   return null;
+}
+
+function isCompanyHealthSystemLinkKind(value: unknown): boolean {
+  const raw = cleanText(value)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!raw) return false;
+  return raw.includes("LINK") && raw.includes("COMPANY") && raw.includes("HEALTH") && raw.includes("SYSTEM");
 }
 
 function parseRoleType(value: unknown): ContactRoleType {
@@ -1093,17 +1153,56 @@ function buildClarificationQuestionQueue(
 function convertRawExtractionAction(rawAction: unknown, index: number): NarrativeAction | null {
   const source = objectLike(rawAction);
   const kind = parseActionKind(source.kind);
-  if (!kind) return null;
+  if (!kind) {
+    if (isCompanyHealthSystemLinkKind(source.kind)) {
+      const companyName = cleanEntityNameForDraft(
+        cleanText(source.companyName) ||
+          cleanText(source.targetName) ||
+          cleanText(source.parentName) ||
+          cleanText(source.name),
+        "COMPANY"
+      );
+      const healthSystemName = cleanEntityNameForDraft(
+        cleanText(source.healthSystemName) ||
+          cleanText(source.relatedName) ||
+          cleanText(source.linkedName) ||
+          cleanText(source.counterpartyName) ||
+          cleanText(source.otherEntityName),
+        "HEALTH_SYSTEM"
+      );
+      if (!companyName || !healthSystemName) return null;
+
+      const parsedLinkFallback = updateEntityActionSchema.safeParse({
+        id: buildActionId("UPDATE_ENTITY", index, companyName),
+        include: true,
+        rationale: cleanOptionalText(source.rationale),
+        confidence: cleanConfidence(source.confidence),
+        issues: [
+          "Company-health-system link request was mapped to company lead-source update in this Workbench version."
+        ],
+        kind: "UPDATE_ENTITY",
+        entityType: "COMPANY",
+        targetName: companyName,
+        patch: {
+          leadSourceType: "HEALTH_SYSTEM",
+          leadSourceHealthSystemName: healthSystemName,
+          leadSourceNotes:
+            cleanOptionalText(source.notes) ||
+            `${healthSystemName} referenced as linked health system for ${companyName}.`
+        },
+        targetMatches: []
+      });
+      return parsedLinkFallback.success ? parsedLinkFallback.data : null;
+    }
+    return null;
+  }
 
   const confidence = cleanConfidence(source.confidence);
   const rationale = cleanOptionalText(source.rationale);
 
   if (kind === "CREATE_ENTITY") {
     const entityType =
-      parseEntityType(source.entityType) ||
-      parseEntityType(source.parentType) ||
-      parseEntityType(source.kind) ||
-      parseEntityType(source.targetName);
+      inferEntityTypeFromActionSource(source, kind) || parseEntityType(source.targetName);
 
     if (!entityType) return null;
 
@@ -1140,14 +1239,17 @@ function convertRawExtractionAction(rawAction: unknown, index: number): Narrativ
   }
 
   if (kind === "UPDATE_ENTITY") {
-    const entityType =
-      parseEntityType(source.entityType) ||
-      parseEntityType(source.parentType) ||
-      parseEntityType(source.kind);
+    const entityType = inferEntityTypeFromActionSource(source, kind);
     if (!entityType) return null;
 
     const targetName = cleanEntityNameForDraft(
-      cleanText(source.targetName) || cleanText(objectLike(source.patch).name) || cleanText(source.parentName),
+      cleanText(source.targetName) ||
+        cleanText(source.companyName) ||
+        cleanText(source.coInvestorName) ||
+        cleanText(source.healthSystemName) ||
+        cleanText(objectLike(source.patch).name) ||
+        cleanText(source.parentName) ||
+        cleanText(source.name),
       entityType
     );
     if (!targetName) return null;
@@ -1512,6 +1614,7 @@ async function fetchWebCandidates(
 async function extractActionsFromNarrative(params: {
   narrative: string;
   modelDigest: string;
+  modelNarrative: string;
 }): Promise<{ summary: string; actions: NarrativeAction[]; warnings: string[] }> {
   const client = getOpenAIClient();
   if (!client) {
@@ -1548,6 +1651,11 @@ async function extractActionsFromNarrative(params: {
     "Relationship rules: health systems and co-investors are different entities; a health system is not a co-investor unless the narrative explicitly names an investment arm/fund as the investor. " +
     "If a health system introduced us to a company, model that as company lead source (HEALTH_SYSTEM), not a co-investor relationship. " +
     "When lead source changes are requested for an existing company, use UPDATE_ENTITY on COMPANY and include patch fields leadSourceType plus leadSourceHealthSystemName/leadSourceOther/leadSourceNotes as needed. " +
+    "Execution checklist for company-health-system requests: " +
+    "(a) resolve canonical company and health-system names, " +
+    "(b) emit at least one UPDATE_ENTITY action for the Company lead-source change, " +
+    "(c) do not emit unsupported action kinds such as LINK_COMPANY_HEALTH_SYSTEM, " +
+    "(d) if optional relationship-link details are unclear, keep the base update action and ask follow-up in warnings instead of returning empty actions. " +
     "If a fund or investment arm is described as an investor, create/link the co-investor relationship to the company. " +
     "Avoid duplicates and aliases (for example 'Vitalize Care' and 'a company called Vitalize Care' are the same company). " +
     "Prefer canonical names; remove filler phrases like 'a company called'. " +
@@ -1560,6 +1668,7 @@ async function extractActionsFromNarrative(params: {
   const userPrompt =
     `Narrative:\n${params.narrative}\n\n` +
     `Current data model snapshot:\n${params.modelDigest}\n\n` +
+    `Relationship and business-rules narrative:\n${params.modelNarrative}\n\n` +
     "Return actions that can be executed in the CRM. Do not invent unsupported tables or fields.";
 
   try {
@@ -1852,7 +1961,8 @@ async function hydrateAction(
 
 export async function buildNarrativePlan(narrative: string): Promise<NarrativePlan> {
   const modelDigest = getNarrativeAgentModelDigest();
-  const extraction = await extractActionsFromNarrative({ narrative, modelDigest });
+  const modelNarrative = getNarrativeAgentModelNarrative();
+  const extraction = await extractActionsFromNarrative({ narrative, modelDigest, modelNarrative });
   const heuristic = applyIntroductionHeuristics(narrative, extraction.actions);
   const dedupedActions = dedupeExtractedActions(heuristic.actions);
   const requirementsLocked = hasRequirementsLockSignal(narrative);

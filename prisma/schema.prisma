@@ -110,6 +110,90 @@ enum CompanyCoInvestorRelationship {
   OTHER
 }
 
+enum CompanyPipelinePhase {
+  INTAKE
+  DECLINED
+  VENTURE_STUDIO_NEGOTIATION
+  SCREENING
+  LOI_COLLECTION
+  COMMERCIAL_NEGOTIATION
+  PORTFOLIO_GROWTH
+}
+
+enum CompanyIntakeDecision {
+  PENDING
+  ADVANCE_TO_NEGOTIATION
+  DECLINE
+}
+
+enum CompanyDocumentType {
+  INTAKE_REPORT
+  SCREENING_REPORT
+  TERM_SHEET
+  VENTURE_STUDIO_CONTRACT
+  LOI
+  COMMERCIAL_CONTRACT
+  OTHER
+}
+
+enum CompanyOpportunityType {
+  VENTURE_STUDIO_SERVICES
+  S1_TERM_SHEET
+  COMMERCIAL_CONTRACT
+  PROSPECT_PURSUIT
+}
+
+enum CompanyOpportunityStage {
+  IDENTIFIED
+  QUALIFICATION
+  PROPOSAL
+  NEGOTIATION
+  LEGAL
+  CLOSED_WON
+  CLOSED_LOST
+  ON_HOLD
+}
+
+enum CompanyScreeningEventType {
+  WEBINAR
+  INDIVIDUAL_SESSION
+  OTHER
+}
+
+enum CompanyScreeningAttendanceStatus {
+  INVITED
+  ATTENDED
+  DECLINED
+  NO_SHOW
+}
+
+enum CompanyLoiStatus {
+  NOT_STARTED
+  PENDING
+  NEGOTIATING
+  SIGNED
+  DECLINED
+}
+
+enum CompanyScreeningFeedbackSentiment {
+  POSITIVE
+  MIXED
+  NEUTRAL
+  NEGATIVE
+}
+
+enum CompanyScreeningCellField {
+  RELEVANT_FEEDBACK
+  STATUS_UPDATE
+}
+
+enum CompanyFundraiseStatus {
+  PLANNED
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
 model HealthSystem {
   id                          String         @id @default(cuid())
   name                        String
@@ -132,13 +216,20 @@ model HealthSystem {
   createdAt                   DateTime       @default(now())
   updatedAt                   DateTime       @updatedAt
 
-  executives               Executive[]
-  venturePartners          VenturePartner[]
-  investments              HealthSystemInvestment[]
-  researchJobs             HealthSystemResearchJob[]
-  companyLeadSources       Company[]                 @relation("CompanyLeadSourceHealthSystem")
-  companyHealthSystemLinks CompanyHealthSystemLink[]
-  contactLinks             ContactHealthSystem[]
+  executives                   Executive[]
+  venturePartners              VenturePartner[]
+  investments                  HealthSystemInvestment[]
+  researchJobs                 HealthSystemResearchJob[]
+  companyLeadSources           Company[]                     @relation("CompanyLeadSourceHealthSystem")
+  companyHealthSystemLinks     CompanyHealthSystemLink[]
+  contactLinks                 ContactHealthSystem[]
+  companyOpportunities         CompanyOpportunity[]
+  companyScreeningParticipants CompanyScreeningParticipant[]
+  companyLois                  CompanyLoi[]
+  companyScreeningDocuments    CompanyScreeningDocument[]
+  companyScreeningQuantitativeFeedback CompanyScreeningQuantitativeFeedback[]
+  companyScreeningQualitativeFeedback  CompanyScreeningQualitativeFeedback[]
+  companyScreeningCellChanges         CompanyScreeningCellChange[]
 
   @@index([name])
   @@index([isAllianceMember])
@@ -171,7 +262,7 @@ model VenturePartner {
   createdAt      DateTime @default(now())
 
   healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
-  coInvestor  CoInvestor?    @relation(fields: [coInvestorId], references: [id], onDelete: SetNull)
+  coInvestor   CoInvestor?  @relation(fields: [coInvestorId], references: [id], onDelete: SetNull)
 
   @@index([healthSystemId])
   @@index([coInvestorId])
@@ -189,7 +280,7 @@ model HealthSystemInvestment {
   createdAt            DateTime  @default(now())
 
   healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
-  company      Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  company      Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
   @@index([healthSystemId])
   @@index([companyId])
@@ -235,14 +326,15 @@ model CoInvestor {
   createdAt           DateTime                 @default(now())
   updatedAt           DateTime                 @updatedAt
 
-  partners               CoInvestorPartner[]
-  investments            CoInvestorInvestment[]
-  researchJobs           CoInvestorResearchJob[]
-  companyCoInvestorLinks CompanyCoInvestorLink[]
-  contactLinks           ContactCoInvestor[]
-  venturePartners        VenturePartner[]
-  interactions           CoInvestorInteraction[]
-  nextActions            NextAction[]
+  partners                  CoInvestorPartner[]
+  investments               CoInvestorInvestment[]
+  researchJobs              CoInvestorResearchJob[]
+  companyCoInvestorLinks    CompanyCoInvestorLink[]
+  contactLinks              ContactCoInvestor[]
+  venturePartners           VenturePartner[]
+  interactions              CoInvestorInteraction[]
+  nextActions               NextAction[]
+  companyFundraiseInvestors CompanyFundraiseInvestor[]
 
   @@index([name])
   @@index([isSeedInvestor])
@@ -369,11 +461,22 @@ model Company {
 
   leadSourceHealthSystem HealthSystem? @relation("CompanyLeadSourceHealthSystem", fields: [leadSourceHealthSystemId], references: [id], onDelete: SetNull)
 
-  healthSystemLinks CompanyHealthSystemLink[]
-  coInvestorLinks   CompanyCoInvestorLink[]
-  contactLinks      ContactCompany[]
-  researchJobs      CompanyResearchJob[]
+  healthSystemLinks       CompanyHealthSystemLink[]
+  coInvestorLinks         CompanyCoInvestorLink[]
+  contactLinks            ContactCompany[]
+  researchJobs            CompanyResearchJob[]
   healthSystemInvestments HealthSystemInvestment[]
+  pipeline                CompanyPipeline?
+  documents               CompanyDocument[]
+  opportunities           CompanyOpportunity[]
+  screeningEvents         CompanyScreeningEvent[]
+  lois                    CompanyLoi[]
+  screeningDocuments      CompanyScreeningDocument[]
+  pipelineNotes           CompanyPipelineNote[]
+  screeningQuantitativeFeedback CompanyScreeningQuantitativeFeedback[]
+  screeningQualitativeFeedback  CompanyScreeningQualitativeFeedback[]
+  screeningCellChanges         CompanyScreeningCellChange[]
+  fundraises              CompanyFundraise[]
 
   @@index([name])
   @@index([companyType])
@@ -436,6 +539,248 @@ model CompanyResearchJob {
   @@index([companyId, createdAt])
 }
 
+model CompanyPipeline {
+  id                              String                @id @default(cuid())
+  companyId                       String                @unique
+  phase                           CompanyPipelinePhase  @default(INTAKE)
+  intakeDecision                  CompanyIntakeDecision @default(PENDING)
+  intakeDecisionAt                DateTime?
+  intakeDecisionNotes             String?
+  nextStep                        String?
+  ventureStudioContractExecutedAt DateTime?
+  ventureLikelihoodPercent        Int?
+  ventureExpectedCloseDate        DateTime?
+  targetLoiCount                  Int                   @default(3)
+  s1Invested                      Boolean               @default(false)
+  s1InvestmentAt                  DateTime?
+  s1InvestmentAmountUsd           Decimal?              @db.Decimal(16, 2)
+  portfolioAddedAt                DateTime?
+  createdAt                       DateTime              @default(now())
+  updatedAt                       DateTime              @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([phase])
+}
+
+model CompanyPipelineNote {
+  id        String   @id @default(cuid())
+  companyId String
+  note      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
+}
+
+model CompanyDocument {
+  id         String              @id @default(cuid())
+  companyId  String
+  type       CompanyDocumentType @default(OTHER)
+  title      String
+  url        String
+  uploadedAt DateTime            @default(now())
+  notes      String?
+  createdAt  DateTime            @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, type])
+}
+
+model CompanyOpportunity {
+  id                 String                  @id @default(cuid())
+  companyId          String
+  healthSystemId     String?
+  type               CompanyOpportunityType
+  title              String
+  stage              CompanyOpportunityStage @default(IDENTIFIED)
+  likelihoodPercent  Int?
+  amountUsd          Decimal?                @db.Decimal(16, 2)
+  notes              String?
+  nextSteps          String?
+  estimatedCloseDate DateTime?
+  closedAt           DateTime?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  healthSystem HealthSystem? @relation(fields: [healthSystemId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, type])
+  @@index([healthSystemId])
+}
+
+model CompanyScreeningEvent {
+  id          String                    @id @default(cuid())
+  companyId   String
+  type        CompanyScreeningEventType @default(OTHER)
+  title       String
+  scheduledAt DateTime?
+  completedAt DateTime?
+  notes       String?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+
+  company      Company                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  participants CompanyScreeningParticipant[]
+
+  @@index([companyId, type])
+}
+
+model CompanyScreeningParticipant {
+  id               String                           @id @default(cuid())
+  screeningEventId String
+  healthSystemId   String
+  contactId        String?
+  attendanceStatus CompanyScreeningAttendanceStatus @default(INVITED)
+  notes            String?
+  createdAt        DateTime                         @default(now())
+  updatedAt        DateTime                         @updatedAt
+
+  screeningEvent CompanyScreeningEvent @relation(fields: [screeningEventId], references: [id], onDelete: Cascade)
+  healthSystem   HealthSystem          @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+  contact        Contact?              @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([screeningEventId, attendanceStatus])
+  @@index([healthSystemId])
+  @@index([contactId])
+}
+
+model CompanyLoi {
+  id              String           @id @default(cuid())
+  companyId       String
+  healthSystemId  String
+  status          CompanyLoiStatus @default(NOT_STARTED)
+  signedAt        DateTime?
+  notes           String?
+  statusUpdatedAt DateTime         @default(now())
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, healthSystemId])
+  @@index([companyId, status])
+}
+
+model CompanyScreeningDocument {
+  id             String   @id @default(cuid())
+  companyId      String
+  healthSystemId String
+  title          String
+  url            String
+  notes          String?
+  uploadedAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, healthSystemId, uploadedAt])
+  @@index([healthSystemId])
+}
+
+model CompanyScreeningQuantitativeFeedback {
+  id             String   @id @default(cuid())
+  companyId      String
+  healthSystemId String
+  contactId      String?
+  category       String?
+  metric         String
+  score          Decimal? @db.Decimal(6, 2)
+  weightPercent  Int?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+  contact      Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, healthSystemId, updatedAt])
+  @@index([contactId])
+}
+
+model CompanyScreeningQualitativeFeedback {
+  id             String                           @id @default(cuid())
+  companyId      String
+  healthSystemId String
+  contactId      String?
+  category       String?
+  theme          String
+  sentiment      CompanyScreeningFeedbackSentiment @default(NEUTRAL)
+  feedback       String
+  createdAt      DateTime                         @default(now())
+  updatedAt      DateTime                         @updatedAt
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+  contact      Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, healthSystemId, updatedAt])
+  @@index([contactId])
+}
+
+model CompanyScreeningCellChange {
+  id              String                    @id @default(cuid())
+  companyId       String
+  healthSystemId  String
+  field           CompanyScreeningCellField
+  value           String
+  changedByUserId String?
+  changedByName   String?
+  createdAt       DateTime                  @default(now())
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+  changedByUser User?       @relation(fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, healthSystemId, field, createdAt])
+  @@index([changedByUserId])
+}
+
+model CompanyFundraise {
+  id              String                 @id @default(cuid())
+  companyId       String
+  roundLabel      String
+  status          CompanyFundraiseStatus @default(PLANNED)
+  totalAmountUsd  Decimal?               @db.Decimal(16, 2)
+  s1InvestmentUsd Decimal?               @db.Decimal(16, 2)
+  announcedAt     DateTime?
+  closedAt        DateTime?
+  notes           String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  company   Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  investors CompanyFundraiseInvestor[]
+
+  @@index([companyId, status])
+}
+
+model CompanyFundraiseInvestor {
+  id                  String   @id @default(cuid())
+  fundraiseId         String
+  coInvestorId        String?
+  investorName        String
+  investmentAmountUsd Decimal? @db.Decimal(16, 2)
+  isLeadInvestor      Boolean  @default(false)
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  fundraise  CompanyFundraise @relation(fields: [fundraiseId], references: [id], onDelete: Cascade)
+  coInvestor CoInvestor?      @relation(fields: [coInvestorId], references: [id], onDelete: SetNull)
+
+  @@index([fundraiseId])
+  @@index([coInvestorId])
+}
+
 enum ContactRoleType {
   EXECUTIVE
   VENTURE_PARTNER
@@ -461,9 +806,12 @@ model Contact {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  healthSystemLinks ContactHealthSystem[]
-  companyLinks      ContactCompany[]
-  coInvestorLinks   ContactCoInvestor[]
+  healthSystemLinks            ContactHealthSystem[]
+  companyLinks                 ContactCompany[]
+  coInvestorLinks              ContactCoInvestor[]
+  companyScreeningParticipants CompanyScreeningParticipant[]
+  companyScreeningQuantitativeFeedback CompanyScreeningQuantitativeFeedback[]
+  companyScreeningQualitativeFeedback  CompanyScreeningQualitativeFeedback[]
 
   @@index([name])
   @@index([email])
@@ -480,6 +828,7 @@ model User {
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
   roles       UserRoleAssignment[]
+  companyScreeningCellChanges CompanyScreeningCellChange[]
 
   @@index([isActive])
 }
@@ -509,9 +858,9 @@ model ContactHealthSystem {
   contact      Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
   healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
 
+  @@unique([contactId, healthSystemId, roleType])
   @@index([contactId])
   @@index([healthSystemId])
-  @@unique([contactId, healthSystemId, roleType])
 }
 
 model ContactCompany {
@@ -526,9 +875,9 @@ model ContactCompany {
   contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
+  @@unique([contactId, companyId, roleType])
   @@index([contactId])
   @@index([companyId])
-  @@unique([contactId, companyId, roleType])
 }
 
 model ContactCoInvestor {
@@ -543,7 +892,7 @@ model ContactCoInvestor {
   contact    Contact    @relation(fields: [contactId], references: [id], onDelete: Cascade)
   coInvestor CoInvestor @relation(fields: [coInvestorId], references: [id], onDelete: Cascade)
 
+  @@unique([contactId, coInvestorId, roleType])
   @@index([contactId])
   @@index([coInvestorId])
-  @@unique([contactId, coInvestorId, roleType])
 }

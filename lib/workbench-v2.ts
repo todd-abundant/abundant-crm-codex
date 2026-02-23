@@ -2,6 +2,10 @@ import { randomUUID } from "crypto";
 import { prisma } from "@/lib/db";
 import { buildNarrativePlan, executeNarrativePlan } from "@/lib/narrative-agent";
 import {
+  compileSemanticFactsToActions,
+  extractWorkbenchSemanticFacts
+} from "@/lib/workbench-semantic";
+import {
   type NarrativeAction,
   type NarrativeEntityMatch,
   type NarrativeEntityType,
@@ -61,6 +65,15 @@ function isQuestionLike(value: string): boolean {
     normalized.startsWith("do you want") ||
     normalized.startsWith("should i") ||
     normalized.startsWith("which ")
+  );
+}
+
+function isNoActionableWarning(value: string): boolean {
+  const normalized = normalizeText(value);
+  if (!normalized) return false;
+  return (
+    normalized.includes("no actionable items were extracted") ||
+    normalized.includes("no actions extracted")
   );
 }
 
@@ -273,6 +286,35 @@ async function fetchEntityMatches(
     .sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
 }
 
+type MatchCache = Map<string, Promise<NarrativeEntityMatch[]>>;
+
+function matchCacheKey(entityType: NarrativeEntityType, name: string): string {
+  return `${entityType}:${normalizeEntityName(name, entityType)}`;
+}
+
+function fetchEntityMatchesCached(
+  cache: MatchCache,
+  entityType: NarrativeEntityType,
+  name: string
+): Promise<NarrativeEntityMatch[]> {
+  const key = matchCacheKey(entityType, name);
+  if (key.endsWith(":")) {
+    return Promise.resolve([]);
+  }
+
+  const existing = cache.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const pending = fetchEntityMatches(entityType, name).catch((error) => {
+    cache.delete(key);
+    throw error;
+  });
+  cache.set(key, pending);
+  return pending;
+}
+
 function actionKeyForCreate(entityType: NarrativeEntityType, name: string): string {
   return `${entityType}:${normalizeEntityName(name, entityType)}`;
 }
@@ -288,10 +330,11 @@ function createLookup(actions: NarrativeAction[]): Map<string, string> {
 
 async function hydrateAction(
   action: NarrativeAction,
-  lookup: Map<string, string>
+  lookup: Map<string, string>,
+  matchCache: MatchCache
 ): Promise<NarrativeAction> {
   if (action.kind === "CREATE_ENTITY") {
-    const matches = await fetchEntityMatches(action.entityType, action.draft.name);
+    const matches = await fetchEntityMatchesCached(matchCache, action.entityType, action.draft.name);
     const top = matches[0];
     const issues = [...action.issues];
     let selection = action.selection;
@@ -323,7 +366,11 @@ async function hydrateAction(
   }
 
   if (action.kind === "UPDATE_ENTITY") {
-    const targetMatches = await fetchEntityMatches(action.entityType, action.targetName);
+    const targetMatches = await fetchEntityMatchesCached(
+      matchCache,
+      action.entityType,
+      action.targetName
+    );
     const top = targetMatches[0];
     const linkedCreateActionId = lookup.get(actionKeyForCreate(action.entityType, action.targetName));
     const selectedTargetId = (top?.confidence || 0) >= AUTO_MATCH_THRESHOLD ? top?.id : undefined;
@@ -339,8 +386,47 @@ async function hydrateAction(
       }
     }
 
+    let patch = action.patch;
+    if (
+      action.entityType === "COMPANY" &&
+      action.patch.leadSourceType === "HEALTH_SYSTEM" &&
+      (action.patch.leadSourceHealthSystemName || action.patch.leadSourceOther)
+    ) {
+      const leadSourceName = cleanEntityName(
+        action.patch.leadSourceHealthSystemName || action.patch.leadSourceOther || "",
+        "HEALTH_SYSTEM"
+      );
+
+      if (leadSourceName) {
+        const leadSourceMatches = await fetchEntityMatchesCached(matchCache, "HEALTH_SYSTEM", leadSourceName);
+        const topLeadSource = leadSourceMatches[0];
+        if (topLeadSource && (topLeadSource.confidence || 0) >= AUTO_MATCH_THRESHOLD) {
+          patch = {
+            ...patch,
+            leadSourceHealthSystemId: topLeadSource.id,
+            leadSourceHealthSystemName: topLeadSource.name,
+            leadSourceOther: undefined
+          };
+          issues.push(
+            `Using existing health system record for lead source: ${topLeadSource.name} (${Math.round(
+              (topLeadSource.confidence || 0) * 100
+            )}%).`
+          );
+        } else if (topLeadSource) {
+          issues.push(
+            `Potential lead-source health system match found (${Math.round(
+              (topLeadSource.confidence || 0) * 100
+            )}%). Confirm lead-source record.`
+          );
+        } else {
+          issues.push(`No matching health system found for lead source "${leadSourceName}".`);
+        }
+      }
+    }
+
     return {
       ...action,
+      patch,
       targetMatches,
       selectedTargetId,
       linkedCreateActionId,
@@ -349,7 +435,7 @@ async function hydrateAction(
   }
 
   if (action.kind === "ADD_CONTACT") {
-    const parentMatches = await fetchEntityMatches(action.parentType, action.parentName);
+    const parentMatches = await fetchEntityMatchesCached(matchCache, action.parentType, action.parentName);
     const top = parentMatches[0];
     const linkedCreateActionId = lookup.get(actionKeyForCreate(action.parentType, action.parentName));
     const selectedParentId = (top?.confidence || 0) >= AUTO_MATCH_THRESHOLD ? top?.id : undefined;
@@ -374,9 +460,11 @@ async function hydrateAction(
     };
   }
 
-  const companyMatches = await fetchEntityMatches("COMPANY", action.companyName);
-  const coInvestorMatches = await fetchEntityMatches("CO_INVESTOR", action.coInvestorName);
-  const healthSystemAliasMatches = await fetchEntityMatches("HEALTH_SYSTEM", action.coInvestorName);
+  const [companyMatches, coInvestorMatches, healthSystemAliasMatches] = await Promise.all([
+    fetchEntityMatchesCached(matchCache, "COMPANY", action.companyName),
+    fetchEntityMatchesCached(matchCache, "CO_INVESTOR", action.coInvestorName),
+    fetchEntityMatchesCached(matchCache, "HEALTH_SYSTEM", action.coInvestorName)
+  ]);
   const topCompany = companyMatches[0];
   const topCoInvestor = coInvestorMatches[0];
   const selectedCompanyId = (topCompany?.confidence || 0) >= AUTO_MATCH_THRESHOLD ? topCompany?.id : undefined;
@@ -426,11 +514,8 @@ async function hydrateAction(
 
 async function hydrateActions(actions: NarrativeAction[]): Promise<NarrativeAction[]> {
   const lookup = createLookup(actions);
-  const hydrated: NarrativeAction[] = [];
-  for (const action of actions) {
-    hydrated.push(await hydrateAction(action, lookup));
-  }
-  return hydrated;
+  const matchCache: MatchCache = new Map();
+  return Promise.all(actions.map((action) => hydrateAction(action, lookup, matchCache)));
 }
 
 function summarizeAction(action: NarrativeAction): string {
@@ -522,11 +607,106 @@ function extractCoInvestorMentions(conversation: string): string[] {
   return dedupeStrings(names);
 }
 
+function extractCompanyCoInvestorAdditions(
+  conversation: string
+): Array<{ companyName: string; coInvestorNames: string[] }> {
+  const additions: Array<{ companyName: string; coInvestorNames: string[] }> = [];
+  const seen = new Set<string>();
+  const patterns = [
+    /\b(?:add|attach|link)\s+(.{2,180}?)\s+as\s+co[\s-]?investors?\s+(?:in|to|for|with)\s+(.{2,140}?)(?:[.!?\n]|$)/gi,
+    /\b(?:add|attach|link)\s+co[\s-]?investors?\s+(.{2,180}?)\s+(?:in|to|for|with)\s+(.{2,140}?)(?:[.!?\n]|$)/gi
+  ];
+
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null = pattern.exec(conversation);
+    while (match) {
+      const coInvestorNames = splitEntityList(match[1] || "");
+      const companyName = cleanEntityName(cleanText(match[2] || ""), "COMPANY");
+      if (!companyName || coInvestorNames.length === 0) {
+        match = pattern.exec(conversation);
+        continue;
+      }
+
+      const key = `${normalizeEntityName(companyName, "COMPANY")}::${coInvestorNames
+        .map((name) => normalizeEntityName(name, "CO_INVESTOR"))
+        .join("|")}`;
+      if (!key || seen.has(key)) {
+        match = pattern.exec(conversation);
+        continue;
+      }
+
+      seen.add(key);
+      additions.push({
+        companyName,
+        coInvestorNames: dedupeStrings(coInvestorNames)
+      });
+      match = pattern.exec(conversation);
+    }
+  }
+
+  return additions;
+}
+
+function extractLeadSourceUpdates(conversation: string): Array<{ company: string; healthSystem: string }> {
+  const updates: Array<{ company: string; healthSystem: string }> = [];
+  const seen = new Set<string>();
+
+  const addUpdate = (companyRaw: string, healthSystemRaw: string) => {
+    const company = cleanEntityName(cleanText(companyRaw || ""), "COMPANY");
+    const healthSystem = cleanEntityName(cleanText(healthSystemRaw || ""), "HEALTH_SYSTEM");
+    if (!company || !healthSystem) return;
+
+    const key = `${normalizeEntityName(company, "COMPANY")}::${normalizeEntityName(
+      healthSystem,
+      "HEALTH_SYSTEM"
+    )}`;
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      updates.push({ company, healthSystem });
+    }
+  };
+
+  const companyFirstPatterns = [
+    /\b(?:modify|update|set)\s+(.{2,140}?)\s+(?:and\s+)?set\s+(?:the\s+)?lead\s+source\s+to\s+(.{2,140}?)(?:[.!?\n]|$)/gi,
+    /\bset\s+(?:the\s+)?lead\s+source\s+(?:for|of)\s+(.{2,140}?)\s+to\s+(.{2,140}?)(?:[.!?\n]|$)/gi,
+    /\b(?:modify|update)\s+(.{2,140}?)\s+to\s+make\s+(.{2,140}?)\s+(?:the\s+)?lead\s+source(?:[.!?\n]|$)/gi,
+    /\bset\s+(.{2,140}?)['’]s\s+(?:lead\s+source|source)\s+to\s+(.{2,140}?)(?:[.!?\n]|$)/gi,
+    /\blead\s+source\s+(?:for|of)\s+(.{2,140}?)\s+(?:is|should\s+be|to\s+be)\s+(.{2,140}?)(?:[.!?\n]|$)/gi
+  ];
+
+  for (const pattern of companyFirstPatterns) {
+    let match: RegExpExecArray | null = pattern.exec(conversation);
+    while (match) {
+      addUpdate(match[1] || "", match[2] || "");
+      match = pattern.exec(conversation);
+    }
+  }
+
+  const healthSystemFirstPatterns = [
+    /\bmake\s+(.{2,140}?)\s+(?:the\s+)?lead\s+source\s+(?:for|of)\s+(.{2,140}?)(?:[.!?\n]|$)/gi
+  ];
+
+  for (const pattern of healthSystemFirstPatterns) {
+    let match: RegExpExecArray | null = pattern.exec(conversation);
+    while (match) {
+      addUpdate(match[2] || "", match[1] || "");
+      match = pattern.exec(conversation);
+    }
+  }
+
+  return updates;
+}
+
 function buildFallbackOperations(conversation: string): NarrativeAction[] {
   const actions: NarrativeAction[] = [];
   const introSignals = extractIntroductionSignals(conversation);
   const coInvestorMentions = extractCoInvestorMentions(conversation);
+  const companyCoInvestorAdditions = extractCompanyCoInvestorAdditions(conversation);
+  const leadSourceUpdates = extractLeadSourceUpdates(conversation);
   const createdByKey = new Map<string, string>();
+  const leadSourceActionKeys = new Set<string>();
+  const coInvestorActionKeys = new Set<string>();
+  const coInvestorLinkKeys = new Set<string>();
   let index = 0;
 
   const companyFromIntro = introSignals[0]?.company;
@@ -534,17 +714,24 @@ function buildFallbackOperations(conversation: string): NarrativeAction[] {
     hasHealthSystemSignals(signal.introducer) && !hasCoInvestorSignals(signal.introducer)
   )?.introducer;
 
-  if (companyFromIntro && healthSystemFromIntro) {
+  const pushLeadSourceUpdate = (company: string, healthSystem: string, notes: string) => {
+    const key = `${normalizeEntityName(company, "COMPANY")}::${normalizeEntityName(
+      healthSystem,
+      "HEALTH_SYSTEM"
+    )}`;
+    if (!key || leadSourceActionKeys.has(key)) return;
+    leadSourceActionKeys.add(key);
+
     const updateParsed = updateEntityActionSchema.safeParse({
-      id: buildActionId("update-company", index++, companyFromIntro),
+      id: buildActionId("update-company-lead-source", index++, company),
       include: true,
       kind: "UPDATE_ENTITY",
       entityType: "COMPANY",
-      targetName: companyFromIntro,
+      targetName: company,
       patch: {
         leadSourceType: "HEALTH_SYSTEM",
-        leadSourceHealthSystemName: healthSystemFromIntro,
-        leadSourceNotes: `${healthSystemFromIntro} introduced us to ${companyFromIntro}.`
+        leadSourceHealthSystemName: healthSystem,
+        leadSourceNotes: notes
       },
       targetMatches: [],
       issues: []
@@ -552,6 +739,22 @@ function buildFallbackOperations(conversation: string): NarrativeAction[] {
     if (updateParsed.success) {
       actions.push(updateParsed.data);
     }
+  };
+
+  for (const update of leadSourceUpdates) {
+    pushLeadSourceUpdate(
+      update.company,
+      update.healthSystem,
+      `${update.healthSystem} is the lead source for ${update.company}.`
+    );
+  }
+
+  if (companyFromIntro && healthSystemFromIntro) {
+    pushLeadSourceUpdate(
+      companyFromIntro,
+      healthSystemFromIntro,
+      `${healthSystemFromIntro} introduced us to ${companyFromIntro}.`
+    );
   }
 
   if (companyFromIntro) {
@@ -579,7 +782,15 @@ function buildFallbackOperations(conversation: string): NarrativeAction[] {
     }
   }
 
-  for (const coInvestorName of coInvestorMentions) {
+  const ensureCoInvestorCreate = (coInvestorName: string) => {
+    const normalized = normalizeEntityName(coInvestorName, "CO_INVESTOR");
+    if (!normalized || coInvestorActionKeys.has(normalized)) return;
+    coInvestorActionKeys.add(normalized);
+
+    if (hasHealthSystemSignals(coInvestorName) && !hasCoInvestorSignals(coInvestorName)) {
+      return;
+    }
+
     const createCoInvestor = createEntityActionSchema.safeParse({
       id: buildActionId("upsert-co-investor", index++, coInvestorName),
       include: true,
@@ -600,26 +811,56 @@ function buildFallbackOperations(conversation: string): NarrativeAction[] {
       actions.push(createCoInvestor.data);
       createdByKey.set(actionKeyForCreate("CO_INVESTOR", coInvestorName), createCoInvestor.data.id);
     }
+  };
+
+  const pushCompanyCoInvestorLink = (companyName: string, coInvestorName: string, notes: string) => {
+    const linkKey = `${normalizeEntityName(companyName, "COMPANY")}::${normalizeEntityName(
+      coInvestorName,
+      "CO_INVESTOR"
+    )}`;
+    if (!linkKey || coInvestorLinkKeys.has(linkKey)) return;
+    coInvestorLinkKeys.add(linkKey);
+
+    const linkParsed = linkCompanyCoInvestorActionSchema.safeParse({
+      id: buildActionId("link-company-investor", index++, `${companyName}-${coInvestorName}`),
+      include: true,
+      kind: "LINK_COMPANY_CO_INVESTOR",
+      companyName,
+      coInvestorName,
+      relationshipType: "INVESTOR",
+      notes,
+      investmentAmountUsd: null,
+      companyMatches: [],
+      coInvestorMatches: [],
+      companyCreateActionId: createdByKey.get(actionKeyForCreate("COMPANY", companyName)),
+      coInvestorCreateActionId: createdByKey.get(actionKeyForCreate("CO_INVESTOR", coInvestorName)),
+      issues: []
+    });
+    if (linkParsed.success) {
+      actions.push(linkParsed.data);
+    }
+  };
+
+  for (const coInvestorName of coInvestorMentions) {
+    ensureCoInvestorCreate(coInvestorName);
 
     if (companyFromIntro) {
-      const linkParsed = linkCompanyCoInvestorActionSchema.safeParse({
-        id: buildActionId("link-company-investor", index++, `${companyFromIntro}-${coInvestorName}`),
-        include: true,
-        kind: "LINK_COMPANY_CO_INVESTOR",
-        companyName: companyFromIntro,
+      pushCompanyCoInvestorLink(
+        companyFromIntro,
         coInvestorName,
-        relationshipType: "INVESTOR",
-        notes: `${coInvestorName} is listed as a co-investor.`,
-        investmentAmountUsd: null,
-        companyMatches: [],
-        coInvestorMatches: [],
-        companyCreateActionId: createdByKey.get(actionKeyForCreate("COMPANY", companyFromIntro)),
-        coInvestorCreateActionId: createdByKey.get(actionKeyForCreate("CO_INVESTOR", coInvestorName)),
-        issues: []
-      });
-      if (linkParsed.success) {
-        actions.push(linkParsed.data);
-      }
+        `${coInvestorName} is listed as a co-investor.`
+      );
+    }
+  }
+
+  for (const addition of companyCoInvestorAdditions) {
+    for (const coInvestorName of addition.coInvestorNames) {
+      ensureCoInvestorCreate(coInvestorName);
+      pushCompanyCoInvestorLink(
+        addition.companyName,
+        coInvestorName,
+        `${coInvestorName} should be linked as a co-investor to ${addition.companyName}.`
+      );
     }
   }
 
@@ -652,24 +893,50 @@ function composeFinalConversation(params: {
 }
 
 export async function buildWorkbenchDraft(conversation: string): Promise<WorkbenchDraft> {
-  const extracted = await buildNarrativePlan(conversation);
-  let operations = extracted.actions;
-  if (operations.length === 0) {
-    operations = buildFallbackOperations(conversation);
+  const semanticExtraction = await extractWorkbenchSemanticFacts(conversation);
+  const semanticCompilation = compileSemanticFactsToActions(semanticExtraction.facts);
+  const fallbackOperations = buildFallbackOperations(conversation);
+  let operations = semanticCompilation.actions;
+  let warnings = dedupeStrings([...semanticExtraction.warnings, ...semanticCompilation.warnings]);
+  let summaryFromExtraction = cleanText(semanticExtraction.summary);
+
+  if (operations.length === 0 && fallbackOperations.length > 0) {
+    operations = fallbackOperations;
   }
-  const hydratedOperations = await hydrateActions(operations);
+
+  if (operations.length === 0 && semanticExtraction.source !== "ai") {
+    const extracted = await buildNarrativePlan(conversation);
+    operations = extracted.actions;
+    warnings = dedupeStrings([...warnings, ...extracted.warnings]);
+    if (!summaryFromExtraction) {
+      summaryFromExtraction = extracted.summary;
+    }
+  }
+
+  const hydratedOperations = operations.length > 0 ? await hydrateActions(operations) : [];
+  const clarificationSeeds = dedupeStrings([
+    ...semanticExtraction.unresolvedQuestions,
+    ...warnings
+  ]);
   const clarifications = buildClarificationQueueFromPlan({
-    ...extracted,
+    narrative: conversation,
+    phase: "CLARIFICATION",
+    summary: summaryFromExtraction,
+    warnings: clarificationSeeds,
     actions: hydratedOperations
   });
 
   const summary =
-    extracted.summary ||
+    summaryFromExtraction ||
     (hydratedOperations.length > 0
       ? `I identified ${hydratedOperations.length} candidate step${hydratedOperations.length === 1 ? "" : "s"}.`
       : "I could not extract actionable steps from this narrative.");
 
-  const nonQuestionWarnings = extracted.warnings.filter((warning) => !isQuestionLike(warning));
+  const nonQuestionWarnings = warnings.filter((warning) => {
+    if (isQuestionLike(warning)) return false;
+    if (hydratedOperations.length > 0 && isNoActionableWarning(warning)) return false;
+    return true;
+  });
 
   return workbenchDraftSchema.parse({
     sessionId: randomUUID(),
@@ -689,19 +956,40 @@ export async function buildWorkbenchPlan(params: {
   clarifications: WorkbenchClarificationAnswer[];
 }): Promise<WorkbenchPlanResponse> {
   const composedConversation = composeFinalConversation(params);
-  const extracted = await buildNarrativePlan(composedConversation);
+  let operations: NarrativeAction[] = params.operations;
+  let warnings: string[] = [];
+  let summaryFromExtraction = "";
+  let modelDigest: string | undefined;
+  const fallbackOperations = buildFallbackOperations(composedConversation);
 
-  let operations = extracted.actions;
   if (operations.length === 0) {
-    operations = params.operations;
+    const semanticExtraction = await extractWorkbenchSemanticFacts(composedConversation);
+    const semanticCompilation = compileSemanticFactsToActions(semanticExtraction.facts);
+    operations = semanticCompilation.actions;
+    warnings = dedupeStrings([
+      ...semanticExtraction.warnings,
+      ...semanticExtraction.unresolvedQuestions,
+      ...semanticCompilation.warnings
+    ]);
+    summaryFromExtraction = cleanText(semanticExtraction.summary);
   }
+
+  if (operations.length === 0 && fallbackOperations.length > 0) {
+    operations = fallbackOperations;
+  }
+
   if (operations.length === 0) {
-    operations = buildFallbackOperations(composedConversation);
+    const extracted = await buildNarrativePlan(composedConversation);
+    operations = extracted.actions;
+    warnings = extracted.warnings;
+    summaryFromExtraction = extracted.summary;
+    modelDigest = extracted.modelDigest;
   }
-  const hydratedOperations = await hydrateActions(operations);
+
+  const hydratedOperations = operations.length > 0 ? await hydrateActions(operations) : [];
 
   const summary =
-    extracted.summary ||
+    summaryFromExtraction ||
     (hydratedOperations.length > 0
       ? `Prepared ${hydratedOperations.length} execution step${hydratedOperations.length === 1 ? "" : "s"}.`
       : "No executable operations were prepared.");
@@ -710,8 +998,14 @@ export async function buildWorkbenchPlan(params: {
     narrative: composedConversation,
     phase: "PLAN",
     summary,
-    modelDigest: extracted.modelDigest,
-    warnings: dedupeStrings(extracted.warnings.filter((warning) => !isQuestionLike(warning))),
+    modelDigest,
+    warnings: dedupeStrings(
+      warnings.filter((warning) => {
+        if (isQuestionLike(warning)) return false;
+        if (hydratedOperations.length > 0 && isNoActionableWarning(warning)) return false;
+        return true;
+      })
+    ),
     actions: hydratedOperations
   });
 

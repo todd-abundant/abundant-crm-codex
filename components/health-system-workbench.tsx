@@ -8,6 +8,7 @@ import {
   InlineTextareaField
 } from "./inline-detail-field";
 import { SearchMatchModal } from "./search-match-modal";
+import { EntityLookupInput } from "./entity-lookup-input";
 
 type SearchCandidate = {
   name: string;
@@ -104,6 +105,8 @@ type DetailDraft = {
   ventureTeamSummary: string;
   researchNotes: string;
 };
+
+type DetailTab = "overview" | "actions" | "contacts" | "venture-partners" | "investments";
 
 function formatLocation(record: {
   headquartersCity?: string | null;
@@ -320,6 +323,7 @@ export function HealthSystemWorkbench() {
   const [editingInvestmentSourceUrl, setEditingInvestmentSourceUrl] = useState("");
   const [updatingInvestment, setUpdatingInvestment] = useState(false);
   const [deletingInvestmentLinkId, setDeletingInvestmentLinkId] = useState<string | null>(null);
+  const [activeDetailTab, setActiveDetailTab] = useState<DetailTab>("overview");
   const [keepListView, setKeepListView] = useState(false);
   const candidateSearchCacheRef = useRef<Record<string, SearchCandidate[]>>({});
   const candidateSearchAbortRef = useRef<AbortController | null>(null);
@@ -435,6 +439,20 @@ export function HealthSystemWorkbench() {
 
   function getCompanyNameById(id: string) {
     return companies.find((company) => company.id === id)?.name || "";
+  }
+
+  function addCoInvestorOption(option: { id: string; name: string }) {
+    setCoInvestors((current) => {
+      if (current.some((entry) => entry.id === option.id)) return current;
+      return [{ id: option.id, name: option.name }, ...current];
+    });
+  }
+
+  function addCompanyOption(option: { id: string; name: string }) {
+    setCompanies((current) => {
+      if (current.some((entry) => entry.id === option.id)) return current;
+      return [{ id: option.id, name: option.name }, ...current];
+    });
   }
 
   async function loadRecords() {
@@ -1262,6 +1280,7 @@ export function HealthSystemWorkbench() {
     if (selectedRecord.id !== draftRecordId) {
       setDetailDraft(draftFromRecord(selectedRecord));
       setDraftRecordId(selectedRecord.id);
+      setActiveDetailTab("overview");
     }
   }, [selectedRecord, draftRecordId]);
 
@@ -1276,8 +1295,7 @@ export function HealthSystemWorkbench() {
       </section>
 
       <div className="grid">
-        <section className="panel">
-          <h2>Health Systems</h2>
+        <section className="panel" aria-label="List panel">
           <label htmlFor="search-health-system">Search</label>
           <input
             id="search-health-system"
@@ -1431,8 +1449,7 @@ export function HealthSystemWorkbench() {
           {status && <p className={`status ${status.kind}`}>{status.text}</p>}
         </section>
 
-        <section className="panel">
-          <h2>Health System Detail</h2>
+        <section className="panel" aria-label="Detail panel">
           {!selectedRecord || !detailDraft ? (
             <p className="muted">Select a health system from the list to view details.</p>
           ) : (
@@ -1441,6 +1458,56 @@ export function HealthSystemWorkbench() {
                 <h3>{selectedRecord.name}</h3>
               </div>
 
+              <div className="detail-tabs" role="tablist" aria-label="Health system detail sections">
+                <button
+                  type="button"
+                  role="tab"
+                  className={`detail-tab ${activeDetailTab === "overview" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "overview"}
+                  onClick={() => setActiveDetailTab("overview")}
+                >
+                  Overview
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`detail-tab ${activeDetailTab === "actions" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "actions"}
+                  onClick={() => setActiveDetailTab("actions")}
+                >
+                  Actions
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`detail-tab ${activeDetailTab === "contacts" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "contacts"}
+                  onClick={() => setActiveDetailTab("contacts")}
+                >
+                  Contacts
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`detail-tab ${activeDetailTab === "venture-partners" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "venture-partners"}
+                  onClick={() => setActiveDetailTab("venture-partners")}
+                >
+                  Venture Partners
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`detail-tab ${activeDetailTab === "investments" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "investments"}
+                  onClick={() => setActiveDetailTab("investments")}
+                >
+                  Investments
+                </button>
+              </div>
+
+              {activeDetailTab === "overview" && (
+                <>
               <div className="detail-grid">
                 <InlineTextField
                   label="Name"
@@ -1540,6 +1607,11 @@ export function HealthSystemWorkbench() {
                 />
               </div>
 
+                </>
+              )}
+
+              {activeDetailTab === "actions" && (
+                <>
               <div className="detail-section">
                 <InlineTextareaField
                   multiline
@@ -1556,6 +1628,11 @@ export function HealthSystemWorkbench() {
                 </div>
               )}
 
+                </>
+              )}
+
+              {activeDetailTab === "contacts" && (
+                <>
               <div className="detail-section">
                 <p className="detail-label">Contacts</p>
                 {selectedRecord.contactLinks.length === 0 ? (
@@ -1756,6 +1833,11 @@ export function HealthSystemWorkbench() {
                 </div>
               </div>
 
+                </>
+              )}
+
+              {activeDetailTab === "venture-partners" && (
+                <>
               <div className="detail-section">
                 <p className="detail-label">Venture Partners</p>
                 {selectedRecord.venturePartners.length === 0 ? (
@@ -1768,17 +1850,17 @@ export function HealthSystemWorkbench() {
                           <div className="detail-grid">
                             <div>
                               <label>Co-Investor</label>
-                              <select
+                              <EntityLookupInput
+                                entityKind="CO_INVESTOR"
                                 value={editingVenturePartnerCoInvestorId}
-                                onChange={(event) => setEditingVenturePartnerCoInvestorId(event.target.value)}
-                              >
-                                <option value="">Select a co-investor</option>
-                                {coInvestors.map((coInvestor) => (
-                                  <option key={coInvestor.id} value={coInvestor.id}>
-                                    {coInvestor.name}
-                                  </option>
-                                ))}
-                              </select>
+                                onChange={setEditingVenturePartnerCoInvestorId}
+                                initialOptions={coInvestors.map((coInvestor) => ({
+                                  id: coInvestor.id,
+                                  name: coInvestor.name
+                                }))}
+                                placeholder="Search co-investors"
+                                onEntityCreated={(option) => addCoInvestorOption(option)}
+                              />
                             </div>
                             <div>
                               <label>Title</label>
@@ -1847,17 +1929,17 @@ export function HealthSystemWorkbench() {
                 <div className="detail-grid">
                   <div>
                     <label>Co-Investor</label>
-                    <select
+                    <EntityLookupInput
+                      entityKind="CO_INVESTOR"
                       value={venturePartnerCoInvestorId}
-                      onChange={(event) => setVenturePartnerCoInvestorId(event.target.value)}
-                    >
-                      <option value="">Select a co-investor</option>
-                      {coInvestors.map((coInvestor) => (
-                        <option key={coInvestor.id} value={coInvestor.id}>
-                          {coInvestor.name}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={setVenturePartnerCoInvestorId}
+                      initialOptions={coInvestors.map((coInvestor) => ({
+                        id: coInvestor.id,
+                        name: coInvestor.name
+                      }))}
+                      placeholder="Search co-investors"
+                      onEntityCreated={(option) => addCoInvestorOption(option)}
+                    />
                   </div>
                   <div>
                     <label>Title</label>
@@ -1879,6 +1961,11 @@ export function HealthSystemWorkbench() {
                 </div>
               </div>
 
+                </>
+              )}
+
+              {activeDetailTab === "investments" && (
+                <>
               <div className="detail-section">
                 <p className="detail-label">Investments</p>
                 {selectedRecord.investments.length === 0 ? (
@@ -1891,17 +1978,23 @@ export function HealthSystemWorkbench() {
                           <div className="detail-grid">
                             <div>
                               <label>Company</label>
-                              <select
+                              <EntityLookupInput
+                                entityKind="COMPANY"
                                 value={editingInvestmentCompanyId}
-                                onChange={(event) => setEditingInvestmentCompanyId(event.target.value)}
-                              >
-                                <option value="">Select a company</option>
-                                {companies.map((company) => (
-                                  <option key={company.id} value={company.id}>
-                                    {company.name}
-                                  </option>
-                                ))}
-                              </select>
+                                onChange={setEditingInvestmentCompanyId}
+                                initialOptions={companies.map((company) => ({
+                                  id: company.id,
+                                  name: company.name
+                                }))}
+                                placeholder="Search companies"
+                                companyCreateDefaults={{
+                                  companyType: "STARTUP",
+                                  primaryCategory: "OTHER",
+                                  leadSourceType: "OTHER",
+                                  leadSourceOther: "Added from health system investment"
+                                }}
+                                onEntityCreated={(option) => addCompanyOption(option)}
+                              />
                             </div>
                             <div>
                               <label>Investment Amount (USD)</label>
@@ -1996,17 +2089,23 @@ export function HealthSystemWorkbench() {
                 <div className="detail-grid">
                   <div>
                     <label>Company</label>
-                    <select
+                    <EntityLookupInput
+                      entityKind="COMPANY"
                       value={investmentCompanyId}
-                      onChange={(event) => setInvestmentCompanyId(event.target.value)}
-                    >
-                      <option value="">Select a company</option>
-                      {companies.map((company) => (
-                        <option key={company.id} value={company.id}>
-                          {company.name}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={setInvestmentCompanyId}
+                      initialOptions={companies.map((company) => ({
+                        id: company.id,
+                        name: company.name
+                      }))}
+                      placeholder="Search companies"
+                      companyCreateDefaults={{
+                        companyType: "STARTUP",
+                        primaryCategory: "OTHER",
+                        leadSourceType: "OTHER",
+                        leadSourceOther: "Added from health system investment"
+                      }}
+                      onEntityCreated={(option) => addCompanyOption(option)}
+                    />
                   </div>
                   <div>
                     <label>Investment Amount (USD)</label>
@@ -2047,6 +2146,9 @@ export function HealthSystemWorkbench() {
                   </button>
                 </div>
               </div>
+
+                </>
+              )}
             </div>
           )}
         </section>

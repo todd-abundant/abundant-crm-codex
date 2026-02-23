@@ -19,6 +19,7 @@ import {
   workbenchExecuteResponseSchema,
   workbenchPlanResponseSchema
 } from "@/lib/workbench-v2-types";
+import { EntityLookupInput } from "./entity-lookup-input";
 
 type ChatMessage = {
   id: string;
@@ -46,6 +47,12 @@ function createMessageId(role: "assistant" | "user") {
 
 function entityTypeLabel(entityType: NarrativeEntityType) {
   return entityTypeOptions.find((entry) => entry.value === entityType)?.label || entityType;
+}
+
+function entityLookupKind(entityType: NarrativeEntityType): "HEALTH_SYSTEM" | "COMPANY" | "CO_INVESTOR" {
+  if (entityType === "HEALTH_SYSTEM") return "HEALTH_SYSTEM";
+  if (entityType === "CO_INVESTOR") return "CO_INVESTOR";
+  return "COMPANY";
 }
 
 function actionLabel(action: NarrativeAction) {
@@ -674,25 +681,32 @@ export function WorkbenchBeta() {
           {action.selection.mode === "USE_EXISTING" ? (
             <label>
               Existing
-              <select
+              <EntityLookupInput
+                entityKind={entityLookupKind(action.entityType)}
                 value={action.selection.existingId || ""}
-                onChange={(event) =>
+                onChange={(nextValue) =>
                   updatePlanAction(action.id, (current) => ({
                     ...(current as CreateEntityAction),
                     selection: {
                       ...(current as CreateEntityAction).selection,
-                      existingId: event.target.value || undefined
+                      existingId: nextValue || undefined
                     }
                   }))
                 }
-              >
-                <option value="">Select existing</option>
-                {action.existingMatches.map((match) => (
-                  <option key={match.id} value={match.id}>
-                    {match.name}
-                  </option>
-                ))}
-              </select>
+                allowEmpty
+                emptyLabel="No existing record selected"
+                initialOptions={action.existingMatches.map((match) => ({
+                  id: match.id,
+                  name: match.name
+                }))}
+                placeholder={`Search ${entityTypeLabel(action.entityType).toLowerCase()}s`}
+                companyCreateDefaults={{
+                  companyType: "STARTUP",
+                  primaryCategory: "OTHER",
+                  leadSourceType: "OTHER",
+                  leadSourceOther: "Created from narrative workbench"
+                }}
+              />
             </label>
           ) : null}
         </div>
@@ -734,22 +748,29 @@ export function WorkbenchBeta() {
           </label>
           <label>
             Target Record
-            <select
+            <EntityLookupInput
+              entityKind={entityLookupKind(action.entityType)}
               value={action.selectedTargetId || ""}
-              onChange={(event) =>
+              onChange={(nextValue) =>
                 updatePlanAction(action.id, (current) => ({
                   ...(current as UpdateEntityAction),
-                  selectedTargetId: event.target.value || undefined
+                  selectedTargetId: nextValue || undefined
                 }))
               }
-            >
-              <option value="">Select target</option>
-              {action.targetMatches.map((match) => (
-                <option key={match.id} value={match.id}>
-                  {match.name}
-                </option>
-              ))}
-            </select>
+              allowEmpty
+              emptyLabel="No target selected"
+              initialOptions={action.targetMatches.map((match) => ({
+                id: match.id,
+                name: match.name
+              }))}
+              placeholder={`Search ${entityTypeLabel(action.entityType).toLowerCase()}s`}
+              companyCreateDefaults={{
+                companyType: "STARTUP",
+                primaryCategory: "OTHER",
+                leadSourceType: "OTHER",
+                leadSourceOther: "Created from narrative workbench"
+              }}
+            />
           </label>
         </div>
       );
@@ -787,22 +808,29 @@ export function WorkbenchBeta() {
           </label>
           <label>
             Parent Record
-            <select
+            <EntityLookupInput
+              entityKind={entityLookupKind(action.parentType)}
               value={action.selectedParentId || ""}
-              onChange={(event) =>
+              onChange={(nextValue) =>
                 updatePlanAction(action.id, (current) => ({
                   ...(current as AddContactAction),
-                  selectedParentId: event.target.value || undefined
+                  selectedParentId: nextValue || undefined
                 }))
               }
-            >
-              <option value="">Select parent</option>
-              {action.parentMatches.map((match) => (
-                <option key={match.id} value={match.id}>
-                  {match.name}
-                </option>
-              ))}
-            </select>
+              allowEmpty
+              emptyLabel="No parent selected"
+              initialOptions={action.parentMatches.map((match) => ({
+                id: match.id,
+                name: match.name
+              }))}
+              placeholder={`Search ${entityTypeLabel(action.parentType).toLowerCase()}s`}
+              companyCreateDefaults={{
+                companyType: "STARTUP",
+                primaryCategory: "OTHER",
+                leadSourceType: "OTHER",
+                leadSourceOther: "Created from narrative workbench"
+              }}
+            />
           </label>
         </div>
       );
@@ -836,41 +864,49 @@ export function WorkbenchBeta() {
         </label>
         <label>
           Company Record
-          <select
+          <EntityLookupInput
+            entityKind="COMPANY"
             value={action.selectedCompanyId || ""}
-            onChange={(event) =>
+            onChange={(nextValue) =>
               updatePlanAction(action.id, (current) => ({
                 ...(current as LinkCompanyCoInvestorAction),
-                selectedCompanyId: event.target.value || undefined
+                selectedCompanyId: nextValue || undefined
               }))
             }
-          >
-            <option value="">Select company</option>
-            {action.companyMatches.map((match) => (
-              <option key={match.id} value={match.id}>
-                {match.name}
-              </option>
-            ))}
-          </select>
+            allowEmpty
+            emptyLabel="No company selected"
+            initialOptions={action.companyMatches.map((match) => ({
+              id: match.id,
+              name: match.name
+            }))}
+            placeholder="Search companies"
+            companyCreateDefaults={{
+              companyType: "STARTUP",
+              primaryCategory: "OTHER",
+              leadSourceType: "OTHER",
+              leadSourceOther: "Created from narrative workbench"
+            }}
+          />
         </label>
         <label>
           Co-Investor Record
-          <select
+          <EntityLookupInput
+            entityKind="CO_INVESTOR"
             value={action.selectedCoInvestorId || ""}
-            onChange={(event) =>
+            onChange={(nextValue) =>
               updatePlanAction(action.id, (current) => ({
                 ...(current as LinkCompanyCoInvestorAction),
-                selectedCoInvestorId: event.target.value || undefined
+                selectedCoInvestorId: nextValue || undefined
               }))
             }
-          >
-            <option value="">Select co-investor</option>
-            {action.coInvestorMatches.map((match) => (
-              <option key={match.id} value={match.id}>
-                {match.name}
-              </option>
-            ))}
-          </select>
+            allowEmpty
+            emptyLabel="No co-investor selected"
+            initialOptions={action.coInvestorMatches.map((match) => ({
+              id: match.id,
+              name: match.name
+            }))}
+            placeholder="Search co-investors"
+          />
         </label>
       </div>
     );

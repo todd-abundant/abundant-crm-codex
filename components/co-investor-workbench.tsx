@@ -6,6 +6,7 @@ import {
   InlineTextField,
   InlineTextareaField
 } from "./inline-detail-field";
+import { DateInputField } from "./date-input-field";
 import { SearchMatchModal } from "./search-match-modal";
 
 type SearchCandidate = {
@@ -87,7 +88,7 @@ type CoInvestorRecord = {
   }>;
 };
 
-type DetailTab = "overview" | "contacts" | "activity" | "actions" | "network";
+type DetailTab = "overview" | "contacts" | "actions" | "next-steps" | "network";
 
 type DetailDraft = {
   name: string;
@@ -1241,8 +1242,7 @@ export function CoInvestorWorkbench() {
       </section>
 
       <div className="grid">
-        <section className="panel">
-          <h2>Co-Investors</h2>
+        <section className="panel" aria-label="List panel">
           <label htmlFor="search-co-investor">Search</label>
           <input
             id="search-co-investor"
@@ -1388,8 +1388,7 @@ export function CoInvestorWorkbench() {
           {status && <p className={`status ${status.kind}`}>{status.text}</p>}
         </section>
 
-          <section className="panel">
-            <h2>Co-Investor Detail</h2>
+          <section className="panel" aria-label="Detail panel">
             {!selectedRecord || !detailDraft ? (
               <p className="muted">Select a co-investor from the list to view details.</p>
             ) : (
@@ -1399,11 +1398,11 @@ export function CoInvestorWorkbench() {
                 </div>
 
                 <div className="detail-tabs" role="tablist" aria-label="Co-investor detail sections">
-                  <button type="button" className={`detail-tab ${activeDetailTab === "overview" ? "active" : ""}`} aria-selected={activeDetailTab === "overview"} onClick={() => setActiveDetailTab("overview")}>Overview</button>
-                  <button type="button" className={`detail-tab ${activeDetailTab === "contacts" ? "active" : ""}`} aria-selected={activeDetailTab === "contacts"} onClick={() => setActiveDetailTab("contacts")}>Contacts</button>
-                  <button type="button" className={`detail-tab ${activeDetailTab === "activity" ? "active" : ""}`} aria-selected={activeDetailTab === "activity"} onClick={() => setActiveDetailTab("activity")}>Activity</button>
-                  <button type="button" className={`detail-tab ${activeDetailTab === "actions" ? "active" : ""}`} aria-selected={activeDetailTab === "actions"} onClick={() => setActiveDetailTab("actions")}>Next Actions</button>
-                  <button type="button" className={`detail-tab ${activeDetailTab === "network" ? "active" : ""}`} aria-selected={activeDetailTab === "network"} onClick={() => setActiveDetailTab("network")}>Network</button>
+                  <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "overview" ? "active" : ""}`} aria-selected={activeDetailTab === "overview"} onClick={() => setActiveDetailTab("overview")}>Overview</button>
+                  <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "contacts" ? "active" : ""}`} aria-selected={activeDetailTab === "contacts"} onClick={() => setActiveDetailTab("contacts")}>Contacts</button>
+                  <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "actions" ? "active" : ""}`} aria-selected={activeDetailTab === "actions"} onClick={() => setActiveDetailTab("actions")}>Actions</button>
+                  <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "next-steps" ? "active" : ""}`} aria-selected={activeDetailTab === "next-steps"} onClick={() => setActiveDetailTab("next-steps")}>Next Steps</button>
+                  <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "network" ? "active" : ""}`} aria-selected={activeDetailTab === "network"} onClick={() => setActiveDetailTab("network")}>Network</button>
                 </div>
 
                 {activeDetailTab === "overview" && (
@@ -1681,7 +1680,7 @@ export function CoInvestorWorkbench() {
                   </>
                 )}
 
-                {activeDetailTab === "activity" && (
+                {activeDetailTab === "actions" && (
                   <>
               <div className="detail-section">
                 <p className="detail-label">Relationship Highlights</p>
@@ -1822,7 +1821,7 @@ export function CoInvestorWorkbench() {
                   </>
                 )}
 
-                {activeDetailTab === "actions" && (
+                {activeDetailTab === "next-steps" && (
                   <>
               <div className="detail-section">
                 <p className="detail-label">Next Actions</p>
@@ -1837,11 +1836,7 @@ export function CoInvestorWorkbench() {
                   </div>
                   <div>
                     <label>Due Date</label>
-                    <input
-                      type="date"
-                      value={newActionDueAt}
-                      onChange={(event) => setNewActionDueAt(event.target.value)}
-                    />
+                    <DateInputField value={newActionDueAt} onChange={setNewActionDueAt} />
                   </div>
                 </div>
                 <div className="actions">
@@ -1874,11 +1869,7 @@ export function CoInvestorWorkbench() {
                             </div>
                             <div>
                               <label>Due Date</label>
-                              <input
-                                type="date"
-                                value={editingNextActionDueAt}
-                                onChange={(event) => setEditingNextActionDueAt(event.target.value)}
-                              />
+                              <DateInputField value={editingNextActionDueAt} onChange={setEditingNextActionDueAt} />
                             </div>
                           </div>
                           <div className="actions">
