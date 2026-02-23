@@ -145,11 +145,9 @@ function statusMeta(status: ScreeningStatus) {
   return { label: "Not interested", className: "screening-status-grey" };
 }
 
-function attendanceStatusLabel(status: ScreeningAttendanceStatus) {
-  if (status === "ATTENDED") return "Attended";
-  if (status === "DECLINED") return "Declined";
-  if (status === "NO_SHOW") return "No Show";
-  return "Invited";
+function inlineInterestClassName(status: ScreeningStatus) {
+  if (status === "SIGNED") return "screening-status-green-check";
+  return statusMeta(status).className;
 }
 
 function sentimentLabel(sentiment: ScreeningFeedbackSentiment) {
@@ -159,12 +157,19 @@ function sentimentLabel(sentiment: ScreeningFeedbackSentiment) {
   return "Neutral";
 }
 
-const screeningStatusOptions: Array<{ value: ScreeningStatus; label: string }> = [
-  { value: "NOT_STARTED", label: "Not interested" },
-  { value: "DECLINED", label: "Interested, declined LOI" },
-  { value: "PENDING", label: "Evaluating LOI" },
-  { value: "NEGOTIATING", label: "Evaluating LOI - active" },
-  { value: "SIGNED", label: "LOI signed" }
+const screeningInlineInterestOptions: Array<{ value: ScreeningStatus; label: string }> = [
+  { value: "NOT_STARTED", label: "Grey" },
+  { value: "DECLINED", label: "Red" },
+  { value: "PENDING", label: "Yellow" },
+  { value: "NEGOTIATING", label: "Green" },
+  { value: "SIGNED", label: "Green checkmark (LOI signed)" }
+];
+
+const screeningDetailViewOptions: Array<{ key: ScreeningDetailView; label: string; icon: string }> = [
+  { key: "status", label: "Status Matrix", icon: "SM" },
+  { key: "quantitative", label: "Quantitative", icon: "Q" },
+  { key: "qualitative", label: "Qualitative", icon: "Ql" },
+  { key: "documents", label: "Company Docs", icon: "CD" }
 ];
 
 const quantitativeCategoryOptions = [
@@ -185,6 +190,142 @@ const qualitativeCategoryOptions = [
   "Key Theme"
 ];
 
+type QuantitativeQuestionCategory = {
+  category: string;
+  questions: string[];
+};
+
+const defaultQuantitativeQuestionCategories: QuantitativeQuestionCategory[] = [
+  {
+    category: "Desirability",
+    questions: [
+      "How urgent is the underlying problem for your organization?",
+      "How clear is the value proposition for clinicians and operators?",
+      "How likely is your team to champion adoption internally?"
+    ]
+  },
+  {
+    category: "Feasibility",
+    questions: [
+      "How feasible is implementation with current workflow and resources?",
+      "How realistic is integration with existing systems (Epic/EHR/data)?",
+      "How manageable is change management for frontline teams?"
+    ]
+  },
+  {
+    category: "Impact and Viability",
+    questions: [
+      "How strong is expected clinical and operational impact?",
+      "How compelling is expected ROI over the next 12-24 months?",
+      "How durable is the model for long-term adoption and scale?"
+    ]
+  },
+  {
+    category: "Co-Development",
+    questions: [
+      "How interested is your organization in co-development participation?",
+      "How prepared is your team to share data and feedback loops?",
+      "How aligned are incentives for pilot design and governance?"
+    ]
+  }
+];
+
+function compareQuantitativeCategoryName(a: string, b: string) {
+  const categoryAIndex = quantitativeCategoryOptions.indexOf(a);
+  const categoryBIndex = quantitativeCategoryOptions.indexOf(b);
+  if (categoryAIndex >= 0 && categoryBIndex >= 0) return categoryAIndex - categoryBIndex;
+  if (categoryAIndex >= 0) return -1;
+  if (categoryBIndex >= 0) return 1;
+  return a.localeCompare(b);
+}
+
+function cloneQuantitativeQuestionCategories(source: QuantitativeQuestionCategory[]) {
+  return source.map((entry) => ({
+    category: entry.category,
+    questions: [...entry.questions]
+  }));
+}
+
+function normalizeMetricKey(metric: string) {
+  return metric.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function sanitizeQuantitativeQuestionCategories(raw: unknown): QuantitativeQuestionCategory[] | null {
+  if (!Array.isArray(raw)) return null;
+
+  const categories: QuantitativeQuestionCategory[] = [];
+
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const candidate = entry as { category?: unknown; questions?: unknown };
+    const category = typeof candidate.category === "string" ? candidate.category.trim() : "";
+    if (!category) continue;
+
+    const questions = Array.isArray(candidate.questions)
+      ? candidate.questions
+          .filter((question): question is string => typeof question === "string")
+          .map((question) => question.trim())
+          .filter((question) => question.length > 0)
+      : [];
+
+    categories.push({
+      category,
+      questions: questions.length > 0 ? questions : ["Untitled question"]
+    });
+  }
+
+  if (categories.length === 0) return null;
+  return categories.sort((a, b) => compareQuantitativeCategoryName(a.category, b.category));
+}
+
+function mergeQuantitativeQuestionsWithFeedback(
+  source: QuantitativeQuestionCategory[],
+  healthSystems: ScreeningHealthSystem[]
+) {
+  const normalizedQuestionSetByCategory = new Map<string, Set<string>>();
+  const sectionByCategory = new Map<string, QuantitativeQuestionCategory>();
+
+  for (const section of source) {
+    const category = section.category.trim();
+    if (!category) continue;
+    const questions = section.questions
+      .map((question) => question.trim())
+      .filter((question) => question.length > 0);
+    const normalizedQuestions = new Set(questions.map((question) => normalizeMetricKey(question)));
+
+    normalizedQuestionSetByCategory.set(category, normalizedQuestions);
+    sectionByCategory.set(category, {
+      category,
+      questions: questions.length > 0 ? questions : ["Untitled question"]
+    });
+  }
+
+  for (const healthSystem of healthSystems) {
+    for (const entry of healthSystem.quantitativeFeedback) {
+      const category = entry.category?.trim() || "Uncategorized";
+      const metric = entry.metric?.trim() || "Untitled question";
+      const normalizedMetric = normalizeMetricKey(metric);
+
+      let section = sectionByCategory.get(category);
+      if (!section) {
+        section = { category, questions: [] };
+        sectionByCategory.set(category, section);
+      }
+
+      const normalizedQuestions = normalizedQuestionSetByCategory.get(category) || new Set<string>();
+      if (!normalizedQuestions.has(normalizedMetric)) {
+        section.questions.push(metric);
+        normalizedQuestions.add(normalizedMetric);
+        normalizedQuestionSetByCategory.set(category, normalizedQuestions);
+      }
+    }
+  }
+
+  return Array.from(sectionByCategory.values()).sort((a, b) =>
+    compareQuantitativeCategoryName(a.category, b.category)
+  );
+}
+
 function uniqueIndividuals(entry: ScreeningHealthSystem) {
   const byKey = new Map<string, { key: string; label: string }>();
   for (const participant of entry.participants) {
@@ -198,21 +339,6 @@ function uniqueIndividuals(entry: ScreeningHealthSystem) {
   return Array.from(byKey.values());
 }
 
-type DocumentDraft = {
-  title: string;
-  url: string;
-  notes: string;
-};
-
-type QuantitativeFeedbackDraft = {
-  contactId: string;
-  category: string;
-  metric: string;
-  score: string;
-  weightPercent: string;
-  notes: string;
-};
-
 type QualitativeFeedbackDraft = {
   contactId: string;
   category: string;
@@ -221,34 +347,36 @@ type QualitativeFeedbackDraft = {
   feedback: string;
 };
 
-type FeedbackTab = "quantitative" | "qualitative";
-type CellHistoryModalState = {
+type QuantitativeSlideResponse = {
+  id: string;
+  score: number;
+  contactName: string;
+  contactTitle: string | null;
+  institution: string;
+};
+
+type QuantitativeSlideQuestionRow = {
+  metric: string;
+  responseCount: number;
+  averageScore: number | null;
+  responses: QuantitativeSlideResponse[];
+  isUnmapped: boolean;
+};
+
+type QuantitativeSlideCategorySection = {
+  category: string;
+  categoryAverageScore: number | null;
+  rows: QuantitativeSlideQuestionRow[];
+};
+
+type ScreeningDetailView = "status" | "quantitative" | "qualitative" | "documents";
+type AddAttendeeModalState = {
   healthSystemId: string;
   healthSystemName: string;
-  field: ScreeningCellField;
 };
 
 function screeningCellFieldLabel(field: ScreeningCellField) {
   return field === "RELEVANT_FEEDBACK" ? "Relevant Feedback + Next Steps" : "Status Update";
-}
-
-function emptyDocumentDraft(): DocumentDraft {
-  return {
-    title: "",
-    url: "",
-    notes: ""
-  };
-}
-
-function emptyQuantitativeFeedbackDraft(): QuantitativeFeedbackDraft {
-  return {
-    contactId: "",
-    category: "Desirability",
-    metric: "",
-    score: "",
-    weightPercent: "",
-    notes: ""
-  };
 }
 
 function emptyQualitativeFeedbackDraft(): QualitativeFeedbackDraft {
@@ -275,30 +403,31 @@ export function PipelineOpportunityDetailView({
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [savingPhase, setSavingPhase] = React.useState(false);
   const [savingStatusByHealthSystemId, setSavingStatusByHealthSystemId] = React.useState<Record<string, boolean>>({});
-  const [savingDocumentByHealthSystemId, setSavingDocumentByHealthSystemId] = React.useState<Record<string, boolean>>({});
   const [savingFeedbackByHealthSystemId, setSavingFeedbackByHealthSystemId] = React.useState<Record<string, boolean>>({});
   const [savingScreeningCellByKey, setSavingScreeningCellByKey] = React.useState<Record<string, boolean>>({});
   const [addingAttendeeByHealthSystemId, setAddingAttendeeByHealthSystemId] = React.useState<Record<string, boolean>>({});
-  const [noteDraftByHealthSystemId, setNoteDraftByHealthSystemId] = React.useState<Record<string, string>>({});
   const [relevantFeedbackDraftByHealthSystemId, setRelevantFeedbackDraftByHealthSystemId] = React.useState<
     Record<string, string>
   >({});
   const [statusUpdateDraftByHealthSystemId, setStatusUpdateDraftByHealthSystemId] = React.useState<
     Record<string, string>
   >({});
-  const [attendeeLookupValueByHealthSystemId, setAttendeeLookupValueByHealthSystemId] = React.useState<
-    Record<string, string>
-  >({});
-  const [documentDraftByHealthSystemId, setDocumentDraftByHealthSystemId] = React.useState<Record<string, DocumentDraft>>({});
-  const [quantitativeDraftByHealthSystemId, setQuantitativeDraftByHealthSystemId] = React.useState<
-    Record<string, QuantitativeFeedbackDraft>
-  >({});
+  const [addAttendeeModal, setAddAttendeeModal] = React.useState<AddAttendeeModalState | null>(null);
+  const [addAttendeeLookupValue, setAddAttendeeLookupValue] = React.useState("");
+  const [editingScreeningCell, setEditingScreeningCell] = React.useState<{
+    healthSystemId: string;
+    field: ScreeningCellField;
+  } | null>(null);
   const [qualitativeDraftByHealthSystemId, setQualitativeDraftByHealthSystemId] = React.useState<
     Record<string, QualitativeFeedbackDraft>
   >({});
-  const [feedbackTabByHealthSystemId, setFeedbackTabByHealthSystemId] = React.useState<Record<string, FeedbackTab>>({});
+  const [quantitativeQuestionCategories, setQuantitativeQuestionCategories] = React.useState<
+    QuantitativeQuestionCategory[]
+  >(() => cloneQuantitativeQuestionCategories(defaultQuantitativeQuestionCategories));
+  const [quantitativeQuestionEditorOpen, setQuantitativeQuestionEditorOpen] = React.useState(false);
+  const [quantitativeQuestionsReady, setQuantitativeQuestionsReady] = React.useState(false);
+  const [screeningDetailView, setScreeningDetailView] = React.useState<ScreeningDetailView>("status");
   const [activeScreeningHealthSystemId, setActiveScreeningHealthSystemId] = React.useState<string | null>(null);
-  const [cellHistoryModal, setCellHistoryModal] = React.useState<CellHistoryModalState | null>(null);
 
   const loadItem = React.useCallback(async () => {
     setLoading(true);
@@ -347,7 +476,6 @@ export function PipelineOpportunityDetailView({
     if (!item?.isScreeningStage) {
       setRelevantFeedbackDraftByHealthSystemId({});
       setStatusUpdateDraftByHealthSystemId({});
-      setAttendeeLookupValueByHealthSystemId({});
       return;
     }
 
@@ -365,17 +493,122 @@ export function PipelineOpportunityDetailView({
       }
       return next;
     });
-    setAttendeeLookupValueByHealthSystemId((current) => {
-      const next: Record<string, string> = {};
-      for (const entry of item.screening.healthSystems) {
-        next[entry.healthSystemId] = current[entry.healthSystemId] || "";
-      }
-      return next;
-    });
   }, [item]);
+
+  React.useEffect(() => {
+    if (!item?.isScreeningStage) {
+      setQuantitativeQuestionCategories(cloneQuantitativeQuestionCategories(defaultQuantitativeQuestionCategories));
+      setQuantitativeQuestionEditorOpen(false);
+      setQuantitativeQuestionsReady(false);
+      return;
+    }
+
+    setQuantitativeQuestionsReady(false);
+    const storageKey = `abundant:quantitative-question-set:${item.id}`;
+    let source = cloneQuantitativeQuestionCategories(defaultQuantitativeQuestionCategories);
+
+    if (typeof window !== "undefined") {
+      try {
+        const raw = window.localStorage.getItem(storageKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const stored = sanitizeQuantitativeQuestionCategories(parsed);
+          if (stored) source = stored;
+        }
+      } catch {
+        // Ignore malformed persisted state and fall back to defaults.
+      }
+    }
+
+    setQuantitativeQuestionCategories(
+      mergeQuantitativeQuestionsWithFeedback(source, item.screening.healthSystems)
+    );
+    setQuantitativeQuestionsReady(true);
+  }, [item?.id, item?.isScreeningStage, item?.screening.healthSystems]);
+
+  React.useEffect(() => {
+    if (!item?.isScreeningStage || !quantitativeQuestionsReady || typeof window === "undefined") return;
+    const storageKey = `abundant:quantitative-question-set:${item.id}`;
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(quantitativeQuestionCategories));
+    } catch {
+      // Ignore local storage failures in restrictive browser contexts.
+    }
+  }, [item?.id, item?.isScreeningStage, quantitativeQuestionCategories, quantitativeQuestionsReady]);
 
   function screeningCellKey(healthSystemId: string, field: ScreeningCellField) {
     return `${healthSystemId}:${field}`;
+  }
+
+  function updateQuantitativeQuestion(
+    category: string,
+    questionIndex: number,
+    nextQuestion: string
+  ) {
+    setQuantitativeQuestionCategories((current) =>
+      current.map((section) => {
+        if (section.category !== category) return section;
+        const nextQuestions = section.questions.map((question, index) =>
+          index === questionIndex ? nextQuestion : question
+        );
+        return {
+          ...section,
+          questions: nextQuestions
+        };
+      })
+    );
+  }
+
+  function normalizeQuantitativeQuestion(category: string, questionIndex: number) {
+    setQuantitativeQuestionCategories((current) =>
+      current.map((section) => {
+        if (section.category !== category) return section;
+        const nextQuestions = section.questions.map((question, index) =>
+          index === questionIndex ? question.trim() || "Untitled question" : question
+        );
+        return {
+          ...section,
+          questions: nextQuestions
+        };
+      })
+    );
+  }
+
+  function addQuantitativeQuestion(category: string) {
+    setQuantitativeQuestionCategories((current) =>
+      current.map((section) =>
+        section.category === category
+          ? {
+              ...section,
+              questions: [...section.questions, `New question ${section.questions.length + 1}`]
+            }
+          : section
+      )
+    );
+  }
+
+  function removeQuantitativeQuestion(category: string, questionIndex: number) {
+    setQuantitativeQuestionCategories((current) =>
+      current.map((section) => {
+        if (section.category !== category) return section;
+        if (section.questions.length <= 1) return section;
+        return {
+          ...section,
+          questions: section.questions.filter((_, index) => index !== questionIndex)
+        };
+      })
+    );
+  }
+
+  function resetQuantitativeQuestions() {
+    if (!item?.isScreeningStage) return;
+    setQuantitativeQuestionCategories(
+      mergeQuantitativeQuestionsWithFeedback(
+        cloneQuantitativeQuestionCategories(defaultQuantitativeQuestionCategories),
+        item.screening.healthSystems
+      )
+    );
+    setStatus({ kind: "ok", text: "Quantitative question set reset to defaults." });
   }
 
   async function saveScreeningCell(healthSystemId: string, field: ScreeningCellField) {
@@ -454,7 +687,7 @@ export function PipelineOpportunityDetailView({
   }
 
   async function addScreeningAttendee(healthSystemId: string, contactId: string) {
-    if (!item || !contactId) return;
+    if (!item || !contactId) return false;
     setAddingAttendeeByHealthSystemId((current) => ({ ...current, [healthSystemId]: true }));
     setStatus(null);
 
@@ -492,13 +725,14 @@ export function PipelineOpportunityDetailView({
         };
       });
 
-      setAttendeeLookupValueByHealthSystemId((current) => ({ ...current, [healthSystemId]: "" }));
       setStatus({ kind: "ok", text: "Attendee added." });
+      return true;
     } catch (error) {
       setStatus({
         kind: "error",
         text: error instanceof Error ? error.message : "Failed to add attendee."
       });
+      return false;
     } finally {
       setAddingAttendeeByHealthSystemId((current) => ({ ...current, [healthSystemId]: false }));
     }
@@ -587,203 +821,6 @@ export function PipelineOpportunityDetailView({
       });
     } finally {
       setSavingStatusByHealthSystemId((current) => ({ ...current, [healthSystemId]: false }));
-    }
-  }
-
-  async function addScreeningNote(healthSystemId: string) {
-    if (!item) return;
-    const note = (noteDraftByHealthSystemId[healthSystemId] || "").trim();
-    if (!note) {
-      setStatus({ kind: "error", text: "Enter a note before adding." });
-      return;
-    }
-
-    setSavingStatusByHealthSystemId((current) => ({ ...current, [healthSystemId]: true }));
-    setStatus(null);
-
-    try {
-      const res = await fetch(`/api/pipeline/opportunities/${item.id}/screening`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          healthSystemId,
-          note
-        })
-      });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Failed to add screening note");
-
-      setItem((current) => {
-        if (!current) return current;
-        return {
-          ...current,
-          screening: {
-            healthSystems: current.screening.healthSystems.map((entry) =>
-              entry.healthSystemId === healthSystemId
-                ? {
-                    ...entry,
-                    status: payload.status || entry.status,
-                    notes: payload.notes ?? entry.notes,
-                    statusUpdatedAt: payload.statusUpdatedAt || entry.statusUpdatedAt
-                  }
-                : entry
-            )
-          }
-        };
-      });
-      setNoteDraftByHealthSystemId((current) => ({ ...current, [healthSystemId]: "" }));
-      setStatus({ kind: "ok", text: "Note added." });
-    } catch (error) {
-      setStatus({
-        kind: "error",
-        text: error instanceof Error ? error.message : "Failed to add note"
-      });
-    } finally {
-      setSavingStatusByHealthSystemId((current) => ({ ...current, [healthSystemId]: false }));
-    }
-  }
-
-  async function addScreeningDocument(healthSystemId: string) {
-    if (!item) return;
-    const draft = documentDraftByHealthSystemId[healthSystemId] || emptyDocumentDraft();
-    const title = draft.title.trim();
-    const url = draft.url.trim();
-    const notes = draft.notes.trim();
-
-    if (!title || !url) {
-      setStatus({ kind: "error", text: "Document title and URL are required." });
-      return;
-    }
-
-    setSavingDocumentByHealthSystemId((current) => ({ ...current, [healthSystemId]: true }));
-    setStatus(null);
-
-    try {
-      const res = await fetch(`/api/pipeline/opportunities/${item.id}/screening-documents`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          healthSystemId,
-          title,
-          url,
-          notes
-        })
-      });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Failed to add screening document");
-
-      setItem((current) => {
-        if (!current) return current;
-        return {
-          ...current,
-          screening: {
-            healthSystems: current.screening.healthSystems.map((entry) =>
-              entry.healthSystemId === healthSystemId
-                ? {
-                    ...entry,
-                    documents: [payload.document, ...entry.documents]
-                  }
-                : entry
-            )
-          }
-        };
-      });
-      setDocumentDraftByHealthSystemId((current) => ({
-        ...current,
-        [healthSystemId]: emptyDocumentDraft()
-      }));
-      setStatus({ kind: "ok", text: "Document added." });
-    } catch (error) {
-      setStatus({
-        kind: "error",
-        text: error instanceof Error ? error.message : "Failed to add document"
-      });
-    } finally {
-      setSavingDocumentByHealthSystemId((current) => ({ ...current, [healthSystemId]: false }));
-    }
-  }
-
-  async function addQuantitativeFeedback(healthSystemId: string) {
-    if (!item) return;
-    const draft = quantitativeDraftByHealthSystemId[healthSystemId] || emptyQuantitativeFeedbackDraft();
-    const category = draft.category.trim();
-    const metric = draft.metric.trim();
-    const notes = draft.notes.trim();
-    const scoreText = draft.score.trim();
-    const weightText = draft.weightPercent.trim();
-
-    if (!category || !metric) {
-      setStatus({ kind: "error", text: "Category and metric are required for quantitative feedback." });
-      return;
-    }
-
-    const score = scoreText ? Number(scoreText) : null;
-    if (scoreText && (score === null || !Number.isFinite(score) || score < 1 || score > 10)) {
-      setStatus({ kind: "error", text: "Score must be a number between 1 and 10." });
-      return;
-    }
-
-    const weightPercent = weightText ? Number(weightText) : null;
-    if (
-      weightText &&
-      (weightPercent === null ||
-        !Number.isInteger(weightPercent) ||
-        weightPercent < 0 ||
-        weightPercent > 100)
-    ) {
-      setStatus({ kind: "error", text: "Weight must be a whole number between 0 and 100." });
-      return;
-    }
-
-    setSavingFeedbackByHealthSystemId((current) => ({ ...current, [healthSystemId]: true }));
-    setStatus(null);
-
-    try {
-      const res = await fetch(`/api/pipeline/opportunities/${item.id}/screening-feedback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "QUANTITATIVE",
-          healthSystemId,
-          contactId: draft.contactId || undefined,
-          category,
-          metric,
-          score: score ?? undefined,
-          weightPercent: weightPercent ?? undefined,
-          notes
-        })
-      });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Failed to add quantitative feedback");
-
-      setItem((current) => {
-        if (!current) return current;
-        return {
-          ...current,
-          screening: {
-            healthSystems: current.screening.healthSystems.map((entry) =>
-              entry.healthSystemId === healthSystemId
-                ? {
-                    ...entry,
-                    quantitativeFeedback: [payload.entry, ...entry.quantitativeFeedback]
-                  }
-                : entry
-            )
-          }
-        };
-      });
-      setQuantitativeDraftByHealthSystemId((current) => ({
-        ...current,
-        [healthSystemId]: emptyQuantitativeFeedbackDraft()
-      }));
-      setStatus({ kind: "ok", text: "Quantitative feedback captured." });
-    } catch (error) {
-      setStatus({
-        kind: "error",
-        text: error instanceof Error ? error.message : "Failed to add quantitative feedback"
-      });
-    } finally {
-      setSavingFeedbackByHealthSystemId((current) => ({ ...current, [healthSystemId]: false }));
     }
   }
 
@@ -889,11 +926,6 @@ export function PipelineOpportunityDetailView({
     item.screening.healthSystems[0] ||
     null;
 
-  const selectedFeedbackTab: FeedbackTab =
-    (selectedScreeningHealthSystem &&
-      feedbackTabByHealthSystemId[selectedScreeningHealthSystem.healthSystemId]) ||
-    "quantitative";
-
   const selectedIndividualOptions =
     selectedScreeningHealthSystem?.participants.reduce<Array<{ id: string; label: string }>>((accumulator, participant) => {
       if (!participant.contactId) return accumulator;
@@ -905,73 +937,172 @@ export function PipelineOpportunityDetailView({
       return accumulator;
     }, []) || [];
 
-  const quantitativeSummaryByCategory = (() => {
-    if (!selectedScreeningHealthSystem) return [] as Array<{
-      category: string;
-      rows: Array<{
-        metric: string;
-        responseCount: number;
-        averageScore: number | null;
-        distribution: Record<number, number>;
-      }>;
-    }>;
+  const quantitativeSlideSectionsResult = (() => {
+    type QuantitativeResponseAggregate = {
+      metric: string;
+      responseCount: number;
+      responses: QuantitativeSlideResponse[];
+    };
 
-    const grouped = new Map<
-      string,
-      Map<string, { scores: number[]; distribution: Record<number, number>; responseCount: number }>
-    >();
+    const responseMapByCategory = new Map<string, Map<string, QuantitativeResponseAggregate>>();
+    const questionCategoryNames = new Set(quantitativeQuestionCategories.map((section) => section.category));
 
-    for (const entry of selectedScreeningHealthSystem.quantitativeFeedback) {
-      const category = entry.category || "Uncategorized";
-      const metric = entry.metric || "Untitled metric";
-      const categoryMap = grouped.get(category) || new Map();
-      const metricData = categoryMap.get(metric) || {
-        scores: [],
-        responseCount: 0,
-        distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 }
-      };
+    for (const healthSystem of item.screening.healthSystems) {
+      for (const entry of healthSystem.quantitativeFeedback) {
+        const category = entry.category?.trim() || "Uncategorized";
+        const metric = entry.metric?.trim() || "Untitled question";
+        const metricKey = normalizeMetricKey(metric);
+        const categoryMap =
+          responseMapByCategory.get(category) || new Map<string, QuantitativeResponseAggregate>();
+        const row = categoryMap.get(metricKey) || {
+          metric,
+          responseCount: 0,
+          responses: []
+        };
 
-      metricData.responseCount += 1;
-      if (entry.score !== null && Number.isFinite(entry.score)) {
-        metricData.scores.push(entry.score);
-        const bucket = Math.max(1, Math.min(10, Math.round(entry.score)));
-        metricData.distribution[bucket] = (metricData.distribution[bucket] || 0) + 1;
+        row.responseCount += 1;
+        if (entry.score !== null && Number.isFinite(entry.score)) {
+          row.responses.push({
+            id: entry.id,
+            score: Math.max(1, Math.min(10, entry.score)),
+            contactName: entry.contactName?.trim() || "Unlinked individual",
+            contactTitle: entry.contactTitle,
+            institution: healthSystem.healthSystemName
+          });
+        }
+
+        categoryMap.set(metricKey, row);
+        responseMapByCategory.set(category, categoryMap);
       }
-      categoryMap.set(metric, metricData);
-      grouped.set(category, categoryMap);
     }
 
-    return Array.from(grouped.entries())
-      .map(([category, metrics]) => ({
-        category,
-        rows: Array.from(metrics.entries()).map(([metric, data]) => ({
-          metric,
-          responseCount: data.responseCount,
-          averageScore:
-            data.scores.length > 0
-              ? Math.round((data.scores.reduce((sum, value) => sum + value, 0) / data.scores.length) * 10) / 10
-              : null,
-          distribution: data.distribution
-        }))
-      }))
-      .sort((a, b) => a.category.localeCompare(b.category));
-  })();
+    const sectionsFromQuestionSet = quantitativeQuestionCategories.map((section) => {
+      const categoryResponseMap =
+        responseMapByCategory.get(section.category) || new Map<string, QuantitativeResponseAggregate>();
+      const questionKeySet = new Set(section.questions.map((question) => normalizeMetricKey(question)));
+      const configuredRows: QuantitativeSlideQuestionRow[] = section.questions.map((question) => {
+        const bucket = categoryResponseMap.get(normalizeMetricKey(question));
+        const numericScores = bucket?.responses.map((response) => response.score) || [];
+        const averageScore =
+          numericScores.length > 0
+            ? Math.round((numericScores.reduce((sum, score) => sum + score, 0) / numericScores.length) * 10) / 10
+            : null;
 
-  const activeCellHistory = (() => {
-    if (!cellHistoryModal) return null;
-    const target = item.screening.healthSystems.find(
-      (entry) => entry.healthSystemId === cellHistoryModal.healthSystemId
+        return {
+          metric: question,
+          responseCount: bucket?.responseCount || 0,
+          averageScore,
+          responses: bucket?.responses || [],
+          isUnmapped: false
+        };
+      });
+
+      const unmappedRows: QuantitativeSlideQuestionRow[] = Array.from(categoryResponseMap.entries())
+        .filter(([metricKey]) => !questionKeySet.has(metricKey))
+        .map(([, bucket]) => {
+          const numericScores = bucket.responses.map((response) => response.score);
+          const averageScore =
+            numericScores.length > 0
+              ? Math.round((numericScores.reduce((sum, score) => sum + score, 0) / numericScores.length) * 10) / 10
+              : null;
+          return {
+            metric: bucket.metric,
+            responseCount: bucket.responseCount,
+            averageScore,
+            responses: bucket.responses,
+            isUnmapped: true
+          };
+        })
+        .sort((a, b) => a.metric.localeCompare(b.metric));
+
+      const rows = [...configuredRows, ...unmappedRows];
+      const categoryScores = rows.flatMap((row) => row.responses.map((response) => response.score));
+      const categoryAverageScore =
+        categoryScores.length > 0
+          ? Math.round((categoryScores.reduce((sum, score) => sum + score, 0) / categoryScores.length) * 10) / 10
+          : null;
+
+      return {
+        category: section.category,
+        categoryAverageScore,
+        rows
+      };
+    });
+
+    const sectionsFromResponseOnlyCategories: QuantitativeSlideCategorySection[] = Array.from(
+      responseMapByCategory.entries()
+    )
+      .filter(([category]) => !questionCategoryNames.has(category))
+      .map(([category, metrics]) => {
+        const rows: QuantitativeSlideQuestionRow[] = Array.from(metrics.values())
+          .map((bucket) => {
+            const numericScores = bucket.responses.map((response) => response.score);
+            const averageScore =
+              numericScores.length > 0
+                ? Math.round((numericScores.reduce((sum, score) => sum + score, 0) / numericScores.length) * 10) / 10
+                : null;
+            return {
+              metric: bucket.metric,
+              responseCount: bucket.responseCount,
+              averageScore,
+              responses: bucket.responses,
+              isUnmapped: true
+            };
+          })
+          .sort((a, b) => a.metric.localeCompare(b.metric));
+        const categoryScores = rows.flatMap((row) => row.responses.map((response) => response.score));
+        const categoryAverageScore =
+          categoryScores.length > 0
+            ? Math.round((categoryScores.reduce((sum, score) => sum + score, 0) / categoryScores.length) * 10) / 10
+            : null;
+
+        return {
+          category,
+          categoryAverageScore,
+          rows
+        };
+      });
+
+    const sections = [...sectionsFromQuestionSet, ...sectionsFromResponseOnlyCategories]
+      .filter((section) => section.rows.length > 0)
+      .sort((a, b) => compareQuantitativeCategoryName(a.category, b.category));
+
+    const institutions = Array.from(
+      new Set(
+        sections
+          .flatMap((section) => section.rows)
+          .flatMap((row) => row.responses)
+          .map((response) => response.institution)
+          .filter((institution) => institution.trim().length > 0)
+      )
     );
-    if (!target) return null;
-    const history =
-      cellHistoryModal.field === "RELEVANT_FEEDBACK"
-        ? target.relevantFeedbackHistory
-        : target.statusUpdateHistory;
+
     return {
-      healthSystemName: target.healthSystemName,
-      field: cellHistoryModal.field,
-      history
+      sections,
+      institutions
     };
+  })();
+  const quantitativeSlideSections = quantitativeSlideSectionsResult.sections;
+  const quantitativeRespondingInstitutions = quantitativeSlideSectionsResult.institutions;
+  const quantitativeQuestionCount = quantitativeQuestionCategories.reduce(
+    (sum, section) => sum + section.questions.length,
+    0
+  );
+  const quantitativeInstitutionColorByName = (() => {
+    const palette = [
+      { fill: "#1f80dc", border: "#145ea8" },
+      { fill: "#16a34a", border: "#166534" },
+      { fill: "#ea580c", border: "#9a3412" },
+      { fill: "#7c3aed", border: "#5b21b6" },
+      { fill: "#e11d48", border: "#9f1239" },
+      { fill: "#0891b2", border: "#155e75" },
+      { fill: "#b45309", border: "#78350f" }
+    ] as const;
+    const colorMap = new Map<string, { fill: string; border: string }>();
+    quantitativeRespondingInstitutions.forEach((institution, index) => {
+      colorMap.set(institution, palette[index % palette.length]);
+    });
+    return colorMap;
   })();
 
   return (
@@ -992,118 +1123,122 @@ export function PipelineOpportunityDetailView({
         <p>{item.location || "Location unavailable"}</p>
       </section>
 
-      <section className="panel">
-        <h2>Pipeline Overview</h2>
-        <div className="row">
-          <div>
-            <label>Current Stage</label>
-            <select
-              value={item.column || ""}
-              onChange={(event) => {
-                const nextColumn = event.target.value as PipelineBoardColumn;
-                if (nextColumn) {
-                  void updateColumn(nextColumn);
-                }
-              }}
-              disabled={savingPhase}
-            >
-              <option value="" disabled>
-                Select stage
-              </option>
-              {PIPELINE_BOARD_COLUMNS.map((column) => (
-                <option key={column.key} value={column.key}>
-                  {column.label}
-                </option>
+      {!item.isScreeningStage ? (
+        <>
+          <section className="panel">
+            <h2>Pipeline Overview</h2>
+            <div className="row">
+              <div>
+                <label>Current Stage</label>
+                <select
+                  value={item.column || ""}
+                  onChange={(event) => {
+                    const nextColumn = event.target.value as PipelineBoardColumn;
+                    if (nextColumn) {
+                      void updateColumn(nextColumn);
+                    }
+                  }}
+                  disabled={savingPhase}
+                >
+                  <option value="" disabled>
+                    Select stage
+                  </option>
+                  {PIPELINE_BOARD_COLUMNS.map((column) => (
+                    <option key={column.key} value={column.key}>
+                      {column.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label>Pipeline Phase</label>
+                <input value={item.phaseLabel} readOnly />
+              </div>
+            </div>
+
+            <div className="row">
+              <div>
+                <label>Website</label>
+                <input value={item.website || ""} readOnly />
+              </div>
+              <div>
+                <label>Stage Type</label>
+                <input value={item.isScreeningStage ? "Screening" : "Non-screening"} readOnly />
+              </div>
+            </div>
+
+            {item.description ? (
+              <div className="detail-section">
+                <label>Description</label>
+                <textarea value={item.description} readOnly />
+              </div>
+            ) : null}
+          </section>
+
+          <section className="panel">
+            <h2>Open Opportunities</h2>
+            {item.opportunities.length === 0 ? <p className="muted">No open opportunities.</p> : null}
+            <div className="pipeline-detail-list">
+              {item.opportunities.map((opportunity) => (
+                <div key={opportunity.id} className="detail-list-item">
+                  <div className="detail-grid">
+                    <div>
+                      <label>Title</label>
+                      <input value={opportunity.title} readOnly />
+                    </div>
+                    <div>
+                      <label>Stage</label>
+                      <input value={opportunity.stage} readOnly />
+                    </div>
+                    <div>
+                      <label>Type</label>
+                      <input value={opportunity.type} readOnly />
+                    </div>
+                    <div>
+                      <label>Health System</label>
+                      <input value={opportunity.healthSystem?.name || "Not linked"} readOnly />
+                    </div>
+                  </div>
+                  {opportunity.nextSteps ? (
+                    <>
+                      <label>Next Steps</label>
+                      <textarea value={opportunity.nextSteps} readOnly />
+                    </>
+                  ) : null}
+                  {opportunity.notes ? (
+                    <>
+                      <label>Notes</label>
+                      <textarea value={opportunity.notes} readOnly />
+                    </>
+                  ) : null}
+                </div>
               ))}
-            </select>
-          </div>
-          <div>
-            <label>Pipeline Phase</label>
-            <input value={item.phaseLabel} readOnly />
-          </div>
-        </div>
-
-        <div className="row">
-          <div>
-            <label>Website</label>
-            <input value={item.website || ""} readOnly />
-          </div>
-          <div>
-            <label>Stage Type</label>
-            <input value={item.isScreeningStage ? "Screening" : "Non-screening"} readOnly />
-          </div>
-        </div>
-
-        {item.description ? (
-          <div className="detail-section">
-            <label>Description</label>
-            <textarea value={item.description} readOnly />
-          </div>
-        ) : null}
-      </section>
-
-      <section className="panel">
-        <h2>Open Opportunities</h2>
-        {item.opportunities.length === 0 ? <p className="muted">No open opportunities.</p> : null}
-        <div className="pipeline-detail-list">
-          {item.opportunities.map((opportunity) => (
-            <div key={opportunity.id} className="detail-list-item">
-              <div className="detail-grid">
-                <div>
-                  <label>Title</label>
-                  <input value={opportunity.title} readOnly />
-                </div>
-                <div>
-                  <label>Stage</label>
-                  <input value={opportunity.stage} readOnly />
-                </div>
-                <div>
-                  <label>Type</label>
-                  <input value={opportunity.type} readOnly />
-                </div>
-                <div>
-                  <label>Health System</label>
-                  <input value={opportunity.healthSystem?.name || "Not linked"} readOnly />
-                </div>
-              </div>
-              {opportunity.nextSteps ? (
-                <>
-                  <label>Next Steps</label>
-                  <textarea value={opportunity.nextSteps} readOnly />
-                </>
-              ) : null}
-              {opportunity.notes ? (
-                <>
-                  <label>Notes</label>
-                  <textarea value={opportunity.notes} readOnly />
-                </>
-              ) : null}
             </div>
-          ))}
-        </div>
-      </section>
+          </section>
 
-      <section className="panel">
-        <h2>Company Documents</h2>
-        {item.documents.length === 0 ? <p className="muted">No company-level documents.</p> : null}
-        <div className="pipeline-doc-list">
-          {item.documents.map((document) => (
-            <div key={document.id} className="detail-list-item">
-              <div className="pipeline-doc-head">
-                <strong>{document.title}</strong>
-                <span className="status-pill draft">{document.type}</span>
-              </div>
-              <p className="muted">
-                <a href={document.url} target="_blank" rel="noreferrer">
-                  {document.url}
-                </a>
-              </p>
-              <p className="muted">Uploaded {formatDate(document.uploadedAt)}</p>
-              {document.notes ? <p className="muted">{document.notes}</p> : null}
+          <section className="panel">
+            <h2>Company Documents</h2>
+            {item.documents.length === 0 ? <p className="muted">No company-level documents.</p> : null}
+            <div className="pipeline-doc-list">
+              {item.documents.map((document) => (
+                <div key={document.id} className="detail-list-item">
+                  <div className="pipeline-doc-head">
+                    <strong>{document.title}</strong>
+                    <span className="status-pill draft">{document.type}</span>
+                  </div>
+                  <p className="muted">
+                    <a href={document.url} target="_blank" rel="noreferrer">
+                      {document.url}
+                    </a>
+                  </p>
+                  <p className="muted">Uploaded {formatDate(document.uploadedAt)}</p>
+                  {document.notes ? <p className="muted">{document.notes}</p> : null}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </section>
+          </section>
+        </>
+      ) : null}
 
       {item.isScreeningStage ? (
         <section className="panel">
@@ -1111,302 +1246,215 @@ export function PipelineOpportunityDetailView({
           <p className="muted">
             Overview mirrors screening operations: all alliance systems, tracked individuals, and each system LOI status.
           </p>
+          <p className="muted">{`Showing ${item.screening.healthSystems.length} alliance members.`}</p>
 
-          <div className="screening-overview-table-wrap">
-            <table className="screening-overview-table">
-              <thead>
-                <tr>
-                  <th scope="col">Organization</th>
-                  <th scope="col">Attend? (#)</th>
-                  <th scope="col">Preliminary Interest</th>
-                  <th scope="col">Attendees</th>
-                  <th scope="col">Relevant Feedback + Next Steps</th>
-                  <th scope="col">Status Update</th>
-                </tr>
-              </thead>
-              <tbody>
-                {item.screening.healthSystems.map((entry) => {
-                  const currentStatus = statusMeta(entry.status);
-                  const isActive = selectedScreeningHealthSystem?.healthSystemId === entry.healthSystemId;
-                  const individuals = uniqueIndividuals(entry);
-                  const attendedCount = entry.participants.filter(
-                    (participant) => participant.attendanceStatus === "ATTENDED"
-                  ).length;
-                  const relevantFeedbackDraft =
-                    relevantFeedbackDraftByHealthSystemId[entry.healthSystemId] ?? entry.relevantFeedback ?? "";
-                  const statusUpdateDraft =
-                    statusUpdateDraftByHealthSystemId[entry.healthSystemId] ?? entry.statusUpdate ?? "";
-                  const latestFeedbackEdit = entry.relevantFeedbackHistory[0] || null;
-                  const latestStatusEdit = entry.statusUpdateHistory[0] || null;
-                  const savingFeedbackCell = Boolean(
-                    savingScreeningCellByKey[screeningCellKey(entry.healthSystemId, "RELEVANT_FEEDBACK")]
-                  );
-                  const savingStatusCell = Boolean(
-                    savingScreeningCellByKey[screeningCellKey(entry.healthSystemId, "STATUS_UPDATE")]
-                  );
-                  return (
-                    <tr key={entry.healthSystemId} className={isActive ? "active" : undefined}>
-                      <td>
-                        <button
-                          type="button"
-                          className={`screening-overview-select ${isActive ? "active" : ""}`}
-                          onClick={() => setActiveScreeningHealthSystemId(entry.healthSystemId)}
-                        >
-                          {entry.healthSystemName}
-                        </button>
-                      </td>
-                      <td>
-                        {attendedCount > 0 ? (
-                          <span className="screening-attendance-pill">{`\u25cf (${attendedCount})`}</span>
-                        ) : (
-                          <span className="muted">NA</span>
-                        )}
-                      </td>
-                      <td>
-                        <select
-                          value={entry.status}
-                          className={`screening-inline-status-select ${currentStatus.className}`}
-                          onChange={(event) =>
-                            void updateScreeningStatus(entry.healthSystemId, event.target.value as ScreeningStatus)
-                          }
-                          disabled={Boolean(savingStatusByHealthSystemId[entry.healthSystemId])}
-                        >
-                          {screeningStatusOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        {individuals.length === 0 ? (
-                          <span className="muted">No attendees listed</span>
-                        ) : (
-                          <div className="screening-attendee-list">
-                            {individuals.map((individual) => (
-                              <p key={individual.key}>{individual.label}</p>
-                            ))}
-                          </div>
-                        )}
-                        <div className="screening-inline-attendee-entry">
-                          <EntityLookupInput
-                            entityKind="CONTACT"
-                            value={attendeeLookupValueByHealthSystemId[entry.healthSystemId] || ""}
-                            onChange={(nextValue) => {
-                              setAttendeeLookupValueByHealthSystemId((current) => ({
-                                ...current,
-                                [entry.healthSystemId]: nextValue
-                              }));
-                              if (!nextValue) return;
-                              void addScreeningAttendee(entry.healthSystemId, nextValue);
-                            }}
-                            placeholder="Type attendee name..."
-                            emptyLabel="Start typing to add attendee"
-                            contactCreateContext={{
-                              parentType: "healthSystem",
-                              parentId: entry.healthSystemId,
-                              roleType: "EXECUTIVE"
-                            }}
-                            contactSearchHealthSystemId={entry.healthSystemId}
-                            autoOpenCreateOnEnterNoMatch
-                            disabled={Boolean(addingAttendeeByHealthSystemId[entry.healthSystemId])}
-                            className="screening-attendee-lookup"
-                          />
-                          {addingAttendeeByHealthSystemId[entry.healthSystemId] ? (
-                            <p className="muted">Adding attendee...</p>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td>
-                        <textarea
-                          className="screening-inline-textarea"
-                          value={relevantFeedbackDraft}
-                          placeholder="Add relevant feedback and next steps"
-                          onChange={(event) =>
-                            setRelevantFeedbackDraftByHealthSystemId((current) => ({
-                              ...current,
-                              [entry.healthSystemId]: event.target.value
-                            }))
-                          }
-                          onBlur={() => void saveScreeningCell(entry.healthSystemId, "RELEVANT_FEEDBACK")}
-                        />
-                        <div className="screening-inline-cell-actions">
-                          <button
-                            className="secondary small"
-                            type="button"
-                            onClick={() => void saveScreeningCell(entry.healthSystemId, "RELEVANT_FEEDBACK")}
-                            disabled={savingFeedbackCell}
-                          >
-                            {savingFeedbackCell ? "Saving..." : "Save"}
-                          </button>
-                          <button
-                            className="ghost small"
-                            type="button"
-                            onClick={() =>
-                              setCellHistoryModal({
-                                healthSystemId: entry.healthSystemId,
-                                healthSystemName: entry.healthSystemName,
-                                field: "RELEVANT_FEEDBACK"
-                              })
-                            }
-                          >
-                            History
-                          </button>
-                        </div>
-                        {latestFeedbackEdit ? (
-                          <p className="muted">
-                            {`Last edit ${new Date(latestFeedbackEdit.changedAt).toLocaleString()} by ${latestFeedbackEdit.changedByName}`}
-                          </p>
-                        ) : null}
-                      </td>
-                      <td>
-                        <textarea
-                          className="screening-inline-textarea"
-                          value={statusUpdateDraft}
-                          placeholder="Add status update"
-                          onChange={(event) =>
-                            setStatusUpdateDraftByHealthSystemId((current) => ({
-                              ...current,
-                              [entry.healthSystemId]: event.target.value
-                            }))
-                          }
-                          onBlur={() => void saveScreeningCell(entry.healthSystemId, "STATUS_UPDATE")}
-                        />
-                        <div className="screening-inline-cell-actions">
-                          <button
-                            className="secondary small"
-                            type="button"
-                            onClick={() => void saveScreeningCell(entry.healthSystemId, "STATUS_UPDATE")}
-                            disabled={savingStatusCell}
-                          >
-                            {savingStatusCell ? "Saving..." : "Save"}
-                          </button>
-                          <button
-                            className="ghost small"
-                            type="button"
-                            onClick={() =>
-                              setCellHistoryModal({
-                                healthSystemId: entry.healthSystemId,
-                                healthSystemName: entry.healthSystemName,
-                                field: "STATUS_UPDATE"
-                              })
-                            }
-                          >
-                            History
-                          </button>
-                        </div>
-                        {latestStatusEdit ? (
-                          <p className="muted">
-                            {`Last edit ${new Date(latestStatusEdit.changedAt).toLocaleString()} by ${latestStatusEdit.changedByName}`}
-                          </p>
-                        ) : null}
-                        <p className="muted">{formatDate(entry.statusUpdatedAt)}</p>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="detail-action-bar screening-bubble-nav" role="tablist" aria-label="Screening detail views">
+            {screeningDetailViewOptions.map((view) => (
+              <button
+                key={view.key}
+                type="button"
+                role="tab"
+                className={`quick-action-pill screening-bubble-pill ${screeningDetailView === view.key ? "active" : ""}`}
+                aria-selected={screeningDetailView === view.key}
+                onClick={() => setScreeningDetailView(view.key)}
+              >
+                <span className="screening-bubble-icon" aria-hidden="true">
+                  {view.icon}
+                </span>
+                {view.label}
+              </button>
+            ))}
           </div>
 
-          {selectedScreeningHealthSystem ? (
+          {screeningDetailView === "status" ? (
+            <div className="screening-overview-table-wrap">
+              <table className="screening-overview-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Organization</th>
+                    <th scope="col">Attend? (#)</th>
+                    <th scope="col">Preliminary Interest</th>
+                    <th scope="col">Attendees</th>
+                    <th scope="col">Relevant Feedback + Next Steps</th>
+                    <th scope="col">Status Update</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {item.screening.healthSystems.map((entry) => {
+                    const individuals = uniqueIndividuals(entry);
+                    const attendedCount = entry.participants.filter(
+                      (participant) => participant.attendanceStatus === "ATTENDED"
+                    ).length;
+                    const relevantFeedbackDraft =
+                      relevantFeedbackDraftByHealthSystemId[entry.healthSystemId] ?? entry.relevantFeedback ?? "";
+                    const statusUpdateDraft =
+                      statusUpdateDraftByHealthSystemId[entry.healthSystemId] ?? entry.statusUpdate ?? "";
+                    const savingFeedbackCell = Boolean(
+                      savingScreeningCellByKey[screeningCellKey(entry.healthSystemId, "RELEVANT_FEEDBACK")]
+                    );
+                    const savingStatusCell = Boolean(
+                      savingScreeningCellByKey[screeningCellKey(entry.healthSystemId, "STATUS_UPDATE")]
+                    );
+                    const isEditingRelevant =
+                      editingScreeningCell?.healthSystemId === entry.healthSystemId &&
+                      editingScreeningCell.field === "RELEVANT_FEEDBACK";
+                    const isEditingStatus =
+                      editingScreeningCell?.healthSystemId === entry.healthSystemId &&
+                      editingScreeningCell.field === "STATUS_UPDATE";
+
+                    return (
+                      <tr key={entry.healthSystemId}>
+                        <td>
+                          <span className="screening-overview-org-name">{entry.healthSystemName}</span>
+                        </td>
+                        <td>
+                          {attendedCount > 0 ? (
+                            <span className="screening-attendance-pill">{`\u25cf (${attendedCount})`}</span>
+                          ) : (
+                            <span className="muted">NA</span>
+                          )}
+                        </td>
+                        <td>
+                          <select
+                            value={entry.status}
+                            className={`screening-inline-status-select ${inlineInterestClassName(entry.status)}`}
+                            onChange={(event) =>
+                              void updateScreeningStatus(entry.healthSystemId, event.target.value as ScreeningStatus)
+                            }
+                            disabled={Boolean(savingStatusByHealthSystemId[entry.healthSystemId])}
+                          >
+                            {screeningInlineInterestOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          {individuals.length === 0 ? (
+                            <span className="muted">No attendees listed</span>
+                          ) : (
+                            <div className="screening-attendee-list">
+                              {individuals.map((individual) => (
+                                <p key={individual.key}>{individual.label}</p>
+                              ))}
+                            </div>
+                          )}
+                          <p className="screening-inline-link-row">
+                            <a
+                              href="#"
+                              className="screening-inline-add-contact"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setAddAttendeeLookupValue("");
+                                setAddAttendeeModal({
+                                  healthSystemId: entry.healthSystemId,
+                                  healthSystemName: entry.healthSystemName
+                                });
+                              }}
+                            >
+                              add contact
+                            </a>
+                            {addingAttendeeByHealthSystemId[entry.healthSystemId] ? (
+                              <span className="muted">Adding...</span>
+                            ) : null}
+                          </p>
+                        </td>
+                        <td>
+                          {isEditingRelevant ? (
+                            <textarea
+                              className="screening-inline-cell-editor"
+                              autoFocus
+                              value={relevantFeedbackDraft}
+                              onChange={(event) =>
+                                setRelevantFeedbackDraftByHealthSystemId((current) => ({
+                                  ...current,
+                                  [entry.healthSystemId]: event.target.value
+                                }))
+                              }
+                              onBlur={() => {
+                                setEditingScreeningCell((current) =>
+                                  current?.healthSystemId === entry.healthSystemId &&
+                                  current.field === "RELEVANT_FEEDBACK"
+                                    ? null
+                                    : current
+                                );
+                                void saveScreeningCell(entry.healthSystemId, "RELEVANT_FEEDBACK");
+                              }}
+                            />
+                          ) : (
+                            <p
+                              className={`screening-inline-cell-text ${relevantFeedbackDraft.trim() ? "" : "empty"}`}
+                              onClick={() =>
+                                setEditingScreeningCell({
+                                  healthSystemId: entry.healthSystemId,
+                                  field: "RELEVANT_FEEDBACK"
+                                })
+                              }
+                            >
+                              {relevantFeedbackDraft.trim() || "Click to add relevant feedback + next steps"}
+                            </p>
+                          )}
+                          {savingFeedbackCell ? <p className="muted screening-inline-saving">Saving...</p> : null}
+                        </td>
+                        <td>
+                          {isEditingStatus ? (
+                            <textarea
+                              className="screening-inline-cell-editor"
+                              autoFocus
+                              value={statusUpdateDraft}
+                              onChange={(event) =>
+                                setStatusUpdateDraftByHealthSystemId((current) => ({
+                                  ...current,
+                                  [entry.healthSystemId]: event.target.value
+                                }))
+                              }
+                              onBlur={() => {
+                                setEditingScreeningCell((current) =>
+                                  current?.healthSystemId === entry.healthSystemId && current.field === "STATUS_UPDATE"
+                                    ? null
+                                    : current
+                                );
+                                void saveScreeningCell(entry.healthSystemId, "STATUS_UPDATE");
+                              }}
+                            />
+                          ) : (
+                            <p
+                              className={`screening-inline-cell-text ${statusUpdateDraft.trim() ? "" : "empty"}`}
+                              onClick={() =>
+                                setEditingScreeningCell({
+                                  healthSystemId: entry.healthSystemId,
+                                  field: "STATUS_UPDATE"
+                                })
+                              }
+                            >
+                              {statusUpdateDraft.trim() || "Click to add status update"}
+                            </p>
+                          )}
+                          {savingStatusCell ? <p className="muted screening-inline-saving">Saving...</p> : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
+          {screeningDetailView === "documents" ? (
             <article className="screening-system-card">
               <div className="pipeline-card-head">
-                <h3>{selectedScreeningHealthSystem.healthSystemName}</h3>
-                <span className={`screening-status-pill ${statusMeta(selectedScreeningHealthSystem.status).className}`}>
-                  {statusMeta(selectedScreeningHealthSystem.status).label}
-                </span>
+                <h3>Company Documents</h3>
+                <span className="status-pill queued">{`${item.documents.length} total`}</span>
               </div>
-
-              <div className="row">
-                <div>
-                  <label>Status</label>
-                  <select
-                    value={selectedScreeningHealthSystem.status}
-                    disabled={Boolean(
-                      savingStatusByHealthSystemId[selectedScreeningHealthSystem.healthSystemId]
-                    )}
-                    onChange={(event) =>
-                      void updateScreeningStatus(
-                        selectedScreeningHealthSystem.healthSystemId,
-                        event.target.value as ScreeningStatus
-                      )
-                    }
-                  >
-                    {screeningStatusOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label>Status Updated</label>
-                  <input value={formatDate(selectedScreeningHealthSystem.statusUpdatedAt)} readOnly />
-                </div>
-              </div>
-
-              <p className="detail-label">Individuals</p>
-              {selectedScreeningHealthSystem.participants.length === 0 ? (
-                <p className="muted">No screening participants captured for this health system.</p>
-              ) : (
-                <div className="screening-participant-list">
-                  {selectedScreeningHealthSystem.participants.map((participant) => (
-                    <div key={participant.id} className="detail-list-item">
-                      <div className="pipeline-card-head">
-                        <strong>
-                          {participant.contactTitle
-                            ? `${participant.contactName} (${participant.contactTitle})`
-                            : participant.contactName}
-                        </strong>
-                        <span className="status-pill queued">
-                          {attendanceStatusLabel(participant.attendanceStatus)}
-                        </span>
-                      </div>
-                      <p className="muted">{participant.eventTitle}</p>
-                      {participant.notes ? <p className="muted">{participant.notes}</p> : null}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <label>Notes History</label>
-              <textarea value={selectedScreeningHealthSystem.notes || ""} readOnly />
-
-              <label>Add Note</label>
-              <textarea
-                value={noteDraftByHealthSystemId[selectedScreeningHealthSystem.healthSystemId] || ""}
-                onChange={(event) =>
-                  setNoteDraftByHealthSystemId((current) => ({
-                    ...current,
-                    [selectedScreeningHealthSystem.healthSystemId]: event.target.value
-                  }))
-                }
-                placeholder="Add a timestamped note"
-              />
-              <div className="actions">
-                <button
-                  className="secondary"
-                  type="button"
-                  onClick={() => void addScreeningNote(selectedScreeningHealthSystem.healthSystemId)}
-                  disabled={Boolean(
-                    savingStatusByHealthSystemId[selectedScreeningHealthSystem.healthSystemId]
-                  )}
-                >
-                  {savingStatusByHealthSystemId[selectedScreeningHealthSystem.healthSystemId]
-                    ? "Saving..."
-                    : "Add Note"}
-                </button>
-              </div>
-
-              <p className="detail-label">Documents</p>
-              {selectedScreeningHealthSystem.documents.length === 0 ? (
-                <p className="muted">No screening documents yet.</p>
-              ) : null}
+              {item.documents.length === 0 ? <p className="muted">No company-level documents.</p> : null}
               <div className="pipeline-doc-list">
-                {selectedScreeningHealthSystem.documents.map((document) => (
+                {item.documents.map((document) => (
                   <div key={document.id} className="detail-list-item">
-                    <strong>{document.title}</strong>
+                    <div className="pipeline-doc-head">
+                      <strong>{document.title}</strong>
+                      <span className="status-pill draft">{document.type}</span>
+                    </div>
                     <p className="muted">
                       <a href={document.url} target="_blank" rel="noreferrer">
                         {document.url}
@@ -1417,314 +1465,263 @@ export function PipelineOpportunityDetailView({
                   </div>
                 ))}
               </div>
+            </article>
+          ) : null}
 
-              <p className="detail-label">Add Document</p>
-              <div className="detail-grid">
-                <div>
-                  <label>Title</label>
-                  <input
-                    value={
-                      (documentDraftByHealthSystemId[selectedScreeningHealthSystem.healthSystemId] ||
-                        emptyDocumentDraft()).title
-                    }
-                    onChange={(event) =>
-                      setDocumentDraftByHealthSystemId((current) => ({
-                        ...current,
-                        [selectedScreeningHealthSystem.healthSystemId]: {
-                          ...(current[selectedScreeningHealthSystem.healthSystemId] || emptyDocumentDraft()),
-                          title: event.target.value
-                        }
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label>URL</label>
-                  <input
-                    value={
-                      (documentDraftByHealthSystemId[selectedScreeningHealthSystem.healthSystemId] ||
-                        emptyDocumentDraft()).url
-                    }
-                    onChange={(event) =>
-                      setDocumentDraftByHealthSystemId((current) => ({
-                        ...current,
-                        [selectedScreeningHealthSystem.healthSystemId]: {
-                          ...(current[selectedScreeningHealthSystem.healthSystemId] || emptyDocumentDraft()),
-                          url: event.target.value
-                        }
-                      }))
-                    }
-                    placeholder="https://..."
-                  />
-                </div>
-              </div>
-              <label>Document Notes</label>
-              <textarea
-                value={
-                  (documentDraftByHealthSystemId[selectedScreeningHealthSystem.healthSystemId] ||
-                    emptyDocumentDraft()).notes
-                }
-                onChange={(event) =>
-                  setDocumentDraftByHealthSystemId((current) => ({
-                    ...current,
-                    [selectedScreeningHealthSystem.healthSystemId]: {
-                      ...(current[selectedScreeningHealthSystem.healthSystemId] || emptyDocumentDraft()),
-                      notes: event.target.value
-                    }
-                  }))
-                }
-              />
-              <div className="actions">
-                <button
-                  className="secondary"
-                  type="button"
-                  onClick={() => void addScreeningDocument(selectedScreeningHealthSystem.healthSystemId)}
-                  disabled={Boolean(
-                    savingDocumentByHealthSystemId[selectedScreeningHealthSystem.healthSystemId]
-                  )}
-                >
-                  {savingDocumentByHealthSystemId[selectedScreeningHealthSystem.healthSystemId]
-                    ? "Saving..."
-                    : "Add Document"}
-                </button>
-              </div>
+          {screeningDetailView === "quantitative" || screeningDetailView === "qualitative" ? (
+            selectedScreeningHealthSystem ? (
+              <article className="screening-system-card">
+                {screeningDetailView === "quantitative" ? (
+                  <div className="pipeline-card-head">
+                    <h3>Alliance Quantitative Survey Results</h3>
+                    <span className="status-pill queued">{`${quantitativeRespondingInstitutions.length} institutions`}</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="pipeline-card-head">
+                      <h3>{selectedScreeningHealthSystem.healthSystemName}</h3>
+                      <span className={`screening-status-pill ${statusMeta(selectedScreeningHealthSystem.status).className}`}>
+                        {statusMeta(selectedScreeningHealthSystem.status).label}
+                      </span>
+                    </div>
 
-              <div className="detail-tabs screening-feedback-tabs" role="tablist" aria-label="Screening feedback sections">
-                <button
-                  type="button"
-                  role="tab"
-                  className={`detail-tab ${selectedFeedbackTab === "quantitative" ? "active" : ""}`}
-                  aria-selected={selectedFeedbackTab === "quantitative"}
-                  onClick={() =>
-                    setFeedbackTabByHealthSystemId((current) => ({
-                      ...current,
-                      [selectedScreeningHealthSystem.healthSystemId]: "quantitative"
-                    }))
-                  }
-                >
-                  Quantitative Feedback
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  className={`detail-tab ${selectedFeedbackTab === "qualitative" ? "active" : ""}`}
-                  aria-selected={selectedFeedbackTab === "qualitative"}
-                  onClick={() =>
-                    setFeedbackTabByHealthSystemId((current) => ({
-                      ...current,
-                      [selectedScreeningHealthSystem.healthSystemId]: "qualitative"
-                    }))
-                  }
-                >
-                  Qualitative Feedback
-                </button>
-              </div>
+                    <div className="row">
+                      <div>
+                        <label>Selected Health System</label>
+                        <select
+                          value={selectedScreeningHealthSystem.healthSystemId}
+                          onChange={(event) => setActiveScreeningHealthSystemId(event.target.value)}
+                        >
+                          {item.screening.healthSystems.map((entry) => (
+                            <option key={entry.healthSystemId} value={entry.healthSystemId}>
+                              {entry.healthSystemName}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label>Status Updated</label>
+                        <input value={formatDate(selectedScreeningHealthSystem.statusUpdatedAt)} readOnly />
+                      </div>
+                    </div>
+                  </>
+                )}
 
-              {selectedFeedbackTab === "quantitative" ? (
+              {screeningDetailView === "quantitative" ? (
                 <>
-                  <p className="detail-label">Quantitative Results</p>
-                  {quantitativeSummaryByCategory.length === 0 ? (
-                    <p className="muted">No quantitative feedback captured yet.</p>
-                  ) : (
-                    <div className="screening-quant-grid">
-                      {quantitativeSummaryByCategory.map((category) => (
-                        <div key={category.category} className="detail-list-item">
-                          <div className="pipeline-card-head">
-                            <strong>{category.category}</strong>
-                          </div>
-                          <div className="screening-quant-table-wrap">
-                            <table className="screening-quant-table">
-                              <thead>
-                                <tr>
-                                  <th scope="col">Metric</th>
-                                  <th scope="col">Responses</th>
-                                  <th scope="col">Avg</th>
-                                  <th scope="col">Distribution (1-10)</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {category.rows.map((row) => (
-                                  <tr key={`${category.category}-${row.metric}`}>
-                                    <td>{row.metric}</td>
-                                    <td>{row.responseCount}</td>
-                                    <td>{row.averageScore === null ? "N/A" : row.averageScore.toFixed(1)}</td>
-                                    <td>
-                                      <div className="screening-score-distribution">
-                                        {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
-                                          <span key={value} className="screening-score-chip">
-                                            {value}:{row.distribution[value] || 0}
+                  <div className="screening-quant-header">
+                    <div>
+                      <p className="detail-label">Quantitative Results</p>
+                      <p className="muted">
+                        Each dot is an individual survey response and each block shows the average score for that
+                        question.
+                      </p>
+                      <p className="muted">Survey response entry will be added in a later sprint.</p>
+                    </div>
+                    <div className="actions">
+                      <button
+                        className="secondary small"
+                        type="button"
+                        onClick={() =>
+                          setQuantitativeQuestionEditorOpen((current) => !current)
+                        }
+                      >
+                        {quantitativeQuestionEditorOpen ? "Done Editing Questions" : "Admin: Edit Questions"}
+                      </button>
+                      {quantitativeQuestionEditorOpen ? (
+                        <button className="ghost small" type="button" onClick={resetQuantitativeQuestions}>
+                          Reset to Standard Questions
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  {quantitativeRespondingInstitutions.length > 0 ? (
+                    <div className="screening-survey-legend">
+                      {quantitativeRespondingInstitutions.map((institution) => {
+                        const institutionColor =
+                          quantitativeInstitutionColorByName.get(institution) || {
+                            fill: "#1f80dc",
+                            border: "#145ea8"
+                          };
+                        return (
+                          <span key={institution} className="screening-survey-legend-item">
+                            <span
+                              className="screening-survey-legend-dot"
+                              style={{
+                                background: institutionColor.fill,
+                                borderColor: institutionColor.border
+                              }}
+                            />
+                            {institution}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  <div
+                    className={`screening-quant-layout ${quantitativeQuestionEditorOpen ? "with-editor" : ""}`}
+                  >
+                    {quantitativeSlideSections.length === 0 ? (
+                      <p className="muted">No quantitative feedback captured yet.</p>
+                    ) : (
+                      <div className="screening-survey-pane">
+                        {quantitativeSlideSections.map((section) => (
+                          <section key={section.category} className="screening-survey-section">
+                            <div className="pipeline-card-head">
+                              <strong>{section.category}</strong>
+                              <span className="screening-survey-category-average">
+                                {section.categoryAverageScore === null
+                                  ? "Category avg: N/A"
+                                  : `Category avg: ${section.categoryAverageScore.toFixed(1)}`}
+                              </span>
+                            </div>
+
+                            <div className="screening-survey-question-list">
+                              {section.rows.map((row, rowIndex) => {
+                                const laneCountByBucket = new Map<number, number>();
+
+                                return (
+                                  <div
+                                    key={`${section.category}-${row.metric}-${rowIndex}`}
+                                    className="screening-survey-question-row"
+                                  >
+                                    <p className="screening-survey-question-text">
+                                      {row.metric}
+                                      <span className="screening-survey-question-meta">
+                                        {row.responseCount > 0
+                                          ? `${row.responseCount} response${row.responseCount === 1 ? "" : "s"}`
+                                          : "No responses yet"}
+                                        {row.isUnmapped ? " - legacy question text" : ""}
+                                      </span>
+                                    </p>
+
+                                    <div className="screening-survey-track-wrap">
+                                      <div className="screening-survey-scale-labels">
+                                        {Array.from({ length: 10 }, (_, index) => (
+                                          <span key={`scale-${section.category}-${row.metric}-${index + 1}`}>
+                                            {index + 1}
                                           </span>
                                         ))}
                                       </div>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                                      <div className="screening-survey-track">
+                                        <div className="screening-survey-grid" aria-hidden="true">
+                                          {Array.from({ length: 10 }, (_, index) => (
+                                            <span key={`grid-${section.category}-${row.metric}-${index + 1}`} />
+                                          ))}
+                                        </div>
+                                        {row.responses.map((response) => {
+                                          const bucket = Math.round(response.score * 2);
+                                          const lane = laneCountByBucket.get(bucket) || 0;
+                                          laneCountByBucket.set(bucket, lane + 1);
+                                          const leftPercent = ((response.score - 1) / 9) * 100;
+                                          const topOffset = 8 + (lane % 4) * 10;
+                                          const institutionColor =
+                                            quantitativeInstitutionColorByName.get(response.institution) || {
+                                              fill: "#1f80dc",
+                                              border: "#145ea8"
+                                            };
+                                          const hoverLabel = response.contactTitle
+                                            ? `${response.contactName} (${response.contactTitle}) - ${response.institution}`
+                                            : `${response.contactName} - ${response.institution}`;
 
-                  <p className="detail-label">Add Quantitative Feedback</p>
-                  <div className="detail-grid">
-                    <div>
-                      <label>Individual</label>
-                      <EntityLookupInput
-                        entityKind="CONTACT"
-                        value={
-                          (quantitativeDraftByHealthSystemId[selectedScreeningHealthSystem.healthSystemId] ||
-                            emptyQuantitativeFeedbackDraft()).contactId
-                        }
-                        onChange={(nextValue) =>
-                          setQuantitativeDraftByHealthSystemId((current) => ({
-                            ...current,
-                            [selectedScreeningHealthSystem.healthSystemId]: {
-                              ...(current[selectedScreeningHealthSystem.healthSystemId] ||
-                                emptyQuantitativeFeedbackDraft()),
-                              contactId: nextValue
-                            }
-                          }))
-                        }
-                        allowEmpty
-                        emptyLabel="Unlinked individual"
-                        initialOptions={selectedIndividualOptions.map((option) => ({
-                          id: option.id,
-                          name: option.label
-                        }))}
-                        placeholder="Search contacts"
-                        contactCreateContext={{
-                          parentType: "healthSystem",
-                          parentId: selectedScreeningHealthSystem.healthSystemId,
-                          roleType: "EXECUTIVE"
-                        }}
-                        contactSearchHealthSystemId={selectedScreeningHealthSystem.healthSystemId}
-                      />
-                    </div>
-                    <div>
-                      <label>Category</label>
-                      <select
-                        value={
-                          (quantitativeDraftByHealthSystemId[selectedScreeningHealthSystem.healthSystemId] ||
-                            emptyQuantitativeFeedbackDraft()).category
-                        }
-                        onChange={(event) =>
-                          setQuantitativeDraftByHealthSystemId((current) => ({
-                            ...current,
-                            [selectedScreeningHealthSystem.healthSystemId]: {
-                              ...(current[selectedScreeningHealthSystem.healthSystemId] ||
-                                emptyQuantitativeFeedbackDraft()),
-                              category: event.target.value
-                            }
-                          }))
-                        }
-                      >
-                        {quantitativeCategoryOptions.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
+                                          return (
+                                            <span
+                                              key={response.id}
+                                              className="screening-survey-dot"
+                                              title={`${hoverLabel}: ${response.score.toFixed(1)}`}
+                                              style={{
+                                                left: `${leftPercent}%`,
+                                                top: `${topOffset}px`,
+                                                background: institutionColor.fill,
+                                                borderColor: institutionColor.border
+                                              }}
+                                            />
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+
+                                    <div className="screening-survey-average-block">
+                                      {row.averageScore === null ? "N/A" : row.averageScore.toFixed(1)}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </section>
                         ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label>Metric</label>
-                      <input
-                        value={
-                          (quantitativeDraftByHealthSystemId[selectedScreeningHealthSystem.healthSystemId] ||
-                            emptyQuantitativeFeedbackDraft()).metric
-                        }
-                        onChange={(event) =>
-                          setQuantitativeDraftByHealthSystemId((current) => ({
-                            ...current,
-                            [selectedScreeningHealthSystem.healthSystemId]: {
-                              ...(current[selectedScreeningHealthSystem.healthSystemId] ||
-                                emptyQuantitativeFeedbackDraft()),
-                              metric: event.target.value
-                            }
-                          }))
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label>Score (1-10)</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="10"
-                        step="0.1"
-                        value={
-                          (quantitativeDraftByHealthSystemId[selectedScreeningHealthSystem.healthSystemId] ||
-                            emptyQuantitativeFeedbackDraft()).score
-                        }
-                        onChange={(event) =>
-                          setQuantitativeDraftByHealthSystemId((current) => ({
-                            ...current,
-                            [selectedScreeningHealthSystem.healthSystemId]: {
-                              ...(current[selectedScreeningHealthSystem.healthSystemId] ||
-                                emptyQuantitativeFeedbackDraft()),
-                              score: event.target.value
-                            }
-                          }))
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label>Weight %</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={
-                          (quantitativeDraftByHealthSystemId[selectedScreeningHealthSystem.healthSystemId] ||
-                            emptyQuantitativeFeedbackDraft()).weightPercent
-                        }
-                        onChange={(event) =>
-                          setQuantitativeDraftByHealthSystemId((current) => ({
-                            ...current,
-                            [selectedScreeningHealthSystem.healthSystemId]: {
-                              ...(current[selectedScreeningHealthSystem.healthSystemId] ||
-                                emptyQuantitativeFeedbackDraft()),
-                              weightPercent: event.target.value
-                            }
-                          }))
-                        }
-                      />
-                    </div>
+                      </div>
+                    )}
+                    {quantitativeQuestionEditorOpen ? (
+                      <aside className="screening-question-editor">
+                        <div className="pipeline-card-head">
+                          <strong>Question Set (Admin)</strong>
+                          <span className="status-pill draft">{`${quantitativeQuestionCount} questions`}</span>
+                        </div>
+                        <p className="muted">
+                          Standard questions can be adjusted for this screening. Changes are saved for this card.
+                        </p>
+                        <div className="screening-question-editor-sections">
+                          {quantitativeQuestionCategories.map((section) => (
+                            <section key={section.category} className="screening-question-editor-section">
+                              <div className="pipeline-card-head">
+                                <strong>{section.category}</strong>
+                                <button
+                                  className="ghost small"
+                                  type="button"
+                                  onClick={() => addQuantitativeQuestion(section.category)}
+                                >
+                                  Add question
+                                </button>
+                              </div>
+                              <div className="screening-question-editor-list">
+                                {section.questions.map((question, questionIndex) => (
+                                  <div
+                                    key={`${section.category}-question-${questionIndex}`}
+                                    className="screening-question-editor-row"
+                                  >
+                                    <input
+                                      value={question}
+                                      onChange={(event) =>
+                                        updateQuantitativeQuestion(
+                                          section.category,
+                                          questionIndex,
+                                          event.target.value
+                                        )
+                                      }
+                                      onBlur={() =>
+                                        normalizeQuantitativeQuestion(section.category, questionIndex)
+                                      }
+                                      placeholder={`Question ${questionIndex + 1}`}
+                                    />
+                                    <button
+                                      className="ghost small"
+                                      type="button"
+                                      onClick={() =>
+                                        removeQuantitativeQuestion(section.category, questionIndex)
+                                      }
+                                      disabled={section.questions.length <= 1}
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </section>
+                          ))}
+                        </div>
+                      </aside>
+                    ) : null}
                   </div>
-                  <label>Notes</label>
-                  <textarea
-                    value={
-                      (quantitativeDraftByHealthSystemId[selectedScreeningHealthSystem.healthSystemId] ||
-                        emptyQuantitativeFeedbackDraft()).notes
-                    }
-                    onChange={(event) =>
-                      setQuantitativeDraftByHealthSystemId((current) => ({
-                        ...current,
-                        [selectedScreeningHealthSystem.healthSystemId]: {
-                          ...(current[selectedScreeningHealthSystem.healthSystemId] ||
-                            emptyQuantitativeFeedbackDraft()),
-                          notes: event.target.value
-                        }
-                      }))
-                    }
-                  />
-                  <div className="actions">
-                    <button
-                      className="secondary"
-                      type="button"
-                      onClick={() => void addQuantitativeFeedback(selectedScreeningHealthSystem.healthSystemId)}
-                      disabled={Boolean(
-                        savingFeedbackByHealthSystemId[selectedScreeningHealthSystem.healthSystemId]
-                      )}
-                    >
-                      {savingFeedbackByHealthSystemId[selectedScreeningHealthSystem.healthSystemId]
-                        ? "Saving..."
-                        : "Add Quantitative Feedback"}
-                    </button>
-                  </div>
+                  <p className="screening-survey-footnote">
+                    {quantitativeRespondingInstitutions.length === 0
+                      ? "* Institution footnote will populate as quantitative responses are captured."
+                      : `* Responding institutions: ${quantitativeRespondingInstitutions.join(", ")}.`}
+                  </p>
                 </>
-              ) : (
+              ) : null}
+
+              {screeningDetailView === "qualitative" ? (
                 <>
                   <p className="detail-label">Captured Qualitative Feedback</p>
                   {selectedScreeningHealthSystem.qualitativeFeedback.length === 0 ? (
@@ -1888,11 +1885,12 @@ export function PipelineOpportunityDetailView({
                     </button>
                   </div>
                 </>
-              )}
-            </article>
-          ) : (
-            <p className="muted">No alliance health systems configured.</p>
-          )}
+              ) : null}
+              </article>
+            ) : (
+              <p className="muted">No alliance health systems configured.</p>
+            )
+          ) : null}
         </section>
       ) : (
         <section className="panel">
@@ -1903,8 +1901,8 @@ export function PipelineOpportunityDetailView({
 
       {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
 
-      {activeCellHistory ? (
-        <div className="pipeline-note-backdrop" onClick={() => setCellHistoryModal(null)}>
+      {addAttendeeModal ? (
+        <div className="pipeline-note-backdrop" onClick={() => setAddAttendeeModal(null)}>
           <div
             className="pipeline-note-modal"
             role="dialog"
@@ -1912,26 +1910,40 @@ export function PipelineOpportunityDetailView({
             onClick={(event) => event.stopPropagation()}
           >
             <div className="pipeline-card-head">
-              <h3>{`${screeningCellFieldLabel(activeCellHistory.field)} History`}</h3>
-              <button className="ghost small" type="button" onClick={() => setCellHistoryModal(null)}>
+              <h3>Add Contact</h3>
+              <button className="ghost small" type="button" onClick={() => setAddAttendeeModal(null)}>
                 Close
               </button>
             </div>
-            <p className="muted">{activeCellHistory.healthSystemName}</p>
-            {activeCellHistory.history.length === 0 ? (
-              <p className="muted">No edits captured yet.</p>
-            ) : (
-              <div className="pipeline-detail-list">
-                {activeCellHistory.history.map((entry) => (
-                  <div key={entry.id} className="detail-list-item">
-                    <p>{entry.value || <span className="muted">(Cleared)</span>}</p>
-                    <p className="muted">
-                      {`${new Date(entry.changedAt).toLocaleString()} by ${entry.changedByName}`}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
+            <p className="muted">{addAttendeeModal.healthSystemName}</p>
+            <EntityLookupInput
+              entityKind="CONTACT"
+              value={addAttendeeLookupValue}
+              onChange={(nextValue) => {
+                setAddAttendeeLookupValue(nextValue);
+                if (!nextValue) return;
+                void (async () => {
+                  const success = await addScreeningAttendee(addAttendeeModal.healthSystemId, nextValue);
+                  if (!success) return;
+                  setAddAttendeeLookupValue("");
+                  setAddAttendeeModal(null);
+                })();
+              }}
+              placeholder="Type attendee name..."
+              emptyLabel="Start typing to find a contact"
+              contactCreateContext={{
+                parentType: "healthSystem",
+                parentId: addAttendeeModal.healthSystemId,
+                roleType: "EXECUTIVE"
+              }}
+              contactSearchHealthSystemId={addAttendeeModal.healthSystemId}
+              autoOpenCreateOnEnterNoMatch
+              disabled={Boolean(addingAttendeeByHealthSystemId[addAttendeeModal.healthSystemId])}
+              className="screening-attendee-lookup"
+            />
+            {addingAttendeeByHealthSystemId[addAttendeeModal.healthSystemId] ? (
+              <p className="muted">Adding attendee...</p>
+            ) : null}
           </div>
         </div>
       ) : null}

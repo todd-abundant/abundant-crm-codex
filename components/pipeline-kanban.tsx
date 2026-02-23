@@ -746,6 +746,7 @@ export function PipelineKanban() {
                       role="button"
                       tabIndex={0}
                       onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
                           setSelectedDetailId(item.id);
@@ -757,7 +758,7 @@ export function PipelineKanban() {
                         <span className="status-pill queued">{item.phaseLabel}</span>
                       </div>
                       <p className="muted">{item.location || "Location unavailable"}</p>
-                      {(item.column !== "INTAKE" || item.openOpportunityCount > 0) && (
+                      {item.openOpportunityCount > 0 && (
                         <p className="muted">
                           {item.openOpportunityCount} open opportunity{item.openOpportunityCount === 1 ? "" : "ies"}
                         </p>
@@ -809,13 +810,16 @@ export function PipelineKanban() {
                               autoFocus
                             />
                           ) : (
-                            <button
-                              type="button"
-                              className="pipeline-inline-display"
-                              onClick={() => setEditingField({ itemId: item.id, field: "nextStep" })}
+                            <a
+                              href="#"
+                              className="pipeline-inline-link"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setEditingField({ itemId: item.id, field: "nextStep" });
+                              }}
                             >
                               {cardMetaDraft.nextStep || "Click to set"}
-                            </button>
+                            </a>
                           )}
                         </div>
 
@@ -840,13 +844,16 @@ export function PipelineKanban() {
                                   autoFocus
                                 />
                               ) : (
-                                <button
-                                  type="button"
-                                  className="pipeline-inline-display"
-                                  onClick={() => setEditingField({ itemId: item.id, field: "intakeDate" })}
+                                <a
+                                  href="#"
+                                  className="pipeline-inline-link"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    setEditingField({ itemId: item.id, field: "intakeDate" });
+                                  }}
                                 >
                                   {toDateDisplayValue(item.intakeScheduledAt)}
-                                </button>
+                                </a>
                               )}
                             </div>
 
@@ -874,13 +881,16 @@ export function PipelineKanban() {
                                   ))}
                                 </select>
                               ) : (
-                                <button
-                                  type="button"
-                                  className="pipeline-inline-display"
-                                  onClick={() => setEditingField({ itemId: item.id, field: "declineReason" })}
+                                <a
+                                  href="#"
+                                  className="pipeline-inline-link"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    setEditingField({ itemId: item.id, field: "declineReason" });
+                                  }}
                                 >
                                   {declineReasonLabel(intakeDraft.declineReason)}
-                                </button>
+                                </a>
                               )}
                             </div>
 
@@ -933,34 +943,38 @@ export function PipelineKanban() {
                                   {filteredHealthSystems.length > 0 ? (
                                     <div className="pipeline-inline-suggestions">
                                       {filteredHealthSystems.map((entry) => (
-                                        <button
+                                        <a
                                           key={entry.id}
-                                          type="button"
+                                          href="#"
                                           className="pipeline-inline-suggestion"
                                           onMouseDown={(event) => {
                                             event.preventDefault();
                                             suppressLeadSourceBlurRef.current = true;
                                           }}
-                                          onClick={() => {
+                                          onClick={(event) => {
+                                            event.preventDefault();
                                             setEditingField(null);
                                             const nextDraft: IntakeDraft = { ...intakeDraft, leadSource: entry.name };
                                             void commitIntakeDraft(item.id, nextDraft, intakeDraftFromItem(item));
                                           }}
                                         >
                                           {entry.name}
-                                        </button>
+                                        </a>
                                       ))}
                                     </div>
                                   ) : null}
                                 </div>
                               ) : (
-                                <button
-                                  type="button"
-                                  className="pipeline-inline-display"
-                                  onClick={() => setEditingField({ itemId: item.id, field: "leadSource" })}
+                                <a
+                                  href="#"
+                                  className="pipeline-inline-link"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    setEditingField({ itemId: item.id, field: "leadSource" });
+                                  }}
                                 >
                                   {intakeDraft.leadSource || "Click to set"}
-                                </button>
+                                </a>
                               )}
                             </div>
                           </>
@@ -1012,13 +1026,16 @@ export function PipelineKanban() {
                                   autoFocus
                                 />
                               ) : (
-                                <button
-                                  type="button"
-                                  className="pipeline-inline-display"
-                                  onClick={() => setEditingField({ itemId: item.id, field: "ventureLikelihoodPercent" })}
+                                <a
+                                  href="#"
+                                  className="pipeline-inline-link"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    setEditingField({ itemId: item.id, field: "ventureLikelihoodPercent" });
+                                  }}
                                 >
                                   {cardMetaDraft.ventureLikelihoodPercent || "Click to set"}
-                                </button>
+                                </a>
                               )}
                             </div>
 
@@ -1041,13 +1058,16 @@ export function PipelineKanban() {
                                   autoFocus
                                 />
                               ) : (
-                                <button
-                                  type="button"
-                                  className="pipeline-inline-display"
-                                  onClick={() => setEditingField({ itemId: item.id, field: "ventureExpectedCloseDate" })}
+                                <a
+                                  href="#"
+                                  className="pipeline-inline-link"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    setEditingField({ itemId: item.id, field: "ventureExpectedCloseDate" });
+                                  }}
                                 >
                                   {toDateDisplayValue(item.ventureExpectedCloseDate)}
-                                </button>
+                                </a>
                               )}
                             </div>
                           </>
@@ -1057,9 +1077,9 @@ export function PipelineKanban() {
                       </div>
 
                       <div className="actions" style={{ marginTop: 0 }}>
-                        <button
-                          className="secondary small"
-                          type="button"
+                        <a
+                          href="#"
+                          className="pipeline-action-link"
                           onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
@@ -1072,25 +1092,25 @@ export function PipelineKanban() {
                           }}
                         >
                           Add Note
-                        </button>
+                        </a>
 
                         {nextBoardColumn(item.column) ? (
-                          <button
-                            className="ghost small"
-                            type="button"
+                          <a
+                            href="#"
+                            className={`pipeline-action-link ${updatingId ? "disabled" : ""}`}
                             onClick={(event) => {
                               event.preventDefault();
                               event.stopPropagation();
+                              if (updatingId) return;
                               const nextColumn = nextBoardColumn(item.column);
                               if (nextColumn) {
                                 void moveItemToColumn(item.id, nextColumn);
                               }
                             }}
-                            disabled={Boolean(updatingId)}
                           >
                             Move to{" "}
                             {PIPELINE_BOARD_COLUMNS.find((entry) => entry.key === nextBoardColumn(item.column))?.label}
-                          </button>
+                          </a>
                         ) : null}
                       </div>
 
@@ -1107,9 +1127,16 @@ export function PipelineKanban() {
       {undoToast ? (
         <div className="pipeline-undo-toast" role="status" aria-live="polite">
           <p>{undoToast.itemName} did not meet our criteria.</p>
-          <button className="secondary small" type="button" onClick={() => void undoDecline()}>
+          <a
+            href="#"
+            className="pipeline-action-link"
+            onClick={(event) => {
+              event.preventDefault();
+              void undoDecline();
+            }}
+          >
             Undo
-          </button>
+          </a>
         </div>
       ) : null}
 
@@ -1127,12 +1154,28 @@ export function PipelineKanban() {
               placeholder="Enter note text"
             />
             <div className="actions">
-              <button className="secondary" type="button" onClick={() => setNoteModal(null)} disabled={noteModal.saving}>
+              <a
+                href="#"
+                className={`pipeline-action-link ${noteModal.saving ? "disabled" : ""}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (noteModal.saving) return;
+                  setNoteModal(null);
+                }}
+              >
                 Cancel
-              </button>
-              <button className="primary" type="button" onClick={() => void savePipelineNote()} disabled={noteModal.saving}>
+              </a>
+              <a
+                href="#"
+                className={`pipeline-action-link ${noteModal.saving ? "disabled" : ""}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (noteModal.saving) return;
+                  void savePipelineNote();
+                }}
+              >
                 {noteModal.saving ? "Saving..." : "Save Note"}
-              </button>
+              </a>
             </div>
           </div>
         </div>
