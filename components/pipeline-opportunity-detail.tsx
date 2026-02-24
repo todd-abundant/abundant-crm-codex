@@ -162,7 +162,7 @@ const screeningInlineInterestOptions: Array<{ value: ScreeningStatus; label: str
   { value: "DECLINED", label: "Red" },
   { value: "PENDING", label: "Yellow" },
   { value: "NEGOTIATING", label: "Green" },
-  { value: "SIGNED", label: "Green checkmark (LOI signed)" }
+  { value: "SIGNED", label: "LOI signed" }
 ];
 
 const screeningDetailViewOptions: Array<{ key: ScreeningDetailView; label: string; icon: string }> = [
