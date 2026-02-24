@@ -139,79 +139,81 @@ export function AdminUserManagement({ currentUserId }: { currentUserId: string }
         ) : users.length === 0 ? (
           <p className="muted">No users found yet. Sign in with Google to create the first user.</p>
         ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Email</th>
-                <th>Roles</th>
-                <th>Status</th>
-                <th>Created</th>
-                <th>Last Login</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => {
-                const selectedRoles = roleDrafts[user.id] || user.roles;
-                const changed =
-                  selectedRoles.length !== user.roles.length ||
-                  selectedRoles.some((role) => !user.roles.includes(role));
-                const isSelf = user.id === currentUserId;
-                const saveDisabled =
-                  !changed || savingId === user.id || (isSelf && !selectedRoles.includes("ADMINISTRATOR"));
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Email</th>
+                  <th>Roles</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th>Last Login</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((user) => {
+                  const selectedRoles = roleDrafts[user.id] || user.roles;
+                  const changed =
+                    selectedRoles.length !== user.roles.length ||
+                    selectedRoles.some((role) => !user.roles.includes(role));
+                  const isSelf = user.id === currentUserId;
+                  const saveDisabled =
+                    !changed || savingId === user.id || (isSelf && !selectedRoles.includes("ADMINISTRATOR"));
 
-                return (
-                  <tr key={user.id}>
-                    <td>{user.name || "-"}</td>
-                    <td>{user.email}</td>
-                    <td>
-                      <div className="admin-role-grid">
-                        {roleOptions.map((option) => {
-                          const checked = selectedRoles.includes(option.value);
-                          return (
-                            <label key={option.value} className="admin-role-option">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(event) => {
-                                  setRoleDrafts((previous) => {
-                                    const existing = previous[user.id] || [];
-                                    const next = event.target.checked
-                                      ? [...existing, option.value]
-                                      : existing.filter((role) => role !== option.value);
+                  return (
+                    <tr key={user.id}>
+                      <td>{user.name || "-"}</td>
+                      <td>{user.email}</td>
+                      <td>
+                        <div className="admin-role-grid">
+                          {roleOptions.map((option) => {
+                            const checked = selectedRoles.includes(option.value);
+                            return (
+                              <label key={option.value} className="admin-role-option">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(event) => {
+                                    setRoleDrafts((previous) => {
+                                      const existing = previous[user.id] || [];
+                                      const next = event.target.checked
+                                        ? [...existing, option.value]
+                                        : existing.filter((role) => role !== option.value);
 
-                                    return {
-                                      ...previous,
-                                      [user.id]: Array.from(new Set(next))
-                                    };
-                                  });
-                                }}
-                              />
-                              {option.label}
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </td>
-                    <td>{user.isActive ? "Active" : "Inactive"}</td>
-                    <td>{formatDate(user.createdAt)}</td>
-                    <td>{formatDate(user.lastLoginAt)}</td>
-                    <td>
-                      <button
-                        className="primary small"
-                        onClick={() => void saveRole(user.id)}
-                        disabled={saveDisabled}
-                        title={isSelf && !selectedRoles.includes("ADMINISTRATOR") ? "Cannot remove your own admin role." : ""}
-                      >
-                        {savingId === user.id ? "Saving..." : "Save"}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                                      return {
+                                        ...previous,
+                                        [user.id]: Array.from(new Set(next))
+                                      };
+                                    });
+                                  }}
+                                />
+                                {option.label}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </td>
+                      <td>{user.isActive ? "Active" : "Inactive"}</td>
+                      <td>{formatDate(user.createdAt)}</td>
+                      <td>{formatDate(user.lastLoginAt)}</td>
+                      <td>
+                        <button
+                          className="primary small"
+                          onClick={() => void saveRole(user.id)}
+                          disabled={saveDisabled}
+                          title={isSelf && !selectedRoles.includes("ADMINISTRATOR") ? "Cannot remove your own admin role." : ""}
+                        >
+                          {savingId === user.id ? "Saving..." : "Save"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
     </main>

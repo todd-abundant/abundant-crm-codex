@@ -758,18 +758,20 @@ export function PipelineKanban() {
                         <span className="status-pill queued">{item.phaseLabel}</span>
                       </div>
                       <p className="muted">{item.location || "Location unavailable"}</p>
-                      {item.openOpportunityCount > 0 && (
-                        <p className="muted">
-                          {item.openOpportunityCount} open opportunity{item.openOpportunityCount === 1 ? "" : "ies"}
-                        </p>
-                      )}
-                      <p className="muted">Updated {formatLastUpdated(item.updatedAt)}</p>
-                      {item.noteCount > 0 ? (
-                        <p className="muted">
-                          Notes: {item.noteCount}
-                          {item.latestNote?.createdAt ? ` • Last ${formatTimestamp(item.latestNote.createdAt)}` : ""}
-                        </p>
-                      ) : null}
+                      <div className="pipeline-card-meta">
+                        {item.openOpportunityCount > 0 && (
+                          <p className="muted">
+                            {item.openOpportunityCount} open opportunity{item.openOpportunityCount === 1 ? "" : "ies"}
+                          </p>
+                        )}
+                        <p className="muted">Updated {formatLastUpdated(item.updatedAt)}</p>
+                        {item.noteCount > 0 ? (
+                          <p className="muted">
+                            Notes: {item.noteCount}
+                            {item.latestNote?.createdAt ? ` • Last ${formatTimestamp(item.latestNote.createdAt)}` : ""}
+                          </p>
+                        ) : null}
+                      </div>
 
                       <div className="pipeline-intake-fields" onClick={(event) => event.stopPropagation()}>
                         <div className="pipeline-inline-field">

@@ -21,7 +21,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <header className="top-nav">
           <div className="top-nav-inner">
             <div className="brand">Abundant CRM</div>
-            <nav aria-label="Primary navigation">
+            <nav aria-label="Primary navigation" className="top-nav-links">
               <Link href="/" className="top-nav-link">
                 Home
               </Link>
