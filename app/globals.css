@@ -144,6 +144,10 @@ main {
   gap: 6px;
 }
 
+.top-nav-links {
+  min-width: 0;
+}
+
 .top-nav-session {
   display: flex;
   align-items: center;
@@ -411,6 +415,12 @@ button.small.ghost {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+}
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .table th,
@@ -1407,6 +1417,30 @@ select {
 
   .top-nav-inner {
     flex-wrap: wrap;
+  }
+
+  .top-nav-links {
+    order: 3;
+    width: 100%;
+  }
+
+  .top-nav nav {
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+  }
+
+  .top-nav-link {
+    white-space: nowrap;
+    padding: 4px 10px;
+    font-size: 0.85rem;
+  }
+
+  .top-nav-user {
+    max-width: 58vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .top-nav-session {
@@ -2977,5 +3011,13 @@ select {
     bottom: 10px;
     min-width: 0;
     max-width: none;
+  }
+
+  .pipeline-card-meta {
+    display: none;
+  }
+
+  .table-wrap .table {
+    min-width: 760px;
   }
 }
