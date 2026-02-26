@@ -61,6 +61,10 @@ export async function GET(
         documents: {
           orderBy: [{ uploadedAt: "desc" }, { createdAt: "desc" }]
         },
+        pipelineNotes: {
+          orderBy: [{ createdAt: "desc" }],
+          take: 50
+        },
         lois: {
           include: {
             healthSystem: {
@@ -364,6 +368,11 @@ export async function GET(
           url: document.url,
           notes: document.notes,
           uploadedAt: document.uploadedAt
+        })),
+        notes: company.pipelineNotes.map((note) => ({
+          id: note.id,
+          note: note.note,
+          createdAt: note.createdAt
         })),
         screening: {
           healthSystems: screeningHealthSystems
