@@ -108,6 +108,12 @@ type ScreeningHealthSystem = {
   qualitativeFeedback: ScreeningQualitativeFeedback[];
 };
 
+type PipelineOpportunityNote = {
+  id: string;
+  note: string;
+  createdAt: string;
+};
+
 type PipelineOpportunityDetail = {
   id: string;
   name: string;
@@ -144,6 +150,7 @@ type PipelineOpportunityDetail = {
     notes: string | null;
     uploadedAt: string;
   }>;
+  notes: PipelineOpportunityNote[];
   screening: {
     healthSystems: ScreeningHealthSystem[];
   };
@@ -522,6 +529,8 @@ export function PipelineOpportunityDetailView({
   const [newCompanyDocumentTitle, setNewCompanyDocumentTitle] = React.useState("");
   const [newCompanyDocumentGoogleUrl, setNewCompanyDocumentGoogleUrl] = React.useState("");
   const [savingAtAGlanceFieldByKey, setSavingAtAGlanceFieldByKey] = React.useState<Record<string, boolean>>({});
+  const [newNoteDraft, setNewNoteDraft] = React.useState("");
+  const [addingNote, setAddingNote] = React.useState(false);
 
   const loadItem = React.useCallback(async () => {
     setLoading(true);
@@ -531,7 +540,7 @@ export function PipelineOpportunityDetailView({
       const res = await fetch(`/api/pipeline/opportunities/${itemId}`, { cache: "no-store" });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || "Failed to load pipeline detail");
-      setItem(payload.item || null);
+      setItem(payload.item ? { ...payload.item, notes: Array.isArray(payload.item.notes) ? payload.item.notes : [] } : null);
     } catch (error) {
       setStatus({
         kind: "error",
@@ -874,6 +883,49 @@ export function PipelineOpportunityDetailView({
       });
     } finally {
       setSavingAtAGlanceFieldByKey((current) => ({ ...current, [field]: false }));
+    }
+  }
+
+  async function addPipelineNote() {
+    if (!item || addingNote) return;
+    const trimmed = newNoteDraft.trim();
+    if (!trimmed) {
+      setStatus({ kind: "error", text: "Enter a note before saving." });
+      return;
+    }
+
+    setAddingNote(true);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: trimmed })
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to add note");
+
+      const createdNote = payload.note as PipelineOpportunityNote | undefined;
+      if (!createdNote) throw new Error("Failed to add note");
+
+      setItem((current) =>
+        current
+          ? {
+              ...current,
+              notes: [createdNote, ...current.notes]
+            }
+          : current
+      );
+      setNewNoteDraft("");
+      setStatus({ kind: "ok", text: "Note added." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add note"
+      });
+    } finally {
+      setAddingNote(false);
     }
   }
 
@@ -1792,7 +1844,29 @@ export function PipelineOpportunityDetailView({
         {activeIntakeDetailTab === "notes" ? (
           <>
             <h2>Notes</h2>
-            <p className="muted">Content for this section will be added later.</p>
+            <div className="detail-section">
+              <label>Add Note</label>
+              <textarea
+                value={newNoteDraft}
+                onChange={(event) => setNewNoteDraft(event.target.value)}
+                placeholder="Capture details from intake discussions"
+                rows={4}
+              />
+              <div className="actions">
+                <button type="button" className="secondary" onClick={() => void addPipelineNote()} disabled={addingNote}>
+                  {addingNote ? "Adding..." : "Add Note"}
+                </button>
+              </div>
+            </div>
+            {item.notes.length === 0 ? <p className="muted">No notes yet.</p> : null}
+            <div className="pipeline-doc-list">
+              {item.notes.map((entry) => (
+                <div key={entry.id} className="detail-list-item">
+                  <p>{entry.note}</p>
+                  <p className="muted">Added {formatDate(entry.createdAt)}</p>
+                </div>
+              ))}
+            </div>
           </>
         ) : null}
 
@@ -1827,10 +1901,7 @@ export function PipelineOpportunityDetailView({
         ) : null}
       </section>
 
-<<<<<<< Updated upstream
-=======
     {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
->>>>>>> Stashed changes
       {item.isScreeningStage ? (
         <section className="panel">
           <h2>Alliance Screening Status</h2>
