@@ -1,4 +1,4 @@
-import { type EntityKind } from "@prisma/client";
+import { type EntityKind, type User } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 type EntityDocumentInput = {
@@ -11,6 +11,8 @@ type EntityDocumentInput = {
 type EntityNoteInput = {
   note: string;
   documentIds?: string[];
+  createdByUserId?: string | null;
+  createdByName?: string | null;
 };
 
 type EntityDocumentWithMeta = {
@@ -30,8 +32,11 @@ type EntityNoteWithAttachments = {
   entityKind: EntityKind;
   entityId: string;
   note: string;
+  createdByUserId: string | null;
+  createdByName: string | null;
   createdAt: Date;
   updatedAt: Date;
+  createdByUser: Pick<User, "id" | "name" | "email"> | null;
   attachments: Array<{
     document: EntityDocumentWithMeta;
   }>;
@@ -125,6 +130,8 @@ function mapNote(note: EntityNoteWithAttachments) {
     note: note.note,
     createdAt: note.createdAt,
     updatedAt: note.updatedAt,
+    createdByUserId: note.createdByUserId,
+    createdByName: note.createdByName || note.createdByUser?.name || note.createdByUser?.email || "Unknown user",
     documents: note.attachments.map((attachment) => mapDocument(attachment.document))
   };
 }
@@ -208,6 +215,13 @@ export async function listEntityNotes(entityKind: EntityKind, entityId: string) 
     where: { entityKind, entityId },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     include: {
+      createdByUser: {
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      },
       attachments: {
         orderBy: { attachedAt: "desc" },
         include: {
@@ -229,6 +243,8 @@ export async function createEntityNote(entityKind: EntityKind, entityId: string,
       entityKind,
       entityId,
       note: noteText,
+      createdByUserId: input.createdByUserId || null,
+      createdByName: toNullableString(input.createdByName),
       attachments:
         attachmentIds.length > 0
           ? {
@@ -239,6 +255,13 @@ export async function createEntityNote(entityKind: EntityKind, entityId: string,
           : undefined
     },
     include: {
+      createdByUser: {
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      },
       attachments: {
         orderBy: { attachedAt: "desc" },
         include: {
@@ -283,6 +306,13 @@ export async function updateEntityNote(
       }
     },
     include: {
+      createdByUser: {
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      },
       attachments: {
         orderBy: { attachedAt: "desc" },
         include: {

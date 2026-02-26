@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth/server";
 
 const noteCreateSchema = z.object({
   note: z.string().min(1)
@@ -24,15 +25,35 @@ export async function POST(
       return NextResponse.json({ error: "Pipeline item not found" }, { status: 404 });
     }
 
-    const created = await prisma.companyPipelineNote.create({
+    const user = await getCurrentUser();
+
+    const created = await prisma.entityNote.create({
       data: {
-        companyId: id,
-        note: input.note.trim()
+        entityKind: "COMPANY",
+        entityId: id,
+        note: input.note.trim(),
+        createdByUserId: user?.id || null,
+        createdByName: user?.name || user?.email || null
+      },
+      select: {
+        id: true,
+        note: true,
+        createdAt: true,
+        createdByName: true,
+        createdByUser: {
+          select: {
+            name: true,
+            email: true
+          }
+        }
       }
     });
 
-    const count = await prisma.companyPipelineNote.count({
-      where: { companyId: id }
+    const count = await prisma.entityNote.count({
+      where: {
+        entityKind: "COMPANY",
+        entityId: id
+      }
     });
 
     return NextResponse.json(
@@ -40,7 +61,8 @@ export async function POST(
         note: {
           id: created.id,
           note: created.note,
-          createdAt: created.createdAt
+          createdAt: created.createdAt,
+          createdByName: created.createdByName || created.createdByUser?.name || created.createdByUser?.email || "Unknown user"
         },
         noteCount: count
       },

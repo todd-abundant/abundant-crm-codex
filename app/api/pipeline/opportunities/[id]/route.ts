@@ -87,10 +87,6 @@ export async function GET(
         documents: {
           orderBy: [{ uploadedAt: "desc" }, { createdAt: "desc" }]
         },
-        pipelineNotes: {
-          orderBy: [{ createdAt: "desc" }],
-          take: 50
-        },
         lois: {
           include: {
             healthSystem: {
@@ -165,6 +161,27 @@ export async function GET(
     if (!company) {
       return NextResponse.json({ error: "Pipeline item not found" }, { status: 404 });
     }
+
+    const entityNotes = await prisma.entityNote.findMany({
+      where: {
+        entityKind: "COMPANY",
+        entityId: company.id
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 50,
+      select: {
+        id: true,
+        note: true,
+        createdAt: true,
+        createdByName: true,
+        createdByUser: {
+          select: {
+            name: true,
+            email: true
+          }
+        }
+      }
+    });
 
     const phase = (company.pipeline?.phase || inferDefaultPhaseFromCompany(company)) as PipelinePhase;
     const column = mapPhaseToBoardColumn(phase);
@@ -396,10 +413,11 @@ export async function GET(
           notes: document.notes,
           uploadedAt: document.uploadedAt
         })),
-        notes: company.pipelineNotes.map((note) => ({
+        notes: entityNotes.map((note) => ({
           id: note.id,
           note: note.note,
-          createdAt: note.createdAt
+          createdAt: note.createdAt,
+          createdByName: note.createdByName || note.createdByUser?.name || note.createdByUser?.email || "Unknown user"
         })),
         screening: {
           healthSystems: screeningHealthSystems

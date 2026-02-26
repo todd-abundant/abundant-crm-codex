@@ -46,6 +46,7 @@ type PipelineBoardItem = {
     id: string;
     note: string;
     createdAt: string;
+    createdByName: string;
   } | null;
   updatedAt: string;
 };
@@ -633,7 +634,7 @@ export function PipelineKanban() {
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || "Failed to add note");
 
-      const returnedNote = payload.note as { id: string; note: string; createdAt: string } | undefined;
+      const returnedNote = payload.note as { id: string; note: string; createdAt: string; createdByName: string } | undefined;
       const returnedCount = typeof payload.noteCount === "number" ? payload.noteCount : null;
 
       setItems((current) =>
@@ -769,7 +770,7 @@ export function PipelineKanban() {
                         {item.noteCount > 0 ? (
                           <p className="muted">
                             Notes: {item.noteCount}
-                            {item.latestNote?.createdAt ? ` • Last ${formatTimestamp(item.latestNote.createdAt)}` : ""}
+                            {item.latestNote?.createdAt ? ` • Last ${formatTimestamp(item.latestNote.createdAt)} by ${item.latestNote.createdByName}` : ""}
                           </p>
                         ) : null}
                       </div>

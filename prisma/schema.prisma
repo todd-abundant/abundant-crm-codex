@@ -632,12 +632,16 @@ model EntityNote {
   entityKind EntityKind
   entityId   String
   note       String
+  createdByUserId String?
+  createdByName   String?
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
 
+  createdByUser User? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   attachments EntityNoteDocument[]
 
   @@index([entityKind, entityId, createdAt])
+  @@index([createdByUserId])
 }
 
 model EntityNoteDocument {
@@ -997,6 +1001,7 @@ model User {
   companyScreeningCellChanges     CompanyScreeningCellChange[]
   companyScreeningSurveyQuestions CompanyScreeningSurveyQuestion[]
   companyScreeningSurveySessions  CompanyScreeningSurveySession[]
+  entityNotes                     EntityNote[]
 
   @@index([isActive])
 }
