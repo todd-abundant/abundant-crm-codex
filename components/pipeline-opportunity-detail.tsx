@@ -112,6 +112,7 @@ type PipelineOpportunityNote = {
   id: string;
   note: string;
   createdAt: string;
+  createdByName: string;
 };
 
 type PipelineOpportunityDetail = {
@@ -2455,7 +2456,7 @@ export function PipelineOpportunityDetailView({
               {item.notes.map((entry) => (
                 <div key={entry.id} className="detail-list-item">
                   <p>{entry.note}</p>
-                  <p className="muted">Added {formatDate(entry.createdAt)}</p>
+                  <p className="muted">Added {formatDate(entry.createdAt)} by {entry.createdByName}</p>
                 </div>
               ))}
             </div>

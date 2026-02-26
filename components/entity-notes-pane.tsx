@@ -22,6 +22,7 @@ type EntityNote = {
   note: string;
   createdAt: string;
   updatedAt: string;
+  createdByName?: string | null;
   documents: EntityDocument[];
 };
 
@@ -297,7 +298,7 @@ export function EntityNotesPane({ entityPath, entityId, onStatus }: EntityNotesP
                           className="entity-note-body"
                           dangerouslySetInnerHTML={{ __html: normalizeRichText(note.note) }}
                         />
-                    <p className="muted">{formatDateTime(note.createdAt)}</p>
+                    <p className="muted">{formatDateTime(note.createdAt)} by {note.createdByName || "Unknown user"}</p>
                     {note.documents.length > 0 ? (
                       <div className="entity-note-attachments">
                         {note.documents.map((document) => (

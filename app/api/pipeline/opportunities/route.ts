@@ -29,20 +29,6 @@ export async function GET() {
             }
           },
           pipeline: true,
-          pipelineNotes: {
-            orderBy: [{ createdAt: "desc" }],
-            take: 1,
-            select: {
-              id: true,
-              note: true,
-              createdAt: true
-            }
-          },
-          _count: {
-            select: {
-              pipelineNotes: true
-            }
-          },
           opportunities: {
             where: {
               stage: {
@@ -63,11 +49,48 @@ export async function GET() {
       })
     ]);
 
+    const companyIds = companies.map((company) => company.id);
+    const notes =
+      companyIds.length === 0
+        ? []
+        : await prisma.entityNote.findMany({
+            where: {
+              entityKind: "COMPANY",
+              entityId: { in: companyIds }
+            },
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+            select: {
+              id: true,
+              entityId: true,
+              note: true,
+              createdAt: true,
+              createdByName: true,
+              createdByUser: {
+                select: {
+                  name: true,
+                  email: true
+                }
+              }
+            }
+          });
+
+    const notesByCompanyId = new Map<string, typeof notes>();
+    for (const note of notes) {
+      const list = notesByCompanyId.get(note.entityId);
+      if (list) {
+        list.push(note);
+      } else {
+        notesByCompanyId.set(note.entityId, [note]);
+      }
+    }
+
     const opportunities = companies
       .map((company) => {
         const phase = (company.pipeline?.phase || inferDefaultPhaseFromCompany(company)) as PipelinePhase;
         const column = mapPhaseToBoardColumn(phase);
         if (!column) return null;
+
+        const companyNotes = notesByCompanyId.get(company.id) || [];
 
         return {
           id: company.id,
@@ -88,12 +111,17 @@ export async function GET() {
           nextStep: company.pipeline?.nextStep || "",
           ventureLikelihoodPercent: company.pipeline?.ventureLikelihoodPercent ?? null,
           ventureExpectedCloseDate: company.pipeline?.ventureExpectedCloseDate ?? null,
-          noteCount: company._count.pipelineNotes,
-          latestNote: company.pipelineNotes[0]
+          noteCount: companyNotes.length,
+          latestNote: companyNotes[0]
             ? {
-                id: company.pipelineNotes[0].id,
-                note: company.pipelineNotes[0].note,
-                createdAt: company.pipelineNotes[0].createdAt
+                id: companyNotes[0].id,
+                note: companyNotes[0].note,
+                createdAt: companyNotes[0].createdAt,
+                createdByName:
+                  companyNotes[0].createdByName ||
+                  companyNotes[0].createdByUser?.name ||
+                  companyNotes[0].createdByUser?.email ||
+                  "Unknown user"
               }
             : null,
           updatedAt: company.pipeline?.updatedAt || company.updatedAt

@@ -1,6 +1,7 @@
 import { type EntityKind } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getCurrentUser } from "@/lib/auth/server";
 import {
   createEntityDocument,
   createEntityNote,
@@ -151,7 +152,12 @@ export function createEntityNotesHandlers(entityKind: EntityKind, entityLabel: s
 
         const body = await request.json();
         const input = noteCreateSchema.parse(body);
-        const note = await createEntityNote(entityKind, id, input);
+        const user = await getCurrentUser();
+        const note = await createEntityNote(entityKind, id, {
+          ...input,
+          createdByUserId: user?.id || null,
+          createdByName: user?.name || user?.email || null
+        });
         return NextResponse.json({ note }, { status: 201 });
       } catch (error) {
         console.error("create_entity_note_error", { entityKind, error });
