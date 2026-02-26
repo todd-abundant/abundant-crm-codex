@@ -1827,9 +1827,6 @@ export function PipelineOpportunityDetailView({
         ) : null}
       </section>
 
-<<<<<<< Updated upstream
-    {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
-=======
       {item.isScreeningStage ? (
         <section className="panel">
           <h2>Alliance Screening Status</h2>
@@ -2672,15 +2669,9 @@ export function PipelineOpportunityDetailView({
             )
           ) : null}
         </section>
-      ) : (
-        <section className="panel">
-          <h2>Alliance Screening Status</h2>
-          <p className="muted">This section appears when the item is in the Screening column.</p>
-        </section>
-      )}
+      ) : null}
 
       {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
->>>>>>> Stashed changes
 
       {addAttendeeModal ? (
         <div className="pipeline-note-backdrop" onMouseDown={() => setAddAttendeeModal(null)}>
