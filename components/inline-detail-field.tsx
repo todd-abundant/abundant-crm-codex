@@ -503,6 +503,21 @@ export function InlineTextareaField({
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(value);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const editingRef = React.useRef(editing);
+  const draftRef = React.useRef(draft);
+  const valueRef = React.useRef(value);
+
+  React.useEffect(() => {
+    editingRef.current = editing;
+  }, [editing]);
+
+  React.useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
+  React.useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
 
   React.useEffect(() => {
     if (!editing) {
@@ -516,6 +531,14 @@ export function InlineTextareaField({
       onSave(nextValue);
     }
   };
+
+  React.useEffect(() => {
+    return () => {
+      if (!editingRef.current) return;
+      if (draftRef.current === valueRef.current) return;
+      onSave(draftRef.current);
+    };
+  }, [onSave]);
 
   const cancel = () => {
     setDraft(value);
@@ -546,58 +569,73 @@ export function InlineTextareaField({
             <div className="inline-formatting-toolbar" aria-label={`${label} formatting tools`}>
               <button
                 type="button"
-                className="ghost small"
+                className="inline-formatting-tool"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => applyFormat("bold")}
+                title="Bold"
+                aria-label="Bold"
               >
-                Bold
+                <strong>B</strong>
               </button>
               <button
                 type="button"
-                className="ghost small"
+                className="inline-formatting-tool"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => applyFormat("unordered-list")}
+                title="Bulleted list"
+                aria-label="Bulleted list"
               >
-                Bullets
+                • List
               </button>
               <button
                 type="button"
-                className="ghost small"
+                className="inline-formatting-tool"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => applyFormat("ordered-list")}
+                title="Numbered list"
+                aria-label="Numbered list"
               >
-                Numbered
+                1. List
               </button>
               <button
                 type="button"
-                className="ghost small"
+                className="inline-formatting-tool"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => applyFormat("link")}
+                title="Insert link"
+                aria-label="Insert link"
               >
-                Link
+                🔗
               </button>
             </div>
           ) : null}
-          <textarea
-            ref={textareaRef}
-            className={enableFormatting ? "inline-formatting-textarea" : undefined}
-            value={draft}
-            rows={rows}
-            placeholder={placeholder}
-            onChange={(event) => setDraft(event.target.value)}
-            onBlur={(event) => commit(event.target.value)}
-            onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                event.preventDefault();
-                (event.currentTarget as HTMLTextAreaElement).blur();
-              }
-              if (event.key === "Escape") {
-                event.preventDefault();
-                cancel();
-              }
+          <div
+            onBlurCapture={(event) => {
+              const nextFocus = event.relatedTarget as Node | null;
+              if (nextFocus && event.currentTarget.contains(nextFocus)) return;
+              commit(draft);
             }}
-            autoFocus
-          />
+          >
+            <textarea
+              ref={textareaRef}
+              className={enableFormatting ? "inline-formatting-textarea" : undefined}
+              value={draft}
+              rows={rows}
+              placeholder={placeholder}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  (event.currentTarget as HTMLTextAreaElement).blur();
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  cancel();
+                }
+              }}
+              autoFocus
+            />
+          </div>
         </div>
       </div>
     );
