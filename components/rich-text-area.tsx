@@ -1,6 +1,13 @@
 "use client";
 
 import * as React from "react";
+import dynamic from "next/dynamic";
+import "react-quill-new/dist/quill.snow.css";
+
+const ReactQuill = dynamic<any>(() => import("react-quill-new"), {
+  ssr: false,
+  loading: () => null
+});
 
 type RichTextAreaProps = {
   value: string;
@@ -133,7 +140,18 @@ function sanitizeStyle(raw: string | null) {
 
 function sanitizeNode(node: ChildNode, includeEmptyText = true): string {
   if (node.nodeType === Node.TEXT_NODE) {
-    return includeEmptyText ? escapeText(node.textContent || "") : "";
+    const rawText = node.textContent || "";
+    if (!includeEmptyText) return "";
+
+    const normalizedText = rawText
+      .replace(/\r\n?/g, "\n")
+      .replace(/\n+/g, " ")
+      .replace(/\t/g, " ");
+
+    if (!normalizedText) return "";
+    if (/^\s+$/.test(normalizedText)) return " ";
+
+    return escapeText(normalizedText);
   }
 
   if (node.nodeType !== Node.ELEMENT_NODE) return "";
@@ -293,17 +311,35 @@ export function normalizeRichText(value: string) {
   return markdownToHtml(normalized);
 }
 
-function insertHtml(commandHtml: string) {
-  document.execCommand("insertHTML", false, commandHtml);
-}
+const quillModules = {
+  toolbar: [
+    ["bold", "italic", "underline", "strike"],
+    [{ list: "ordered" }, { list: "bullet" }],
+    [{ script: "sub" }, { script: "super" }],
+    [{ indent: "-1" }, { indent: "+1" }],
+    ["link"],
+    [{ color: [] }, { background: [] }],
+    [{ font: [] }],
+    [{ size: [] }],
+    [{ align: [] }]
+  ]
+};
 
-const fontOptions = [
-  "Arial, sans-serif",
-  "Verdana, sans-serif",
-  "Georgia, serif",
-  "Times New Roman, serif",
-  "Courier New, monospace",
-  "Trebuchet MS, sans-serif"
+const quillFormats = [
+  "bold",
+  "italic",
+  "underline",
+  "strike",
+  "list",
+  "bullet",
+  "script",
+  "indent",
+  "link",
+  "color",
+  "background",
+  "font",
+  "size",
+  "align"
 ];
 
 export function RichTextArea({
@@ -315,304 +351,46 @@ export function RichTextArea({
   disabled = false,
   onBlurCapture
 }: RichTextAreaProps) {
-  const editorRef = React.useRef<HTMLDivElement | null>(null);
-  const [isEmpty, setIsEmpty] = React.useState(() => !stripHtml(value).trim());
-  const [draft, setDraft] = React.useState(() => normalizeRichText(value));
-
+  const [editorValue, setEditorValue] = React.useState(() => normalizeRichText(value));
   const minHeight = rows ? Math.max(rows, 3) * 20 + 76 : 170;
 
   React.useEffect(() => {
+    if (value === editorValue) return;
+
     const nextValue = normalizeRichText(value);
-    if (nextValue === draft) return;
+    if (nextValue === editorValue) return;
+    setEditorValue(nextValue);
+  }, [editorValue, value]);
 
-    const editor = editorRef.current;
-    setDraft(nextValue);
-    setIsEmpty(!stripHtml(nextValue).trim());
-
-    if (!editor) return;
-    const active = editor === document.activeElement || editor.contains(document.activeElement);
-    if (!active) {
-      editor.innerHTML = nextValue;
-    }
-  }, [value, draft]);
-
-  React.useEffect(() => {
-    document.execCommand("styleWithCSS", false, true);
-  }, []);
-
-  const syncFromEditor = React.useCallback(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
-
-    const sanitized = sanitizeRichHtml(editor.innerHTML);
-    const nextIsEmpty = !stripHtml(sanitized).trim();
-
-    setDraft(sanitized);
-    setIsEmpty(nextIsEmpty);
-    onChange(sanitized);
-  }, [onChange]);
-
-  const applyCommand = React.useCallback(
-    (command: string, commandValue?: string) => {
-      const editor = editorRef.current;
-      if (!editor) return;
-
-      editor.focus();
-      const commandResult = commandValue
-        ? document.execCommand(command, false, commandValue)
-        : document.execCommand(command);
-      if (!commandResult) return;
-
-      syncFromEditor();
-    },
-    [syncFromEditor]
+  const isEmpty = React.useMemo(() => !stripHtml(editorValue).trim(), [editorValue]);
+  const editorStyle = React.useMemo(
+    () =>
+      ({
+        "--rich-text-editor-min-height": `${minHeight}px`
+      }) as React.CSSProperties,
+    [minHeight]
   );
 
-  const applyLineSpacing = React.useCallback(
-    (nextSpacing: string) => {
-      const editor = editorRef.current;
-      const safeSpacing = safeLineHeight(nextSpacing);
-      if (!editor || !safeSpacing) return;
-
-      const selection = window.getSelection();
-      let blockElement: HTMLElement | null = null;
-      if (selection && selection.rangeCount > 0) {
-        let candidate: Node | null = selection.anchorNode;
-        while (candidate && candidate !== editor) {
-          if (candidate.nodeType === Node.ELEMENT_NODE) {
-            const current = candidate as HTMLElement;
-            if (/^(P|LI|DIV)$/.test(current.tagName)) {
-              blockElement = current;
-              break;
-            }
-          }
-          candidate = candidate.parentNode;
-        }
-      }
-      const target = blockElement || editor;
-      target.style.lineHeight = safeSpacing;
-      syncFromEditor();
+  const handleChange = React.useCallback(
+    (nextValue: string) => {
+      setEditorValue(nextValue);
+      onChange(nextValue);
     },
-    [syncFromEditor]
-  );
-
-  const handlePaste = React.useCallback(
-    (event: React.ClipboardEvent<HTMLDivElement>) => {
-      const clipboardHtml = event.clipboardData?.getData("text/html") || "";
-      const clipboardText = event.clipboardData?.getData("text/plain") || "";
-      if (!clipboardHtml && !clipboardText) return;
-      event.preventDefault();
-      const payload = clipboardHtml ? sanitizeRichHtml(clipboardHtml) : escapeText(clipboardText);
-      if (!payload) return;
-      insertHtml(payload);
-      syncFromEditor();
-    },
-    [syncFromEditor]
-  );
-
-  const handleInput = React.useCallback(() => {
-    syncFromEditor();
-  }, [syncFromEditor]);
-
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (disabled) return;
-
-      if ((event.metaKey || event.ctrlKey) && !event.shiftKey) {
-        const key = event.key.toLowerCase();
-        if (key === "b") {
-          event.preventDefault();
-          applyCommand("bold");
-          return;
-        }
-        if (key === "i") {
-          event.preventDefault();
-          applyCommand("italic");
-          return;
-        }
-        if (key === "u") {
-          event.preventDefault();
-          applyCommand("underline");
-          return;
-        }
-        if (key === "s") {
-          event.preventDefault();
-          applyCommand("strikeThrough");
-          return;
-        }
-      }
-    },
-    [applyCommand, disabled]
+    [onChange]
   );
 
   return (
-    <div className={`rich-text-editor ${className || ""}`}>
-      <div className="rich-text-toolbar" role="toolbar" aria-label="Rich text formatting tools">
-        <button
-          type="button"
-          className="rich-text-toolbar-button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => applyCommand("bold")}
-          title="Bold"
-          aria-label="Bold"
-          disabled={disabled}
-        >
-          <strong>B</strong>
-        </button>
-        <button
-          type="button"
-          className="rich-text-toolbar-button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => applyCommand("italic")}
-          title="Italic"
-          aria-label="Italic"
-          disabled={disabled}
-        >
-          <em>I</em>
-        </button>
-        <button
-          type="button"
-          className="rich-text-toolbar-button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => applyCommand("underline")}
-          title="Underline"
-          aria-label="Underline"
-          disabled={disabled}
-        >
-          <span style={{ textDecoration: "underline" }}>U</span>
-        </button>
-        <button
-          type="button"
-          className="rich-text-toolbar-button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => applyCommand("strikeThrough")}
-          title="Strikethrough"
-          aria-label="Strikethrough"
-          disabled={disabled}
-        >
-          <span style={{ textDecoration: "line-through" }}>S</span>
-        </button>
-        <button
-          type="button"
-          className="rich-text-toolbar-button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => applyCommand("subscript")}
-          title="Subscript"
-          aria-label="Subscript"
-          disabled={disabled}
-        >
-          x₂
-        </button>
-        <button
-          type="button"
-          className="rich-text-toolbar-button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => applyCommand("superscript")}
-          title="Superscript"
-          aria-label="Superscript"
-          disabled={disabled}
-        >
-          x²
-        </button>
-        <button
-          type="button"
-          className="rich-text-toolbar-button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => applyCommand("insertUnorderedList")}
-          title="Bulleted list"
-          aria-label="Bulleted list"
-          disabled={disabled}
-        >
-          •
-        </button>
-        <button
-          type="button"
-          className="rich-text-toolbar-button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => applyCommand("insertOrderedList")}
-          title="Numbered list"
-          aria-label="Numbered list"
-          disabled={disabled}
-        >
-          1.
-        </button>
-        <button
-          type="button"
-          className="rich-text-toolbar-button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => applyCommand("indent")}
-          title="Indent"
-          aria-label="Indent"
-          disabled={disabled}
-        >
-          ⟶
-        </button>
-        <button
-          type="button"
-          className="rich-text-toolbar-button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => applyCommand("outdent")}
-          title="Outdent"
-          aria-label="Outdent"
-          disabled={disabled}
-        >
-          ⟵
-        </button>
-        <label className="rich-text-toolbar-select" aria-label="Font family">
-          <span>Font</span>
-          <select
-            onChange={(event) => applyCommand("fontName", event.target.value)}
-            disabled={disabled}
-          >
-            {fontOptions.map((fontFamily) => (
-              <option key={fontFamily} value={fontFamily}>
-                {fontFamily.split(",")[0]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="rich-text-toolbar-select" aria-label="Line spacing">
-          <span>Spacing</span>
-          <select
-            onChange={(event) => applyLineSpacing(event.target.value)}
-            defaultValue=""
-            disabled={disabled}
-          >
-            <option value="">1x</option>
-            <option value="1.15">1.15</option>
-            <option value="1.5">1.5</option>
-            <option value="2">2</option>
-            <option value="2.5">2.5</option>
-          </select>
-        </label>
-        <label className="rich-text-toolbar-color" aria-label="Font color">
-          <span>Color</span>
-          <input
-            type="color"
-            defaultValue="#000000"
-            onChange={(event) => applyCommand("foreColor", event.target.value)}
-            onMouseDown={(event) => event.preventDefault()}
-            title="Font color"
-            aria-label="Font color"
-            disabled={disabled}
-          />
-        </label>
-      </div>
-
-      <div
-        ref={editorRef}
+    <div className={`rich-text-editor ${className || ""}`} onBlurCapture={onBlurCapture}>
+      <ReactQuill
+        theme="snow"
+        value={editorValue}
+        onChange={handleChange}
+        placeholder={placeholder}
+        readOnly={disabled}
+        modules={quillModules}
+        formats={quillFormats}
         className={`rich-text-editor-input ${isEmpty ? "rich-text-editor-input--empty" : ""}`}
-        style={{ minHeight }}
-        contentEditable={!disabled}
-        suppressContentEditableWarning
-        role="textbox"
-        aria-label={placeholder || "Rich text editor"}
-        data-placeholder={placeholder}
-        dangerouslySetInnerHTML={{ __html: draft }}
-        onInput={handleInput}
-        onPaste={handlePaste}
-        onBlurCapture={onBlurCapture}
-        onKeyDown={handleKeyDown}
+        style={editorStyle}
       />
     </div>
   );

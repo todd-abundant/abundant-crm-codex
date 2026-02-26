@@ -173,6 +173,22 @@ function formatDate(value: string | null | undefined) {
   return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatVentureStudioAssessmentLabel(value: VentureStudioAssessment) {
+  if (value === "green") return "Green";
+  if (value === "yellow") return "Yellow";
+  if (value === "red") return "Red";
+  return "Grey";
+}
+
 function isEmbeddedDocumentUrl(value: string) {
   return value.startsWith("data:");
 }
@@ -461,10 +477,10 @@ type AtAGlanceFieldKey =
   | "atAGlanceKeyConsiderations";
 
 const ventureStudioAssessmentOptions = [
-  { value: "green", label: "Green" },
-  { value: "yellow", label: "Yellow" },
-  { value: "red", label: "Red" },
-  { value: "grey", label: "Grey" }
+  { value: "green", label: "🟢" },
+  { value: "yellow", label: "🟡" },
+  { value: "red", label: "🔴" },
+  { value: "grey", label: "⚪" }
 ] as const;
 type VentureStudioAssessment = (typeof ventureStudioAssessmentOptions)[number]["value"];
 
@@ -560,6 +576,13 @@ const ventureStudioAssessmentDescriptions = [
     description: "There is insufficient information to make an informed assessment"
   }
 ] as const;
+
+const ventureStudioAssessmentColorByValue: Record<VentureStudioAssessment, string> = {
+  green: "#16a34a",
+  yellow: "#ca8a04",
+  red: "#ef4444",
+  grey: "#64748b"
+};
 
 type VentureStudioCriteriaDraft = {
   category: string;
@@ -1044,6 +1067,288 @@ export function PipelineOpportunityDetailView({
     } finally {
       setSavingVentureStudioCriteria(false);
     }
+  }
+
+  function openVentureStudioCriteriaPreview() {
+    if (!item) return;
+
+    const logoUrl = `${window.location.origin}/icon.svg`;
+    const generatedAt = new Date().toLocaleString(undefined, {
+      month: "long",
+      day: "numeric",
+      year: "numeric"
+    });
+
+    const rowsHtml = ventureStudioCriteriaDraft
+      .map((row) => {
+        const rationale = row.rationale.trim();
+        const rationaleMarkup = rationale ? (/<[a-zA-Z]/.test(rationale) ? rationale : `<p>${escapeHtml(rationale)}</p>`) : "";
+
+        return `
+          <tr>
+            <td>${escapeHtml(row.category)}</td>
+            <td>${escapeHtml(row.criteria)}</td>
+            <td>
+              <span class="preview-assessment-chip">
+                <span class="preview-assessment-dot" style="background:${ventureStudioAssessmentColorByValue[row.assessment]}"></span>
+                ${formatVentureStudioAssessmentLabel(row.assessment)}
+              </span>
+            </td>
+            <td class="preview-rationale">${rationaleMarkup || `<p class="preview-empty">No rationale entered.</p>`}</td>
+          </tr>`;
+      })
+      .join("");
+
+    const legendHtml = ventureStudioAssessmentDescriptions
+      .map(
+        (entry) => `
+          <li>
+            <span class="preview-legend-dot" style="background:${ventureStudioAssessmentColorByValue[entry.value]}"></span>
+            ${entry.label}: ${escapeHtml(entry.description)}
+          </li>`
+      )
+      .join("");
+
+    const previewWindow = window.open("", "_blank", "width=1400,height=980");
+    if (!previewWindow) {
+      setStatus({ kind: "error", text: "Preview was blocked. Please allow pop-ups for this site." });
+      return;
+    }
+
+    previewWindow.document.open();
+    previewWindow.document.write(
+      `<!doctype html>
+      <html lang="en">
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>Venture Studio Criteria Preview - ${escapeHtml(item.name)}</title>
+          <style>
+            :root {
+              --text-main: #112238;
+              --text-muted: #42546b;
+              --line: #d9e3f0;
+              --brand: #193f60;
+              --paper: #fff;
+            }
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              padding: 24px;
+              font-family: Arial, Helvetica, sans-serif;
+              color: var(--text-main);
+              background: #f6f9fc;
+            }
+            .preview-slide {
+              max-width: 1280px;
+              margin: 0 auto;
+              background: var(--paper);
+              border: 1px solid #e3ecf7;
+              border-radius: 14px;
+              box-shadow: 0 24px 48px rgba(20, 39, 61, 0.08);
+              min-height: calc(100vh - 48px);
+              display: flex;
+              flex-direction: column;
+            }
+            .preview-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              gap: 16px;
+              border-bottom: 1px solid var(--line);
+              padding: 18px 24px;
+            }
+            .preview-brand {
+              display: flex;
+              align-items: center;
+              gap: 10px;
+            }
+            .preview-brand img {
+              width: 46px;
+              height: 46px;
+              border-radius: 10px;
+              border: 1px solid var(--line);
+            }
+            .preview-eyebrow {
+              font-size: 11px;
+              letter-spacing: 0.11em;
+              text-transform: uppercase;
+              font-weight: 700;
+              color: #4f6b89;
+              margin: 0 0 4px;
+            }
+            .preview-title {
+              margin: 0;
+              font-size: 18px;
+              letter-spacing: 0.02em;
+            }
+            .preview-title strong {
+              color: var(--brand);
+            }
+            .preview-body {
+              padding: 16px 24px 24px;
+              flex: 1;
+              display: grid;
+              align-content: start;
+              gap: 12px;
+            }
+            .preview-subtitle {
+              margin: 0;
+              color: var(--text-muted);
+            }
+            .preview-meta {
+              margin: 2px 0 0;
+              font-size: 12px;
+              color: var(--text-muted);
+            }
+            .preview-table {
+              width: 100%;
+              border-collapse: collapse;
+              border: 1px solid var(--line);
+              table-layout: fixed;
+              font-size: 12px;
+            }
+            .preview-table th,
+            .preview-table td {
+              border: 1px solid var(--line);
+              text-align: left;
+              vertical-align: top;
+              padding: 8px 10px;
+              white-space: normal;
+              overflow-wrap: anywhere;
+              word-break: break-word;
+            }
+            .preview-table th {
+              background: #f4f8fc;
+              text-transform: uppercase;
+              font-size: 10px;
+              letter-spacing: 0.04em;
+              color: #5f7390;
+            }
+            .preview-table col:first-child { width: 18%; }
+            .preview-table col:nth-child(2) { width: 40%; }
+            .preview-table col:nth-child(3) { width: 12%; }
+            .preview-table col:nth-child(4) { width: 30%; }
+
+            .preview-rationale {
+              white-space: pre-wrap;
+            }
+
+            .preview-rationale p {
+              margin: 0;
+            }
+            .preview-assessment-chip {
+              display: inline-flex;
+              align-items: center;
+              gap: 7px;
+              font-weight: 700;
+            }
+            .preview-assessment-dot {
+              width: 10px;
+              height: 10px;
+              border-radius: 999px;
+            }
+            .preview-footnote {
+              margin: 2px 0 0;
+              color: var(--text-muted);
+              font-size: 11px;
+            }
+            .preview-footnote ul {
+              margin: 8px 0 0;
+              padding: 0 0 0 20px;
+              display: grid;
+              gap: 5px;
+            }
+            .preview-legend-dot {
+              width: 8px;
+              height: 8px;
+              border-radius: 999px;
+              display: inline-block;
+              margin-right: 8px;
+            }
+            .preview-empty {
+              color: #8495ab;
+              font-style: italic;
+            }
+            .preview-footer {
+              margin-top: auto;
+              border-top: 1px solid var(--line);
+              padding: 10px 24px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              gap: 12px;
+              font-size: 11px;
+              color: #71829a;
+            }
+            .preview-footer .logo {
+              display: inline-flex;
+              align-items: center;
+              gap: 8px;
+            }
+            .preview-footer .logo img {
+              width: 16px;
+              height: 16px;
+              border-radius: 4px;
+              border: 1px solid #d5deec;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="preview-slide">
+            <header class="preview-header">
+              <div class="preview-brand">
+                <img src="${logoUrl}" alt="Abundant logo" />
+                <div>
+                  <p class="preview-eyebrow">Intake Assessment</p>
+                  <h1 class="preview-title"><strong>Venture Studio Criteria</strong> / Intake Card</h1>
+                </div>
+              </div>
+              <p class="preview-meta">Generated ${escapeHtml(generatedAt)}</p>
+            </header>
+            <main class="preview-body">
+              <p class="preview-subtitle">
+                Company: <strong>${escapeHtml(item.name)}</strong> &nbsp;&nbsp;|&nbsp;&nbsp;
+                Location: <strong>${escapeHtml(item.location || "Location unavailable")}</strong>
+              </p>
+              <table class="preview-table">
+                <colgroup>
+                  <col />
+                  <col />
+                  <col />
+                  <col />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th>Criteria</th>
+                    <th>Assessment</th>
+                    <th>Rationale</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rowsHtml}
+                </tbody>
+              </table>
+              <div class="preview-footnote">
+                <strong>Assessment meaning</strong>
+                <ul>
+                  ${legendHtml}
+                </ul>
+              </div>
+            </main>
+            <footer class="preview-footer">
+              <div class="logo">
+                <img src="${logoUrl}" alt="Abundant logo" />
+                <span>Abundant CRM</span>
+              </div>
+              <span>© ${new Date().getFullYear()} Abundant. All rights reserved.</span>
+            </footer>
+          </div>
+        </body>
+      </html>`
+    );
+    previewWindow.document.close();
   }
 
   async function updateAtAGlanceField(field: AtAGlanceFieldKey, value: string) {
@@ -2040,7 +2345,9 @@ export function PipelineOpportunityDetailView({
                       <td>
                         <select
                           className="venture-studio-criteria-select"
+                          title={formatVentureStudioAssessmentLabel(row.assessment)}
                           value={row.assessment}
+                          style={{ color: ventureStudioAssessmentColorByValue[row.assessment] }}
                           onChange={(event) =>
                             setVentureStudioCriteriaDraft((current) =>
                               current.map((entry) =>
@@ -2055,7 +2362,12 @@ export function PipelineOpportunityDetailView({
                           }
                         >
                           {ventureStudioAssessmentOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
+                            <option
+                              key={option.value}
+                              value={option.value}
+                              title={formatVentureStudioAssessmentLabel(option.value)}
+                              style={{ color: ventureStudioAssessmentColorByValue[option.value] }}
+                            >
                               {option.label}
                             </option>
                           ))}
@@ -2089,6 +2401,9 @@ export function PipelineOpportunityDetailView({
                 disabled={savingVentureStudioCriteria}
               >
                 {savingVentureStudioCriteria ? "Saving..." : "Save Venture Studio Criteria"}
+              </button>
+              <button className="secondary" type="button" onClick={() => void openVentureStudioCriteriaPreview()}>
+                Preview Format
               </button>
             </div>
             <div className="venture-studio-criteria-footnote">

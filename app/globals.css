@@ -1258,21 +1258,43 @@ a {
   border: 1px solid #bfd3e5;
   border-radius: 8px;
   background: #ffffff;
-  padding: 8px 10px;
+  min-width: 0;
+  padding: 0;
   line-height: 1.45;
   color: #0b1930;
   outline: none;
-  min-width: 0;
   overflow: auto;
+  --rich-text-editor-min-height: 140px;
 }
 
-.rich-text-editor-input.rich-text-editor-input--empty::before {
-  content: attr(data-placeholder);
+.rich-text-editor-input.ql-snow {
+  border: 1px solid #bfd3e5;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.rich-text-editor-input.ql-snow .ql-toolbar.ql-snow {
+  border: 0;
+  border-bottom: 1px solid #bfd3e5;
+  border-radius: 8px 8px 0 0;
+}
+
+.rich-text-editor-input.ql-snow .ql-container.ql-snow {
+  border: 0;
+  border-radius: 0 0 8px 8px;
+  font-family: inherit;
+}
+
+.rich-text-editor-input.ql-snow .ql-editor {
+  min-height: var(--rich-text-editor-min-height);
+  padding: 8px 10px;
+}
+
+.rich-text-editor-input.ql-snow .ql-editor.ql-blank::before {
   color: #8b95a5;
-  pointer-events: none;
 }
 
-.rich-text-editor-input:focus-visible {
+.rich-text-editor-input.ql-snow:focus-within {
   border-color: #8fb3dc;
   box-shadow: 0 0 0 2px color-mix(in srgb, #0f60b0 16%, transparent);
 }
@@ -1280,6 +1302,13 @@ a {
 .rich-text-editor-input ul,
 .rich-text-editor-input ol {
   margin: 0.5rem 0 0.5rem 1.5rem;
+  padding: 0;
+}
+
+.rich-text-editor-input p,
+.rich-text-editor-input div,
+.rich-text-editor-input li {
+  margin: 0;
   padding: 0;
 }
 
@@ -1353,7 +1382,7 @@ a {
 .detail-card .detail-grid > div:not(.inline-edit-field) > label + .rich-text-editor .rich-text-editor-input,
 .detail-card .detail-section > label + .rich-text-editor .rich-text-editor-input,
 .detail-card .detail-list-item > label + .rich-text-editor .rich-text-editor-input {
-  min-height: 100px;
+  --rich-text-editor-min-height: 100px;
 }
 
 .detail-card .detail-grid > div:not(.inline-edit-field) > label + input:not([type="checkbox"]):not([type="radio"]):hover,
@@ -1601,7 +1630,7 @@ a {
 }
 
 .entity-note-textarea .rich-text-editor-input {
-  min-height: 110px;
+  --rich-text-editor-min-height: 110px;
 }
 
 .entity-note-body {
@@ -2687,17 +2716,17 @@ select {
 }
 
 .pipeline-note-textarea .rich-text-editor-input {
-  min-height: 180px;
+  --rich-text-editor-min-height: 180px;
 }
 
-.pipeline-note-textarea .rich-text-toolbar {
+.pipeline-note-textarea .rich-text-editor-input .ql-toolbar.ql-snow {
   position: sticky;
   top: 0;
   z-index: 1;
 }
 
 .co-investor-interaction-textarea .rich-text-editor-input {
-  min-height: 120px;
+  --rich-text-editor-min-height: 120px;
 }
 
 .screening-overview-table-wrap {
@@ -3388,13 +3417,28 @@ select {
 }
 
 .venture-studio-criteria-select {
-  width: 100%;
-  max-width: 120px;
+  width: 62px;
+  max-width: 62px;
+  min-height: 32px;
+  padding: 4px 20px 4px 6px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.venture-studio-criteria-select option {
+  font-size: 18px;
 }
 
 .venture-studio-criteria-rationale-editor .rich-text-editor-input {
-  min-height: 88px;
+  --rich-text-editor-min-height: 88px;
   margin: 0;
+}
+
+.venture-studio-criteria-rationale-editor .rich-text-editor-input .ql-editor {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .venture-studio-criteria-footnote {
