@@ -1236,6 +1236,16 @@ export function CompanyWorkbench() {
     if (!selectedRecord || !draftToSave) return;
 
     setStatus(null);
+    const normalizedHealthSystemLinks = draftToSave.healthSystemLinks.map((link) => ({
+      ...link,
+      investmentAmountUsd: toNullableNumber(link.investmentAmountUsd),
+      ownershipPercent: toNullableNumber(link.ownershipPercent)
+    }));
+    const normalizedCoInvestorLinks = draftToSave.coInvestorLinks.map((link) => ({
+      ...link,
+      investmentAmountUsd: toNullableNumber(link.investmentAmountUsd)
+    }));
+
     const intakeStatusForSave =
       draftToSave.intakeStatus === "COMPLETED" || draftToSave.intakeStatus === "SCREENING_EVALUATION"
         ? draftToSave.intakeStatus
@@ -1278,8 +1288,8 @@ export function CompanyWorkbench() {
           screeningEvaluationAt:
             draftToSave.intakeStatus === "SCREENING_EVALUATION" ? new Date().toISOString() : null,
           researchNotes: draftToSave.researchNotes,
-          healthSystemLinks: draftToSave.healthSystemLinks,
-          coInvestorLinks: draftToSave.coInvestorLinks
+          healthSystemLinks: normalizedHealthSystemLinks,
+          coInvestorLinks: normalizedCoInvestorLinks
         })
       });
 
