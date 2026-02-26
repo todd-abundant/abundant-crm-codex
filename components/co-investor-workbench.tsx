@@ -361,23 +361,27 @@ export function CoInvestorWorkbench() {
 
   const filteredRecords = React.useMemo(() => {
     const term = query.trim().toLowerCase();
-    if (!term) return records;
+    const matchingRecords = !term
+      ? records
+      : records.filter((record) => {
+          const haystack = [
+            record.name,
+            record.legalName,
+            record.headquartersCity,
+            record.headquartersState,
+            record.headquartersCountry,
+            record.website
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
 
-    return records.filter((record) => {
-      const haystack = [
-        record.name,
-        record.legalName,
-        record.headquartersCity,
-        record.headquartersState,
-        record.headquartersCountry,
-        record.website
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
+          return haystack.includes(term);
+        });
 
-      return haystack.includes(term);
-    });
+    return [...matchingRecords].sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+    );
   }, [records, query]);
 
   const selectedRecord = React.useMemo(
