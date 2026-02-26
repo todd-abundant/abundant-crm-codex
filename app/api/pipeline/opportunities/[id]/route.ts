@@ -34,6 +34,32 @@ function latestNoteEntry(notes: string | null | undefined) {
   return raw.replace(/^\[[^\]]+\]\s*/, "").trim();
 }
 
+const ventureStudioAssessmentValues = ["red", "yellow", "green", "grey"] as const;
+type VentureStudioAssessment = (typeof ventureStudioAssessmentValues)[number];
+
+function sanitizeVentureStudioAssessment(value: unknown): VentureStudioAssessment | null {
+  return ventureStudioAssessmentValues.includes(value as VentureStudioAssessment) ? (value as VentureStudioAssessment) : null;
+}
+
+function sanitizeVentureStudioCriteria(raw: unknown) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+      const typedEntry = entry as { category?: unknown; assessment?: unknown; rationale?: unknown };
+      const category = typeof typedEntry.category === "string" ? typedEntry.category.trim() : "";
+      const rationale = typeof typedEntry.rationale === "string" ? typedEntry.rationale : "";
+      const assessment = sanitizeVentureStudioAssessment(typedEntry.assessment);
+      if (!category) return null;
+      return {
+        category,
+        rationale,
+        assessment: assessment || "grey"
+      };
+    })
+    .filter((entry): entry is { category: string; assessment: VentureStudioAssessment; rationale: string } => Boolean(entry));
+}
+
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> }
@@ -343,6 +369,7 @@ export async function GET(
         atAGlanceImpact: company.atAGlanceImpact,
         atAGlanceKeyStrengths: company.atAGlanceKeyStrengths,
         atAGlanceKeyConsiderations: company.atAGlanceKeyConsiderations,
+        ventureStudioCriteria: sanitizeVentureStudioCriteria(company.pipeline?.ventureStudioCriteria),
         location: formatLocation(company),
         phase,
         phaseLabel: phaseLabel(phase),

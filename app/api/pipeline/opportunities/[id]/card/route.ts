@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import {
@@ -17,7 +18,16 @@ const cardUpdateSchema = z.object({
   atAGlanceSolution: z.string().optional().nullable(),
   atAGlanceImpact: z.string().optional().nullable(),
   atAGlanceKeyStrengths: z.string().optional().nullable(),
-  atAGlanceKeyConsiderations: z.string().optional().nullable()
+  atAGlanceKeyConsiderations: z.string().optional().nullable(),
+  ventureStudioCriteria: z
+    .array(
+      z.object({
+        category: z.string(),
+        assessment: z.enum(["red", "yellow", "green", "grey"]),
+        rationale: z.string()
+      })
+    )
+    .optional()
 });
 
 function toNullableDate(value?: string | null) {
@@ -43,6 +53,7 @@ export async function PATCH(
       nextStep?: string | null;
       ventureLikelihoodPercent?: number | null;
       ventureExpectedCloseDate?: Date | null;
+      ventureStudioCriteria?: Prisma.JsonValue;
     } = {};
     const companyUpdatePayload: {
       atAGlanceProblem?: string | null;
@@ -74,6 +85,15 @@ export async function PATCH(
     }
     if (Object.prototype.hasOwnProperty.call(body, "atAGlanceKeyConsiderations")) {
       companyUpdatePayload.atAGlanceKeyConsiderations = toNullableString(input.atAGlanceKeyConsiderations);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "ventureStudioCriteria")) {
+      updatePayload.ventureStudioCriteria = input.ventureStudioCriteria
+        ? input.ventureStudioCriteria.map((entry) => ({
+            category: entry.category.trim(),
+            assessment: entry.assessment,
+            rationale: toNullableString(entry.rationale) || ""
+          }))
+        : null;
     }
 
     const company = await prisma.company.findUnique({
@@ -139,6 +159,7 @@ export async function PATCH(
         atAGlanceImpact: nextAtAGlanceImpact ?? "",
         atAGlanceKeyStrengths: nextAtAGlanceKeyStrengths ?? "",
         atAGlanceKeyConsiderations: nextAtAGlanceKeyConsiderations ?? "",
+        ventureStudioCriteria: pipeline.ventureStudioCriteria || [],
         phase,
         phaseLabel: phaseLabel(phase),
         column: mapPhaseToBoardColumn(phase)

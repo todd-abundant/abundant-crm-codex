@@ -3347,6 +3347,96 @@ select {
   border-bottom: 0;
 }
 
+.venture-studio-criteria-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #dce7f2;
+  border-radius: 8px;
+  margin-top: 8px;
+}
+
+.venture-studio-criteria-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 940px;
+  background: #ffffff;
+}
+
+.venture-studio-criteria-table th,
+.venture-studio-criteria-table td {
+  border-bottom: 1px solid #e4edf7;
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+  font-size: 12px;
+  color: #1f2937;
+}
+
+.venture-studio-criteria-table th {
+  background: #f5f9ff;
+  color: #5c7087;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.venture-studio-criteria-category {
+  width: 160px;
+  font-weight: 600;
+}
+
+.venture-studio-criteria-criteria {
+  width: 290px;
+}
+
+.venture-studio-criteria-select {
+  width: 100%;
+  max-width: 120px;
+}
+
+.venture-studio-criteria-rationale-editor .rich-text-editor-input {
+  min-height: 88px;
+  margin: 0;
+}
+
+.venture-studio-criteria-footnote {
+  margin-top: 10px;
+}
+
+.venture-studio-criteria-footnote p {
+  margin: 0 0 8px;
+}
+
+.venture-studio-criteria-footnote ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  color: #334155;
+}
+
+.venture-studio-assessment-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  margin-right: 8px;
+}
+
+.venture-studio-assessment-dot.green {
+  background: #16a34a;
+}
+
+.venture-studio-assessment-dot.yellow {
+  background: #eab308;
+}
+
+.venture-studio-assessment-dot.red {
+  background: #ef4444;
+}
+
+.venture-studio-assessment-dot.grey {
+  background: #64748b;
+}
+
 .screening-score-distribution {
   display: flex;
   flex-wrap: wrap;

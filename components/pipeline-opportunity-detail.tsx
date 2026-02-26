@@ -124,6 +124,7 @@ type PipelineOpportunityDetail = {
   atAGlanceImpact: string | null;
   atAGlanceKeyStrengths: string | null;
   atAGlanceKeyConsiderations: string | null;
+  ventureStudioCriteria: PipelineVentureStudioCriteriaPayload[] | null;
   location: string;
   phase: PipelinePhase;
   phaseLabel: string;
@@ -459,6 +460,144 @@ type AtAGlanceFieldKey =
   | "atAGlanceKeyStrengths"
   | "atAGlanceKeyConsiderations";
 
+const ventureStudioAssessmentOptions = [
+  { value: "green", label: "Green" },
+  { value: "yellow", label: "Yellow" },
+  { value: "red", label: "Red" },
+  { value: "grey", label: "Grey" }
+] as const;
+type VentureStudioAssessment = (typeof ventureStudioAssessmentOptions)[number]["value"];
+
+type VentureStudioCriteriaRow = {
+  category: string;
+  criteria: string;
+  assessment: VentureStudioAssessment;
+  rationale: string;
+};
+
+const ventureStudioCriteriaTemplate: VentureStudioCriteriaRow[] = [
+  {
+    category: "Products & Services",
+    criteria: "Designed to meet the needs of healthcare providers",
+    assessment: "grey",
+    rationale: ""
+  },
+  {
+    category: "Value Proposition",
+    criteria: "Creates a measurable impact for health systems (i.e., revenue, cost savings, outcomes)",
+    assessment: "grey",
+    rationale: ""
+  },
+  {
+    category: "Prioritization",
+    criteria: "Solves a high-priority pain point for health systems",
+    assessment: "grey",
+    rationale: ""
+  },
+  {
+    category: "Differentiation",
+    criteria: "Avoids direct competition with the core capabilities of major incumbents (i.e., Epic)",
+    assessment: "grey",
+    rationale: ""
+  },
+  {
+    category: "Defined Buyer",
+    criteria: "Clear decision-maker at the health system",
+    assessment: "grey",
+    rationale: ""
+  },
+  {
+    category: "Implementation",
+    criteria: "Implemented with minimal disruption to existing clinical operations and IT resources",
+    assessment: "grey",
+    rationale: ""
+  },
+  {
+    category: "Concept Maturity",
+    criteria: "Early proof of concept at 1+ sites has been collected",
+    assessment: "grey",
+    rationale: ""
+  },
+  {
+    category: "Team",
+    criteria: "Relevant industry expertise and/or sales experience",
+    assessment: "grey",
+    rationale: ""
+  },
+  {
+    category: "Market Size",
+    criteria: "Bottoms-up TAM calculation is ~$1B (at least $500M+)",
+    assessment: "grey",
+    rationale: ""
+  },
+  {
+    category: "Regulatory Requirements",
+    criteria: "Meets all applicable regulatory requirements (i.e., FDA)",
+    assessment: "grey",
+    rationale: ""
+  }
+];
+
+const ventureStudioAssessmentDescriptions = [
+  {
+    value: "green",
+    label: "Green",
+    description: "Company currently meets the Abundant Venture Studio’s criteria for S1 investment"
+  },
+  {
+    value: "yellow",
+    label: "Yellow",
+    description: "Company has potential to meet our criteria for S1 investment"
+  },
+  {
+    value: "red",
+    label: "Red",
+    description: "Company is unlikely to meet our criteria for S1 investment"
+  },
+  {
+    value: "grey",
+    label: "Grey",
+    description: "There is insufficient information to make an informed assessment"
+  }
+] as const;
+
+type VentureStudioCriteriaDraft = {
+  category: string;
+  criteria: string;
+  assessment: VentureStudioAssessment;
+  rationale: string;
+};
+
+type PipelineVentureStudioCriteriaPayload = {
+  category: string;
+  assessment: VentureStudioAssessment;
+  rationale: string;
+};
+
+function cloneVentureStudioCriteriaRows() {
+  return ventureStudioCriteriaTemplate.map((row) => ({ ...row }));
+}
+
+function normalizeVentureStudioCriteriaRows(rows?: PipelineOpportunityDetail["ventureStudioCriteria"] | null) {
+  const next: VentureStudioCriteriaDraft[] = ventureStudioCriteriaTemplate.map((template) => ({ ...template }));
+  if (!rows || rows.length === 0) return next;
+  const rowByCategory = new Map<string, PipelineVentureStudioCriteriaPayload>();
+  for (const row of rows) {
+    const key = row.category.trim();
+    if (!key) continue;
+    rowByCategory.set(key, row);
+  }
+  return next.map((row) => {
+    const saved = rowByCategory.get(row.category);
+    if (!saved) return row;
+    return {
+      ...row,
+      assessment: saved.assessment,
+      rationale: saved.rationale
+    };
+  });
+}
+
 type ScreeningDetailView = "status" | "quantitative" | "qualitative" | "documents";
 type AddAttendeeModalState = {
   healthSystemId: string;
@@ -502,6 +641,10 @@ export function PipelineOpportunityDetailView({
   const [statusUpdateDraftByHealthSystemId, setStatusUpdateDraftByHealthSystemId] = React.useState<
     Record<string, string>
   >({});
+  const [savingVentureStudioCriteria, setSavingVentureStudioCriteria] = React.useState(false);
+  const [ventureStudioCriteriaDraft, setVentureStudioCriteriaDraft] = React.useState<VentureStudioCriteriaDraft[]>(
+    cloneVentureStudioCriteriaRows()
+  );
   const [addAttendeeModal, setAddAttendeeModal] = React.useState<AddAttendeeModalState | null>(null);
   const [addAttendeeLookupValue, setAddAttendeeLookupValue] = React.useState("");
   const [editingScreeningCell, setEditingScreeningCell] = React.useState<{
@@ -656,6 +799,22 @@ export function PipelineOpportunityDetailView({
       setEditingQualitativeDraft(null);
     }
   }, [item?.isScreeningStage, item?.screening.healthSystems, editingQualitativeFeedbackId]);
+
+  React.useEffect(() => {
+    setVentureStudioCriteriaDraft((current) => {
+      const next = normalizeVentureStudioCriteriaRows(item?.ventureStudioCriteria ?? null);
+      const hasSameShape =
+        current.length === next.length &&
+        current.every(
+          (row, index) =>
+            row.category === next[index]?.category &&
+            row.assessment === next[index]?.assessment &&
+            row.rationale === next[index]?.rationale
+        );
+      if (hasSameShape) return current;
+      return next;
+    });
+  }, [item?.ventureStudioCriteria, item?.id]);
 
   React.useEffect(() => {
     if (!item?.isScreeningStage) {
@@ -845,6 +1004,45 @@ export function PipelineOpportunityDetailView({
       });
     } finally {
       setSavingScreeningCellByKey((current) => ({ ...current, [key]: false }));
+    }
+  }
+
+  async function saveVentureStudioCriteria() {
+    if (!item) return;
+
+    setSavingVentureStudioCriteria(true);
+    setStatus(null);
+
+    try {
+      const payloadRows = ventureStudioCriteriaDraft.map((row) => ({
+        category: row.category,
+        assessment: row.assessment,
+        rationale: row.rationale
+      }));
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/card`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ventureStudioCriteria: payloadRows })
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to save venture studio criteria");
+
+      setItem((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          ventureStudioCriteria: payload.item?.ventureStudioCriteria || current.ventureStudioCriteria
+        };
+      });
+      setVentureStudioCriteriaDraft(normalizeVentureStudioCriteriaRows(payload.item?.ventureStudioCriteria || null));
+      setStatus({ kind: "ok", text: "Venture Studio Criteria updated." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to save venture studio criteria"
+      });
+    } finally {
+      setSavingVentureStudioCriteria(false);
     }
   }
 
@@ -1823,7 +2021,86 @@ export function PipelineOpportunityDetailView({
         {activeIntakeDetailTab === "venture-studio-criteria" ? (
           <>
             <h2>Venture Studio Criteria</h2>
-            <p className="muted">Content for this section will be added later.</p>
+            <p className="muted">Capture each fixed criterion with an assessment and rationale.</p>
+            <div className="venture-studio-criteria-table-wrap">
+              <table className="venture-studio-criteria-table">
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th>Criteria</th>
+                    <th>Assessment</th>
+                    <th>Rationale</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ventureStudioCriteriaDraft.map((row) => (
+                    <tr key={row.category}>
+                      <td className="venture-studio-criteria-category">{row.category}</td>
+                      <td className="venture-studio-criteria-criteria">{row.criteria}</td>
+                      <td>
+                        <select
+                          className="venture-studio-criteria-select"
+                          value={row.assessment}
+                          onChange={(event) =>
+                            setVentureStudioCriteriaDraft((current) =>
+                              current.map((entry) =>
+                                entry.category === row.category
+                                  ? {
+                                      ...entry,
+                                      assessment: event.target.value as VentureStudioAssessment
+                                    }
+                                  : entry
+                              )
+                            )
+                          }
+                        >
+                          {ventureStudioAssessmentOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <RichTextArea
+                          className="venture-studio-criteria-rationale-editor"
+                          value={row.rationale}
+                          onChange={(nextValue) =>
+                            setVentureStudioCriteriaDraft((current) =>
+                              current.map((entry) =>
+                                entry.category === row.category ? { ...entry, rationale: nextValue } : entry
+                              )
+                            )
+                          }
+                          rows={5}
+                          placeholder="Enter rationale"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="actions">
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => void saveVentureStudioCriteria()}
+                disabled={savingVentureStudioCriteria}
+              >
+                {savingVentureStudioCriteria ? "Saving..." : "Save Venture Studio Criteria"}
+              </button>
+            </div>
+            <div className="venture-studio-criteria-footnote">
+              <p className="detail-label">Assessment meaning</p>
+              <ul>
+                {ventureStudioAssessmentDescriptions.map((option) => (
+                  <li key={option.value}>
+                    <span className={`venture-studio-assessment-dot ${option.value}`}></span> {option.description}
+                  </li>
+                ))}
+              </ul>
+            </div>
           </>
         ) : null}
 

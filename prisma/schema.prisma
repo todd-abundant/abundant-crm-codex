@@ -573,6 +573,7 @@ model CompanyPipeline {
   s1Invested                      Boolean               @default(false)
   s1InvestmentAt                  DateTime?
   s1InvestmentAmountUsd           Decimal?              @db.Decimal(16, 2)
+  ventureStudioCriteria           Json?
   portfolioAddedAt                DateTime?
   createdAt                       DateTime              @default(now())
   updatedAt                       DateTime              @updatedAt
