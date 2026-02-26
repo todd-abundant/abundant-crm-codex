@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { AdminUserManagement } from "@/components/admin-user-management";
+import { AdminControlCenter } from "@/components/admin-control-center";
 import { canAccessAdmin } from "@/lib/auth/permissions";
 import { getCurrentUser } from "@/lib/auth/server";
 
@@ -12,5 +12,5 @@ export default async function AdminPage() {
     redirect("/");
   }
 
-  return <AdminUserManagement currentUserId={user.id} />;
+  return <AdminControlCenter currentUserId={user.id} />;
 }

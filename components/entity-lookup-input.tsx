@@ -619,12 +619,12 @@ export function EntityLookupInput({
               </div>
               <button
                 type="button"
-                className="ghost small"
+                className="modal-icon-close"
                 onClick={() => setAddOpen(false)}
                 disabled={adding}
                 aria-label="Close add dialog"
               >
-                Close
+                <span aria-hidden="true">×</span>
               </button>
             </header>
 

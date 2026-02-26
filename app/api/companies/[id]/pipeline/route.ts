@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
+import { normalizeCompanyDocumentUrl } from "@/lib/company-document-links";
 
 const pipelinePhaseSchema = z.enum([
   "INTAKE",
@@ -297,14 +298,17 @@ export async function PATCH(
       await tx.companyDocument.deleteMany({ where: { companyId: id } });
       if (input.documents.length > 0) {
         const documentsToCreate = input.documents
-          .map((document) => ({
-            companyId: id,
-            type: document.type,
-            title: document.title.trim(),
-            url: document.url.trim(),
-            uploadedAt: toNullableDate(document.uploadedAt) || new Date(),
-            notes: toNullableString(document.notes)
-          }))
+          .map((document) => {
+            const normalizedUrl = normalizeCompanyDocumentUrl(document.url) || "";
+            return {
+              companyId: id,
+              type: document.type,
+              title: document.title.trim(),
+              url: normalizedUrl,
+              uploadedAt: toNullableDate(document.uploadedAt) || new Date(),
+              notes: toNullableString(document.notes)
+            };
+          })
           .filter((document) => document.title && document.url);
 
         if (documentsToCreate.length > 0) {

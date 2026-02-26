@@ -82,8 +82,8 @@ export function SearchMatchModal(props: SearchMatchModalProps) {
             <h3 className="search-match-title">{title}</h3>
             <p className="search-match-subtitle">Match options for "{query}"</p>
           </div>
-          <button className="ghost small" type="button" onClick={onClose}>
-            Close
+          <button className="modal-icon-close" type="button" onClick={onClose} aria-label="Close search match dialog">
+            <span aria-hidden="true">×</span>
           </button>
         </header>
 

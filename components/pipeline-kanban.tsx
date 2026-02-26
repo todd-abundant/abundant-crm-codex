@@ -1186,7 +1186,17 @@ export function PipelineKanban() {
       {selectedDetailId ? (
         <div className="pipeline-detail-backdrop" onMouseDown={closeDetailModal}>
           <div className="pipeline-detail-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-            <PipelineOpportunityDetailView itemId={selectedDetailId} inModal onClose={closeDetailModal} />
+            <div className="pipeline-detail-modal-header">
+              <button
+                type="button"
+                className="modal-icon-close"
+                onClick={closeDetailModal}
+                aria-label="Close pipeline detail dialog"
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+            <PipelineOpportunityDetailView itemId={selectedDetailId} inModal />
           </div>
         </div>
       ) : null}

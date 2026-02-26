@@ -108,6 +108,11 @@ function mapCompanyCreateData(input: CompanyInputParsed) {
       input.leadSourceType === "OTHER" ? toNullableString(input.leadSourceOther) : null,
     leadSourceNotes: toNullableString(input.leadSourceNotes),
     description: toNullableString(input.description),
+    atAGlanceProblem: toNullableString(input.atAGlanceProblem),
+    atAGlanceSolution: toNullableString(input.atAGlanceSolution),
+    atAGlanceImpact: toNullableString(input.atAGlanceImpact),
+    atAGlanceKeyStrengths: toNullableString(input.atAGlanceKeyStrengths),
+    atAGlanceKeyConsiderations: toNullableString(input.atAGlanceKeyConsiderations),
     googleTranscriptUrl: toNullableString(input.googleTranscriptUrl),
     spinOutOwnershipPercent:
       input.companyType === "SPIN_OUT"

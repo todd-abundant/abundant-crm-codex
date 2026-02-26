@@ -136,6 +136,12 @@ enum CompanyDocumentType {
   OTHER
 }
 
+enum EntityKind {
+  HEALTH_SYSTEM
+  CO_INVESTOR
+  COMPANY
+}
+
 enum CompanyOpportunityType {
   VENTURE_STUDIO_SERVICES
   S1_TERM_SHEET
@@ -187,6 +193,12 @@ enum CompanyScreeningCellField {
   STATUS_UPDATE
 }
 
+enum CompanyScreeningSurveySessionStatus {
+  DRAFT
+  LIVE
+  CLOSED
+}
+
 enum CompanyFundraiseStatus {
   PLANNED
   OPEN
@@ -216,20 +228,21 @@ model HealthSystem {
   createdAt                   DateTime       @default(now())
   updatedAt                   DateTime       @updatedAt
 
-  executives                   Executive[]
-  venturePartners              VenturePartner[]
-  investments                  HealthSystemInvestment[]
-  researchJobs                 HealthSystemResearchJob[]
-  companyLeadSources           Company[]                     @relation("CompanyLeadSourceHealthSystem")
-  companyHealthSystemLinks     CompanyHealthSystemLink[]
-  contactLinks                 ContactHealthSystem[]
-  companyOpportunities         CompanyOpportunity[]
-  companyScreeningParticipants CompanyScreeningParticipant[]
-  companyLois                  CompanyLoi[]
-  companyScreeningDocuments    CompanyScreeningDocument[]
+  executives                           Executive[]
+  venturePartners                      VenturePartner[]
+  investments                          HealthSystemInvestment[]
+  researchJobs                         HealthSystemResearchJob[]
+  companyLeadSources                   Company[]                              @relation("CompanyLeadSourceHealthSystem")
+  companyHealthSystemLinks             CompanyHealthSystemLink[]
+  contactLinks                         ContactHealthSystem[]
+  companyOpportunities                 CompanyOpportunity[]
+  companyScreeningParticipants         CompanyScreeningParticipant[]
+  companyLois                          CompanyLoi[]
+  companyScreeningDocuments            CompanyScreeningDocument[]
   companyScreeningQuantitativeFeedback CompanyScreeningQuantitativeFeedback[]
   companyScreeningQualitativeFeedback  CompanyScreeningQualitativeFeedback[]
-  companyScreeningCellChanges         CompanyScreeningCellChange[]
+  companyScreeningCellChanges          CompanyScreeningCellChange[]
+  companyScreeningSurveySubmissions    CompanyScreeningSurveySubmission[]
 
   @@index([name])
   @@index([isAllianceMember])
@@ -447,6 +460,11 @@ model Company {
   leadSourceOther          String?
   leadSourceNotes          String?
   description              String?
+  atAGlanceProblem         String?
+  atAGlanceSolution        String?
+  atAGlanceImpact          String?
+  atAGlanceKeyStrengths    String?
+  atAGlanceKeyConsiderations String?
   googleTranscriptUrl      String?
   spinOutOwnershipPercent  Decimal?               @db.Decimal(7, 2)
   intakeStatus             CompanyIntakeStatus    @default(NOT_SCHEDULED)
@@ -461,22 +479,23 @@ model Company {
 
   leadSourceHealthSystem HealthSystem? @relation("CompanyLeadSourceHealthSystem", fields: [leadSourceHealthSystemId], references: [id], onDelete: SetNull)
 
-  healthSystemLinks       CompanyHealthSystemLink[]
-  coInvestorLinks         CompanyCoInvestorLink[]
-  contactLinks            ContactCompany[]
-  researchJobs            CompanyResearchJob[]
-  healthSystemInvestments HealthSystemInvestment[]
-  pipeline                CompanyPipeline?
-  documents               CompanyDocument[]
-  opportunities           CompanyOpportunity[]
-  screeningEvents         CompanyScreeningEvent[]
-  lois                    CompanyLoi[]
-  screeningDocuments      CompanyScreeningDocument[]
-  pipelineNotes           CompanyPipelineNote[]
+  healthSystemLinks             CompanyHealthSystemLink[]
+  coInvestorLinks               CompanyCoInvestorLink[]
+  contactLinks                  ContactCompany[]
+  researchJobs                  CompanyResearchJob[]
+  healthSystemInvestments       HealthSystemInvestment[]
+  pipeline                      CompanyPipeline?
+  documents                     CompanyDocument[]
+  opportunities                 CompanyOpportunity[]
+  screeningEvents               CompanyScreeningEvent[]
+  lois                          CompanyLoi[]
+  screeningDocuments            CompanyScreeningDocument[]
+  pipelineNotes                 CompanyPipelineNote[]
   screeningQuantitativeFeedback CompanyScreeningQuantitativeFeedback[]
   screeningQualitativeFeedback  CompanyScreeningQualitativeFeedback[]
-  screeningCellChanges         CompanyScreeningCellChange[]
-  fundraises              CompanyFundraise[]
+  screeningCellChanges          CompanyScreeningCellChange[]
+  screeningSurveySessions       CompanyScreeningSurveySession[]
+  fundraises                    CompanyFundraise[]
 
   @@index([name])
   @@index([companyType])
@@ -588,6 +607,48 @@ model CompanyDocument {
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([companyId, type])
+}
+
+model EntityDocument {
+  id         String     @id @default(cuid())
+  entityKind EntityKind
+  entityId   String
+  title      String
+  url        String
+  notes      String?
+  uploadedAt DateTime   @default(now())
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  noteLinks EntityNoteDocument[]
+
+  @@index([entityKind, entityId, uploadedAt])
+  @@index([entityKind, entityId, createdAt])
+}
+
+model EntityNote {
+  id         String     @id @default(cuid())
+  entityKind EntityKind
+  entityId   String
+  note       String
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  attachments EntityNoteDocument[]
+
+  @@index([entityKind, entityId, createdAt])
+}
+
+model EntityNoteDocument {
+  noteId     String
+  documentId String
+  attachedAt DateTime @default(now())
+
+  note     EntityNote     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  document EntityDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@id([noteId, documentId])
+  @@index([documentId])
 }
 
 model CompanyOpportunity {
@@ -707,7 +768,7 @@ model CompanyScreeningQuantitativeFeedback {
 }
 
 model CompanyScreeningQualitativeFeedback {
-  id             String                           @id @default(cuid())
+  id             String                            @id @default(cuid())
   companyId      String
   healthSystemId String
   contactId      String?
@@ -715,8 +776,8 @@ model CompanyScreeningQualitativeFeedback {
   theme          String
   sentiment      CompanyScreeningFeedbackSentiment @default(NEUTRAL)
   feedback       String
-  createdAt      DateTime                         @default(now())
-  updatedAt      DateTime                         @updatedAt
+  createdAt      DateTime                          @default(now())
+  updatedAt      DateTime                          @updatedAt
 
   company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
@@ -736,12 +797,115 @@ model CompanyScreeningCellChange {
   changedByName   String?
   createdAt       DateTime                  @default(now())
 
-  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
-  changedByUser User?       @relation(fields: [changedByUserId], references: [id], onDelete: SetNull)
+  company       Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  healthSystem  HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+  changedByUser User?        @relation(fields: [changedByUserId], references: [id], onDelete: SetNull)
 
   @@index([companyId, healthSystemId, field, createdAt])
   @@index([changedByUserId])
+}
+
+model CompanyScreeningSurveyQuestion {
+  id              String   @id @default(cuid())
+  category        String
+  prompt          String
+  instructions    String?
+  scaleMin        Int      @default(1)
+  scaleMax        Int      @default(10)
+  isActive        Boolean  @default(true)
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  createdByUser    User?                                   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  sessionQuestions CompanyScreeningSurveySessionQuestion[]
+  answers          CompanyScreeningSurveyAnswer[]
+
+  @@index([category, isActive])
+  @@index([createdByUserId])
+}
+
+model CompanyScreeningSurveySession {
+  id              String                              @id @default(cuid())
+  companyId       String
+  title           String
+  accessToken     String                              @unique
+  status          CompanyScreeningSurveySessionStatus @default(DRAFT)
+  openedAt        DateTime?
+  closedAt        DateTime?
+  createdByUserId String?
+  createdAt       DateTime                            @default(now())
+  updatedAt       DateTime                            @updatedAt
+
+  company       Company                                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdByUser User?                                   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  questions     CompanyScreeningSurveySessionQuestion[]
+  submissions   CompanyScreeningSurveySubmission[]
+  answers       CompanyScreeningSurveyAnswer[]
+
+  @@index([companyId, createdAt])
+  @@index([status, updatedAt])
+  @@index([createdByUserId])
+}
+
+model CompanyScreeningSurveySessionQuestion {
+  id               String   @id @default(cuid())
+  sessionId        String
+  questionId       String
+  displayOrder     Int      @default(0)
+  categoryOverride String?
+  promptOverride   String?
+  instructionsOverride String?
+  createdAt        DateTime @default(now())
+
+  session  CompanyScreeningSurveySession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question CompanyScreeningSurveyQuestion @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  answers  CompanyScreeningSurveyAnswer[]
+
+  @@unique([sessionId, questionId])
+  @@index([sessionId, displayOrder])
+  @@index([questionId])
+}
+
+model CompanyScreeningSurveySubmission {
+  id               String   @id @default(cuid())
+  sessionId        String
+  healthSystemId   String?
+  contactId        String?
+  participantName  String?
+  participantEmail String?
+  submittedAt      DateTime @default(now())
+  sourceIpHash     String?
+  userAgent        String?
+
+  session      CompanyScreeningSurveySession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  healthSystem HealthSystem?                  @relation(fields: [healthSystemId], references: [id], onDelete: SetNull)
+  contact      Contact?                       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  answers      CompanyScreeningSurveyAnswer[]
+
+  @@index([sessionId, submittedAt])
+  @@index([healthSystemId])
+  @@index([contactId])
+  @@index([participantEmail])
+}
+
+model CompanyScreeningSurveyAnswer {
+  id                String   @id @default(cuid())
+  sessionId         String
+  submissionId      String
+  sessionQuestionId String
+  questionId        String
+  score             Int
+  createdAt         DateTime @default(now())
+
+  session         CompanyScreeningSurveySession         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  submission      CompanyScreeningSurveySubmission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  sessionQuestion CompanyScreeningSurveySessionQuestion @relation(fields: [sessionQuestionId], references: [id], onDelete: Cascade)
+  question        CompanyScreeningSurveyQuestion        @relation(fields: [questionId], references: [id], onDelete: Restrict)
+
+  @@unique([submissionId, sessionQuestionId])
+  @@index([sessionId, questionId])
+  @@index([sessionQuestionId])
 }
 
 model CompanyFundraise {
@@ -806,29 +970,32 @@ model Contact {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  healthSystemLinks            ContactHealthSystem[]
-  companyLinks                 ContactCompany[]
-  coInvestorLinks              ContactCoInvestor[]
-  companyScreeningParticipants CompanyScreeningParticipant[]
+  healthSystemLinks                    ContactHealthSystem[]
+  companyLinks                         ContactCompany[]
+  coInvestorLinks                      ContactCoInvestor[]
+  companyScreeningParticipants         CompanyScreeningParticipant[]
   companyScreeningQuantitativeFeedback CompanyScreeningQuantitativeFeedback[]
   companyScreeningQualitativeFeedback  CompanyScreeningQualitativeFeedback[]
+  companyScreeningSurveySubmissions    CompanyScreeningSurveySubmission[]
 
   @@index([name])
   @@index([email])
 }
 
 model User {
-  id          String               @id @default(cuid())
-  email       String               @unique
-  name        String?
-  image       String?
-  isActive    Boolean              @default(true)
-  googleSub   String?              @unique
-  lastLoginAt DateTime?
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
-  roles       UserRoleAssignment[]
-  companyScreeningCellChanges CompanyScreeningCellChange[]
+  id                              String                           @id @default(cuid())
+  email                           String                           @unique
+  name                            String?
+  image                           String?
+  isActive                        Boolean                          @default(true)
+  googleSub                       String?                          @unique
+  lastLoginAt                     DateTime?
+  createdAt                       DateTime                         @default(now())
+  updatedAt                       DateTime                         @updatedAt
+  roles                           UserRoleAssignment[]
+  companyScreeningCellChanges     CompanyScreeningCellChange[]
+  companyScreeningSurveyQuestions CompanyScreeningSurveyQuestion[]
+  companyScreeningSurveySessions  CompanyScreeningSurveySession[]
 
   @@index([isActive])
 }

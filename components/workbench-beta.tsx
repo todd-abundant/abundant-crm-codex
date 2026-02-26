@@ -938,6 +938,7 @@ export function WorkbenchBeta() {
   }
 
   function closeExecutionModal() {
+    if (executing) return;
     setWizardOpen(false);
     setWizardIndex(0);
   }
@@ -1410,8 +1411,14 @@ export function WorkbenchBeta() {
         ) : null}
 
         {wizardOpen ? (
-          <div className="agent-wizard-backdrop">
-            <section className="agent-wizard-modal" role="dialog" aria-modal="true" aria-label="Execution Wizard">
+          <div className="agent-wizard-backdrop" onMouseDown={closeExecutionModal}>
+            <section
+              className="agent-wizard-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Execution Wizard"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
               <header className="agent-wizard-header">
                 <div>
                   <h3 className="agent-wizard-title">Execution Wizard</h3>
@@ -1420,8 +1427,14 @@ export function WorkbenchBeta() {
                   </p>
                 </div>
                 <div className="agent-wizard-header-actions">
-                  <button type="button" className="ghost" onClick={closeExecutionModal} disabled={executing}>
-                    Close
+                  <button
+                    type="button"
+                    className="modal-icon-close"
+                    onClick={closeExecutionModal}
+                    disabled={executing}
+                    aria-label="Close execution wizard"
+                  >
+                    <span aria-hidden="true">×</span>
                   </button>
                 </div>
               </header>

@@ -9,6 +9,9 @@ import {
 import { SearchMatchModal } from "./search-match-modal";
 import { CompanyPipelineManager } from "./company-pipeline-manager";
 import { EntityLookupInput } from "./entity-lookup-input";
+import { AddContactModal } from "./add-contact-modal";
+import { EntityDocumentsPane } from "./entity-documents-pane";
+import { EntityNotesPane } from "./entity-notes-pane";
 
 type SearchCandidate = {
   name: string;
@@ -107,6 +110,11 @@ type CompanyRecord = {
   leadSourceOther?: string | null;
   leadSourceNotes?: string | null;
   description?: string | null;
+  atAGlanceProblem?: string | null;
+  atAGlanceSolution?: string | null;
+  atAGlanceImpact?: string | null;
+  atAGlanceKeyStrengths?: string | null;
+  atAGlanceKeyConsiderations?: string | null;
   googleTranscriptUrl?: string | null;
   spinOutOwnershipPercent?: number | string | null;
   intakeStatus: IntakeStatus;
@@ -154,6 +162,11 @@ type DetailDraft = {
   leadSourceOther: string;
   leadSourceNotes: string;
   description: string;
+  atAGlanceProblem: string;
+  atAGlanceSolution: string;
+  atAGlanceImpact: string;
+  atAGlanceKeyStrengths: string;
+  atAGlanceKeyConsiderations: string;
   googleTranscriptUrl: string;
   spinOutOwnershipPercent: string;
   intakeStatus: IntakeStatus;
@@ -175,7 +188,7 @@ type DetailDraft = {
   }>;
 };
 
-type DetailTab = "overview" | "actions" | "contacts" | "relationships" | "pipeline";
+type DetailTab = "overview" | "at-a-glance" | "documents" | "notes" | "contacts" | "relationships" | "pipeline";
 
 const companyHealthSystemRelationshipOptions: Array<{ value: "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"; label: string }> =
   [
@@ -381,6 +394,11 @@ function draftFromRecord(record: CompanyRecord): DetailDraft {
     leadSourceOther: record.leadSourceOther || "",
     leadSourceNotes: record.leadSourceNotes || "",
     description: record.description || "",
+    atAGlanceProblem: record.atAGlanceProblem || "",
+    atAGlanceSolution: record.atAGlanceSolution || "",
+    atAGlanceImpact: record.atAGlanceImpact || "",
+    atAGlanceKeyStrengths: record.atAGlanceKeyStrengths || "",
+    atAGlanceKeyConsiderations: record.atAGlanceKeyConsiderations || "",
     googleTranscriptUrl: record.googleTranscriptUrl || "",
     spinOutOwnershipPercent: parseNumber(record.spinOutOwnershipPercent),
     intakeStatus: record.intakeStatus || "NOT_SCHEDULED",
@@ -432,6 +450,7 @@ export function CompanyWorkbench() {
   });
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [addingContact, setAddingContact] = React.useState(false);
+  const [addContactModalOpen, setAddContactModalOpen] = React.useState(false);
   const [contactName, setContactName] = React.useState("");
   const [contactTitle, setContactTitle] = React.useState("");
   const [contactRelationshipTitle, setContactRelationshipTitle] = React.useState("");
@@ -454,6 +473,13 @@ export function CompanyWorkbench() {
   const [updatingContact, setUpdatingContact] = React.useState(false);
   const [deletingContactLinkId, setDeletingContactLinkId] = React.useState<string | null>(null);
   const [addingHealthSystemLink, setAddingHealthSystemLink] = React.useState(false);
+  const [editingHealthSystemLinkId, setEditingHealthSystemLinkId] = React.useState<string | null>(null);
+  const [editingHealthSystemRelationshipType, setEditingHealthSystemRelationshipType] = React.useState<
+    "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
+  >("CUSTOMER");
+  const [editingHealthSystemNotes, setEditingHealthSystemNotes] = React.useState("");
+  const [editingHealthSystemInvestmentAmountUsd, setEditingHealthSystemInvestmentAmountUsd] = React.useState("");
+  const [editingHealthSystemOwnershipPercent, setEditingHealthSystemOwnershipPercent] = React.useState("");
   const [newHealthSystemLinkId, setNewHealthSystemLinkId] = React.useState("");
   const [newHealthSystemRelationshipType, setNewHealthSystemRelationshipType] = React.useState<
     "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
@@ -462,6 +488,12 @@ export function CompanyWorkbench() {
   const [newHealthSystemInvestmentAmountUsd, setNewHealthSystemInvestmentAmountUsd] = React.useState("");
   const [newHealthSystemOwnershipPercent, setNewHealthSystemOwnershipPercent] = React.useState("");
   const [addingCoInvestorLink, setAddingCoInvestorLink] = React.useState(false);
+  const [editingCoInvestorLinkId, setEditingCoInvestorLinkId] = React.useState<string | null>(null);
+  const [editingCoInvestorRelationshipType, setEditingCoInvestorRelationshipType] = React.useState<
+    "INVESTOR" | "PARTNER" | "OTHER"
+  >("INVESTOR");
+  const [editingCoInvestorNotes, setEditingCoInvestorNotes] = React.useState("");
+  const [editingCoInvestorInvestmentAmountUsd, setEditingCoInvestorInvestmentAmountUsd] = React.useState("");
   const [newCoInvestorId, setNewCoInvestorId] = React.useState("");
   const [newCoInvestorRelationshipType, setNewCoInvestorRelationshipType] = React.useState<"INVESTOR" | "PARTNER" | "OTHER">("INVESTOR");
   const [newCoInvestorNotes, setNewCoInvestorNotes] = React.useState("");
@@ -834,13 +866,8 @@ export function CompanyWorkbench() {
         kind: "ok",
         text: `${payload.contact.name} linked (${matchLabel}).`
       });
-      setContactName("");
-      setContactTitle("");
-      setContactRelationshipTitle("");
-      setContactEmail("");
-      setContactPhone("");
-      setContactLinkedinUrl("");
-      setContactRoleType("COMPANY_CONTACT");
+      resetContactForm();
+      setAddContactModalOpen(false);
       await loadRecords();
     } catch (error) {
       setStatus({
@@ -862,6 +889,16 @@ export function CompanyWorkbench() {
     setEditingContactLinkedinUrl(link.contact.linkedinUrl || "");
     setEditingContactRoleType(link.roleType);
     setStatus(null);
+  }
+
+  function resetContactForm() {
+    setContactName("");
+    setContactTitle("");
+    setContactRelationshipTitle("");
+    setContactEmail("");
+    setContactPhone("");
+    setContactLinkedinUrl("");
+    setContactRoleType("COMPANY_CONTACT");
   }
 
   function resetEditingContactForm() {
@@ -964,11 +1001,132 @@ export function CompanyWorkbench() {
     setNewHealthSystemOwnershipPercent("");
   }
 
+  function beginEditingHealthSystemLink(link: CompanyHealthSystemLink) {
+    setEditingHealthSystemLinkId(link.id);
+    setEditingHealthSystemRelationshipType(link.relationshipType);
+    setEditingHealthSystemNotes(link.notes || "");
+    setEditingHealthSystemInvestmentAmountUsd(parseNumber(link.investmentAmountUsd));
+    setEditingHealthSystemOwnershipPercent(parseNumber(link.ownershipPercent));
+    setStatus(null);
+  }
+
+  function resetEditingHealthSystemLinkForm() {
+    setEditingHealthSystemLinkId(null);
+    setEditingHealthSystemRelationshipType("CUSTOMER");
+    setEditingHealthSystemNotes("");
+    setEditingHealthSystemInvestmentAmountUsd("");
+    setEditingHealthSystemOwnershipPercent("");
+  }
+
+  function saveHealthSystemLinkForSelectedRecord(healthSystemId: string, healthSystemName: string) {
+    if (!selectedRecord || !detailDraft) return;
+
+    const found = detailDraft.healthSystemLinks.some((link) => link.healthSystemId === healthSystemId);
+    if (!found) {
+      setStatus({ kind: "error", text: "Health system link not found." });
+      return;
+    }
+
+    const nextLinks = detailDraft.healthSystemLinks.map((link) =>
+      link.healthSystemId === healthSystemId
+        ? {
+            ...link,
+            relationshipType: editingHealthSystemRelationshipType,
+            notes: editingHealthSystemNotes,
+            investmentAmountUsd: editingHealthSystemInvestmentAmountUsd,
+            ownershipPercent: editingHealthSystemOwnershipPercent
+          }
+        : link
+    );
+
+    updateDetailDraft({ healthSystemLinks: nextLinks });
+    resetEditingHealthSystemLinkForm();
+    setStatus({ kind: "ok", text: `${healthSystemName} link updated.` });
+  }
+
+  function deleteHealthSystemLinkFromSelectedRecord(linkId: string, healthSystemId: string, healthSystemName: string) {
+    if (!selectedRecord || !detailDraft) return;
+
+    const confirmDelete = window.confirm(`Remove ${healthSystemName} from linked health systems?`);
+    if (!confirmDelete) return;
+
+    const nextLinks = detailDraft.healthSystemLinks.filter((link) => link.healthSystemId !== healthSystemId);
+    if (nextLinks.length === detailDraft.healthSystemLinks.length) {
+      setStatus({ kind: "error", text: "Health system link not found." });
+      return;
+    }
+
+    updateDetailDraft({ healthSystemLinks: nextLinks });
+    if (editingHealthSystemLinkId === linkId) {
+      resetEditingHealthSystemLinkForm();
+    }
+    setStatus({ kind: "ok", text: `${healthSystemName} removed from linked health systems.` });
+  }
+
   function resetCoInvestorLinkForm() {
     setNewCoInvestorId("");
     setNewCoInvestorRelationshipType("INVESTOR");
     setNewCoInvestorNotes("");
     setNewCoInvestorInvestmentAmountUsd("");
+  }
+
+  function beginEditingCoInvestorLink(link: CompanyCoInvestorLink) {
+    setEditingCoInvestorLinkId(link.id);
+    setEditingCoInvestorRelationshipType(link.relationshipType);
+    setEditingCoInvestorNotes(link.notes || "");
+    setEditingCoInvestorInvestmentAmountUsd(parseNumber(link.investmentAmountUsd));
+    setStatus(null);
+  }
+
+  function resetEditingCoInvestorLinkForm() {
+    setEditingCoInvestorLinkId(null);
+    setEditingCoInvestorRelationshipType("INVESTOR");
+    setEditingCoInvestorNotes("");
+    setEditingCoInvestorInvestmentAmountUsd("");
+  }
+
+  function saveCoInvestorLinkForSelectedRecord(coInvestorId: string, coInvestorName: string) {
+    if (!selectedRecord || !detailDraft) return;
+
+    const found = detailDraft.coInvestorLinks.some((link) => link.coInvestorId === coInvestorId);
+    if (!found) {
+      setStatus({ kind: "error", text: "Co-investor link not found." });
+      return;
+    }
+
+    const nextLinks = detailDraft.coInvestorLinks.map((link) =>
+      link.coInvestorId === coInvestorId
+        ? {
+            ...link,
+            relationshipType: editingCoInvestorRelationshipType,
+            notes: editingCoInvestorNotes,
+            investmentAmountUsd: editingCoInvestorInvestmentAmountUsd
+          }
+        : link
+    );
+
+    updateDetailDraft({ coInvestorLinks: nextLinks });
+    resetEditingCoInvestorLinkForm();
+    setStatus({ kind: "ok", text: `${coInvestorName} link updated.` });
+  }
+
+  function deleteCoInvestorLinkFromSelectedRecord(linkId: string, coInvestorId: string, coInvestorName: string) {
+    if (!selectedRecord || !detailDraft) return;
+
+    const confirmDelete = window.confirm(`Remove ${coInvestorName} from linked co-investors?`);
+    if (!confirmDelete) return;
+
+    const nextLinks = detailDraft.coInvestorLinks.filter((link) => link.coInvestorId !== coInvestorId);
+    if (nextLinks.length === detailDraft.coInvestorLinks.length) {
+      setStatus({ kind: "error", text: "Co-investor link not found." });
+      return;
+    }
+
+    updateDetailDraft({ coInvestorLinks: nextLinks });
+    if (editingCoInvestorLinkId === linkId) {
+      resetEditingCoInvestorLinkForm();
+    }
+    setStatus({ kind: "ok", text: `${coInvestorName} removed from linked co-investors.` });
   }
 
   async function addHealthSystemLinkToSelectedRecord() {
@@ -1101,6 +1259,11 @@ export function CompanyWorkbench() {
             draftToSave.leadSourceType === "HEALTH_SYSTEM" ? draftToSave.leadSourceHealthSystemId : null,
           leadSourceNotes: draftToSave.leadSourceNotes,
           description: draftToSave.description,
+          atAGlanceProblem: draftToSave.atAGlanceProblem,
+          atAGlanceSolution: draftToSave.atAGlanceSolution,
+          atAGlanceImpact: draftToSave.atAGlanceImpact,
+          atAGlanceKeyStrengths: draftToSave.atAGlanceKeyStrengths,
+          atAGlanceKeyConsiderations: draftToSave.atAGlanceKeyConsiderations,
           googleTranscriptUrl: draftToSave.googleTranscriptUrl,
           spinOutOwnershipPercent:
             draftToSave.companyType === "SPIN_OUT" ? toNullableNumber(draftToSave.spinOutOwnershipPercent) : null,
@@ -1277,7 +1440,10 @@ export function CompanyWorkbench() {
     if (!selectedRecord) {
       setDetailDraft(null);
       setDraftRecordId(null);
+      setAddContactModalOpen(false);
       resetEditingContactForm();
+      resetEditingHealthSystemLinkForm();
+      resetEditingCoInvestorLinkForm();
       setDeletingContactLinkId(null);
       return;
     }
@@ -1286,6 +1452,9 @@ export function CompanyWorkbench() {
       setDetailDraft(draftFromRecord(selectedRecord));
       setDraftRecordId(selectedRecord.id);
       setActiveDetailTab("overview");
+      setAddContactModalOpen(false);
+      resetEditingHealthSystemLinkForm();
+      resetEditingCoInvestorLinkForm();
       resetHealthSystemLinkForm();
       resetCoInvestorLinkForm();
     }
@@ -1621,11 +1790,29 @@ export function CompanyWorkbench() {
                 <button
                   type="button"
                   role="tab"
-                  className={`detail-tab ${activeDetailTab === "actions" ? "active" : ""}`}
-                  aria-selected={activeDetailTab === "actions"}
-                  onClick={() => setActiveDetailTab("actions")}
+                  className={`detail-tab ${activeDetailTab === "at-a-glance" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "at-a-glance"}
+                  onClick={() => setActiveDetailTab("at-a-glance")}
                 >
-                  Actions
+                  At a Glance
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`detail-tab ${activeDetailTab === "documents" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "documents"}
+                  onClick={() => setActiveDetailTab("documents")}
+                >
+                  Documents
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`detail-tab ${activeDetailTab === "notes" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "notes"}
+                  onClick={() => setActiveDetailTab("notes")}
+                >
+                  Notes
                 </button>
                 <button
                   type="button"
@@ -1797,7 +1984,65 @@ export function CompanyWorkbench() {
                 </>
               )}
 
-              {activeDetailTab === "actions" && (
+              {activeDetailTab === "at-a-glance" && (
+                <>
+                  <div className="detail-section">
+                    <p className="detail-label">At a Glance</p>
+                    <InlineTextareaField
+                      multiline
+                      label="Problem"
+                      value={detailDraft.atAGlanceProblem}
+                      rows={12}
+                      enableFormatting
+                      onSave={(value) => updateDetailDraft({ atAGlanceProblem: value })}
+                    />
+                    <InlineTextareaField
+                      multiline
+                      label="The Solution"
+                      value={detailDraft.atAGlanceSolution}
+                      rows={12}
+                      enableFormatting
+                      onSave={(value) => updateDetailDraft({ atAGlanceSolution: value })}
+                    />
+                    <InlineTextareaField
+                      multiline
+                      label="The Impact"
+                      value={detailDraft.atAGlanceImpact}
+                      rows={12}
+                      enableFormatting
+                      onSave={(value) => updateDetailDraft({ atAGlanceImpact: value })}
+                    />
+                    <InlineTextareaField
+                      multiline
+                      label="Key Strengths"
+                      value={detailDraft.atAGlanceKeyStrengths}
+                      rows={12}
+                      enableFormatting
+                      onSave={(value) => updateDetailDraft({ atAGlanceKeyStrengths: value })}
+                    />
+                    <InlineTextareaField
+                      multiline
+                      label="Key Considerations"
+                      value={detailDraft.atAGlanceKeyConsiderations}
+                      rows={12}
+                      enableFormatting
+                      onSave={(value) => updateDetailDraft({ atAGlanceKeyConsiderations: value })}
+                    />
+                  </div>
+                </>
+              )}
+
+              {activeDetailTab === "documents" && (
+                <>
+                  <EntityDocumentsPane
+                    entityPath="companies"
+                    entityId={selectedRecord.id}
+                    onStatus={setStatus}
+                  />
+                </>
+              )}
+
+              {activeDetailTab === "notes" && (
                 <>
               <div className="detail-section">
                 <InlineTextareaField
@@ -1815,6 +2060,12 @@ export function CompanyWorkbench() {
                   <p>{selectedRecord.researchError}</p>
                 </div>
               )}
+
+              <EntityNotesPane
+                entityPath="companies"
+                entityId={selectedRecord.id}
+                onStatus={setStatus}
+              />
 
                 </>
               )}
@@ -1919,21 +2170,23 @@ export function CompanyWorkbench() {
                           </div>
                         </div>
                       ) : (
-                        <div>
-                          <strong>{link.contact.name}</strong>
-                          {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
-                          {` | ${link.roleType}`}
-                          {link.contact.email ? ` | ${link.contact.email}` : ""}
-                          {link.contact.phone ? ` | ${link.contact.phone}` : ""}
-                          {link.contact.linkedinUrl && (
-                            <>
-                              {" "}-{" "}
-                              <a href={link.contact.linkedinUrl} target="_blank" rel="noreferrer">
-                                profile
-                              </a>
-                            </>
-                          )}
-                          <div className="actions">
+                        <div className="contact-row">
+                          <div className="contact-row-details">
+                            <strong>{link.contact.name}</strong>
+                            {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
+                            {` | ${link.roleType}`}
+                            {link.contact.email ? ` | ${link.contact.email}` : ""}
+                            {link.contact.phone ? ` | ${link.contact.phone}` : ""}
+                            {link.contact.linkedinUrl && (
+                              <>
+                                {" "}-{" "}
+                                <a href={link.contact.linkedinUrl} target="_blank" rel="noreferrer">
+                                  profile
+                                </a>
+                              </>
+                            )}
+                          </div>
+                          <div className="contact-row-actions">
                             <button
                               className="ghost small"
                               onClick={() => beginEditingContact(link)}
@@ -1955,83 +2208,55 @@ export function CompanyWorkbench() {
                   ))
                 )}
 
-                <div className="detail-grid">
-                  <div>
-                    <label>Contact Name</label>
-                    <input
-                      value={contactName}
-                      onChange={(event) => setContactName(event.target.value)}
-                      placeholder="William Smith"
-                    />
-                  </div>
-                  <div>
-                    <label>Role Type</label>
-                    <select
-                      value={contactRoleType}
-                      onChange={(event) =>
-                        setContactRoleType(
-                          event.target.value as
-                            | "COMPANY_CONTACT"
-                            | "EXECUTIVE"
-                            | "VENTURE_PARTNER"
-                            | "INVESTOR_PARTNER"
-                            | "OTHER"
-                        )
-                      }
-                    >
-                      <option value="COMPANY_CONTACT">Company Contact</option>
-                      <option value="EXECUTIVE">Executive</option>
-                      <option value="VENTURE_PARTNER">Venture / Innovation</option>
-                      <option value="INVESTOR_PARTNER">Investor Partner</option>
-                      <option value="OTHER">Other</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label>Contact Title</label>
-                    <input
-                      value={contactTitle}
-                      onChange={(event) => setContactTitle(event.target.value)}
-                      placeholder="CIO / Board Member"
-                    />
-                  </div>
-                  <div>
-                    <label>Relationship Title</label>
-                    <input
-                      value={contactRelationshipTitle}
-                      onChange={(event) => setContactRelationshipTitle(event.target.value)}
-                      placeholder="Board Member"
-                    />
-                  </div>
-                  <div>
-                    <label>Email</label>
-                    <input
-                      value={contactEmail}
-                      onChange={(event) => setContactEmail(event.target.value)}
-                      placeholder="name@company.com"
-                    />
-                  </div>
-                  <div>
-                    <label>Phone</label>
-                    <input
-                      value={contactPhone}
-                      onChange={(event) => setContactPhone(event.target.value)}
-                      placeholder="+1 555 555 5555"
-                    />
-                  </div>
-                  <div>
-                    <label>LinkedIn URL</label>
-                    <input
-                      value={contactLinkedinUrl}
-                      onChange={(event) => setContactLinkedinUrl(event.target.value)}
-                      placeholder="https://linkedin.com/in/..."
-                    />
-                  </div>
-                </div>
                 <div className="actions">
-                  <button className="secondary" onClick={addContactToSelectedRecord} disabled={addingContact}>
-                    {addingContact ? "Adding..." : "Add Contact"}
+                  <button
+                    type="button"
+                    className="ghost small contact-add-link"
+                    onClick={() => {
+                      setStatus(null);
+                      setAddContactModalOpen(true);
+                    }}
+                  >
+                    Add Contact
                   </button>
                 </div>
+                <AddContactModal
+                  open={addContactModalOpen}
+                  onClose={() => setAddContactModalOpen(false)}
+                  onSubmit={addContactToSelectedRecord}
+                  addingContact={addingContact}
+                  contactName={contactName}
+                  onContactNameChange={setContactName}
+                  contactRoleType={contactRoleType}
+                  onContactRoleTypeChange={(value) =>
+                    setContactRoleType(
+                      value as "COMPANY_CONTACT" | "EXECUTIVE" | "VENTURE_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
+                    )
+                  }
+                  roleOptions={[
+                    { value: "COMPANY_CONTACT", label: "Company Contact" },
+                    { value: "EXECUTIVE", label: "Executive" },
+                    { value: "VENTURE_PARTNER", label: "Venture / Innovation" },
+                    { value: "INVESTOR_PARTNER", label: "Investor Partner" },
+                    { value: "OTHER", label: "Other" }
+                  ]}
+                  contactTitle={contactTitle}
+                  onContactTitleChange={setContactTitle}
+                  contactRelationshipTitle={contactRelationshipTitle}
+                  onContactRelationshipTitleChange={setContactRelationshipTitle}
+                  contactEmail={contactEmail}
+                  onContactEmailChange={setContactEmail}
+                  contactPhone={contactPhone}
+                  onContactPhoneChange={setContactPhone}
+                  contactLinkedinUrl={contactLinkedinUrl}
+                  onContactLinkedinUrlChange={setContactLinkedinUrl}
+                  namePlaceholder="William Smith"
+                  titlePlaceholder="CIO / Board Member"
+                  relationshipTitlePlaceholder="Board Member"
+                  emailPlaceholder="name@company.com"
+                  phonePlaceholder="+1 555 555 5555"
+                  linkedinPlaceholder="https://linkedin.com/in/..."
+                />
               </div>
 
                 </>
@@ -2127,9 +2352,100 @@ export function CompanyWorkbench() {
                 ) : (
                   selectedRecord.healthSystemLinks.map((link) => (
                     <div key={link.id} className="detail-list-item">
-                      <strong>{link.healthSystem.name}</strong> - {link.relationshipType}
-                      {link.investmentAmountUsd !== null ? ` | Invested/Allocated: ${link.investmentAmountUsd}` : ""}
-                      {link.ownershipPercent !== null ? ` | Ownership: ${link.ownershipPercent}%` : ""}
+                      {editingHealthSystemLinkId === link.id ? (
+                        <div className="detail-card">
+                          <div className="detail-grid">
+                            <div>
+                              <label>Relationship Type</label>
+                              <select
+                                value={editingHealthSystemRelationshipType}
+                                onChange={(event) =>
+                                  setEditingHealthSystemRelationshipType(
+                                    event.target.value as "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
+                                  )
+                                }
+                              >
+                                {companyHealthSystemRelationshipOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label>Investment Amount (USD)</label>
+                              <input
+                                value={editingHealthSystemInvestmentAmountUsd}
+                                onChange={(event) => setEditingHealthSystemInvestmentAmountUsd(event.target.value)}
+                                type="number"
+                                min="0"
+                                step="any"
+                                placeholder="0"
+                              />
+                            </div>
+                            <div>
+                              <label>Ownership %</label>
+                              <input
+                                value={editingHealthSystemOwnershipPercent}
+                                onChange={(event) => setEditingHealthSystemOwnershipPercent(event.target.value)}
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="any"
+                                placeholder="0"
+                              />
+                            </div>
+                            <div>
+                              <label>Notes</label>
+                              <input
+                                value={editingHealthSystemNotes}
+                                onChange={(event) => setEditingHealthSystemNotes(event.target.value)}
+                                placeholder="Notes"
+                              />
+                            </div>
+                          </div>
+                          <div className="actions">
+                            <button
+                              type="button"
+                              className="primary"
+                              onClick={() =>
+                                saveHealthSystemLinkForSelectedRecord(link.healthSystemId, link.healthSystem.name)
+                              }
+                            >
+                              Save Link
+                            </button>
+                            <button type="button" className="ghost small" onClick={resetEditingHealthSystemLinkForm}>
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="contact-row">
+                          <div className="contact-row-details">
+                            <strong>{link.healthSystem.name}</strong> - {link.relationshipType}
+                            {link.investmentAmountUsd !== null ? ` | Invested/Allocated: ${link.investmentAmountUsd}` : ""}
+                            {link.ownershipPercent !== null ? ` | Ownership: ${link.ownershipPercent}%` : ""}
+                          </div>
+                          <div className="contact-row-actions">
+                            <button
+                              type="button"
+                              className="ghost small"
+                              onClick={() => beginEditingHealthSystemLink(link)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="ghost small"
+                              onClick={() =>
+                                deleteHealthSystemLinkFromSelectedRecord(link.id, link.healthSystemId, link.healthSystem.name)
+                              }
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
@@ -2209,8 +2525,85 @@ export function CompanyWorkbench() {
                 ) : (
                   selectedRecord.coInvestorLinks.map((link) => (
                     <div key={link.id} className="detail-list-item">
-                      <strong>{link.coInvestor.name}</strong> - {link.relationshipType}
-                      {link.investmentAmountUsd !== null ? ` | Investment: ${link.investmentAmountUsd}` : ""}
+                      {editingCoInvestorLinkId === link.id ? (
+                        <div className="detail-card">
+                          <div className="detail-grid">
+                            <div>
+                              <label>Relationship Type</label>
+                              <select
+                                value={editingCoInvestorRelationshipType}
+                                onChange={(event) =>
+                                  setEditingCoInvestorRelationshipType(event.target.value as "INVESTOR" | "PARTNER" | "OTHER")
+                                }
+                              >
+                                {companyCoInvestorRelationshipOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label>Investment Amount (USD)</label>
+                              <input
+                                value={editingCoInvestorInvestmentAmountUsd}
+                                onChange={(event) => setEditingCoInvestorInvestmentAmountUsd(event.target.value)}
+                                type="number"
+                                min="0"
+                                step="any"
+                                placeholder="0"
+                              />
+                            </div>
+                            <div>
+                              <label>Notes</label>
+                              <input
+                                value={editingCoInvestorNotes}
+                                onChange={(event) => setEditingCoInvestorNotes(event.target.value)}
+                                placeholder="Notes"
+                              />
+                            </div>
+                          </div>
+                          <div className="actions">
+                            <button
+                              type="button"
+                              className="primary"
+                              onClick={() =>
+                                saveCoInvestorLinkForSelectedRecord(link.coInvestorId, link.coInvestor.name)
+                              }
+                            >
+                              Save Link
+                            </button>
+                            <button type="button" className="ghost small" onClick={resetEditingCoInvestorLinkForm}>
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="contact-row">
+                          <div className="contact-row-details">
+                            <strong>{link.coInvestor.name}</strong> - {link.relationshipType}
+                            {link.investmentAmountUsd !== null ? ` | Investment: ${link.investmentAmountUsd}` : ""}
+                          </div>
+                          <div className="contact-row-actions">
+                            <button
+                              type="button"
+                              className="ghost small"
+                              onClick={() => beginEditingCoInvestorLink(link)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="ghost small"
+                              onClick={() =>
+                                deleteCoInvestorLinkFromSelectedRecord(link.id, link.coInvestorId, link.coInvestor.name)
+                              }
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}

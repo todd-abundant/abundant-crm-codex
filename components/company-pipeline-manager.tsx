@@ -3,6 +3,13 @@
 import * as React from "react";
 import { DateInputField } from "./date-input-field";
 import { EntityLookupInput } from "./entity-lookup-input";
+import {
+  inferGoogleDocumentTitle,
+  MAX_COMPANY_DOCUMENT_FILE_BYTES,
+  normalizeGoogleDocsUrl,
+  readFileAsDataUrl,
+  toDateInputString
+} from "@/lib/company-document-links";
 
 type PipelinePhase =
   | "INTAKE"
@@ -134,6 +141,12 @@ type PipelineDraft = {
   fundraises: FundraiseDraft[];
 };
 
+type GoogleDocumentDraft = {
+  type: DocumentType;
+  title: string;
+  url: string;
+};
+
 const pipelinePhaseOptions: Array<{ value: PipelinePhase; label: string }> = [
   { value: "INTAKE", label: "Intake" },
   { value: "DECLINED", label: "Declined" },
@@ -206,6 +219,10 @@ const fundraiseStatusOptions: Array<{ value: FundraiseStatus; label: string }> =
   { value: "CANCELLED", label: "Cancelled" }
 ];
 
+const companyDocumentUploadAccept =
+  ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.csv,.png,.jpg,.jpeg,.webp";
+const companyDocumentMaxSizeMb = Math.round(MAX_COMPANY_DOCUMENT_FILE_BYTES / (1024 * 1024));
+
 function toDateInputValue(value: unknown) {
   if (!value) return "";
   const parsed = new Date(String(value));
@@ -241,6 +258,14 @@ function emptyDocument(): PipelineDocumentDraft {
     url: "",
     uploadedAt: "",
     notes: ""
+  };
+}
+
+function emptyGoogleDocumentDraft(): GoogleDocumentDraft {
+  return {
+    type: "OTHER",
+    title: "",
+    url: ""
   };
 }
 
@@ -504,6 +529,10 @@ export function CompanyPipelineManager({
   const [healthSystemOptions, setHealthSystemOptions] = React.useState<HealthSystemOption[]>(healthSystems);
   const [coInvestorOptions, setCoInvestorOptions] = React.useState<CoInvestorOption[]>(coInvestors);
   const [contactOptions, setContactOptions] = React.useState<CompanyContactOption[]>(contacts);
+  const [uploadingDocument, setUploadingDocument] = React.useState(false);
+  const [googleDocumentDraft, setGoogleDocumentDraft] = React.useState<GoogleDocumentDraft>(() =>
+    emptyGoogleDocumentDraft()
+  );
 
   React.useEffect(() => {
     setHealthSystemOptions(healthSystems);
@@ -598,6 +627,69 @@ export function CompanyPipelineManager({
       next[index] = { ...next[index], ...patch };
       return { ...current, documents: next };
     });
+  }
+
+  function appendDocument(document: PipelineDocumentDraft) {
+    setDraft((current) => {
+      if (!current) return current;
+      return { ...current, documents: [...current.documents, document] };
+    });
+  }
+
+  async function addUploadedDocument(file: File) {
+    const documentType = googleDocumentDraft.type;
+    if (file.size > MAX_COMPANY_DOCUMENT_FILE_BYTES) {
+      setStatus({
+        kind: "error",
+        text: `File is too large. Max size is ${companyDocumentMaxSizeMb} MB.`
+      });
+      return;
+    }
+
+    setUploadingDocument(true);
+    setStatus(null);
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      appendDocument({
+        type: documentType,
+        title: file.name.trim() || "Uploaded Document",
+        url: dataUrl,
+        uploadedAt: toDateInputString(),
+        notes: ""
+      });
+      setStatus({ kind: "ok", text: `Added ${file.name} to documents.` });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to process uploaded document."
+      });
+    } finally {
+      setUploadingDocument(false);
+    }
+  }
+
+  function addGoogleDocument() {
+    const normalizedUrl = normalizeGoogleDocsUrl(googleDocumentDraft.url);
+    if (!normalizedUrl) {
+      setStatus({
+        kind: "error",
+        text: "Provide a valid Google Docs or Google Drive link."
+      });
+      return;
+    }
+
+    const title = googleDocumentDraft.title.trim() || inferGoogleDocumentTitle(normalizedUrl);
+    appendDocument({
+      type: googleDocumentDraft.type,
+      title,
+      url: normalizedUrl,
+      uploadedAt: toDateInputString(),
+      notes: ""
+    });
+
+    setGoogleDocumentDraft(emptyGoogleDocumentDraft());
+    setStatus({ kind: "ok", text: "Google document link added." });
   }
 
   function updateOpportunity(index: number, patch: Partial<PipelineOpportunityDraft>) {
@@ -804,6 +896,80 @@ export function CompanyPipelineManager({
 
       <div className="detail-section">
         <p className="detail-label">Documents</p>
+        <div className="detail-list-item">
+          <p className="detail-label">Add Company Document</p>
+          <div className="detail-grid">
+            <div>
+              <label>Document Type</label>
+              <select
+                value={googleDocumentDraft.type}
+                onChange={(event) =>
+                  setGoogleDocumentDraft((current) => ({
+                    ...current,
+                    type: event.target.value as DocumentType
+                  }))
+                }
+              >
+                {documentTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label>Google Doc Title (optional)</label>
+              <input
+                value={googleDocumentDraft.title}
+                onChange={(event) =>
+                  setGoogleDocumentDraft((current) => ({
+                    ...current,
+                    title: event.target.value
+                  }))
+                }
+                placeholder="Quarterly diligence summary"
+              />
+            </div>
+            <div>
+              <label>Google Docs Link</label>
+              <input
+                value={googleDocumentDraft.url}
+                onChange={(event) =>
+                  setGoogleDocumentDraft((current) => ({
+                    ...current,
+                    url: event.target.value
+                  }))
+                }
+                placeholder="https://docs.google.com/..."
+              />
+            </div>
+            <div>
+              <label>Upload from Computer</label>
+              <input
+                type="file"
+                accept={companyDocumentUploadAccept}
+                disabled={uploadingDocument || saving}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (!file) return;
+                  void addUploadedDocument(file);
+                }}
+              />
+            </div>
+          </div>
+          <div className="actions">
+            <button
+              className="secondary small"
+              type="button"
+              onClick={addGoogleDocument}
+              disabled={uploadingDocument || saving}
+            >
+              Add Google Doc Link
+            </button>
+          </div>
+          <p className="muted">{`Uploads are limited to ${companyDocumentMaxSizeMb} MB per file.`}</p>
+        </div>
         {draft.documents.length === 0 && <p className="muted">No documents yet.</p>}
         {draft.documents.map((document, index) => (
           <div key={`document-${index}`} className="detail-list-item">
@@ -834,11 +1000,25 @@ export function CompanyPipelineManager({
               </div>
               <div>
                 <label>URL</label>
-                <input
-                  value={document.url}
-                  onChange={(event) => updateDocument(index, { url: event.target.value })}
-                  placeholder="https://..."
-                />
+                {document.url.startsWith("data:") ? (
+                  <>
+                    <input value="Uploaded file (stored in record)" readOnly />
+                    <button
+                      className="ghost small"
+                      type="button"
+                      onClick={() => updateDocument(index, { url: "" })}
+                      style={{ marginTop: 8 }}
+                    >
+                      Replace with Link
+                    </button>
+                  </>
+                ) : (
+                  <input
+                    value={document.url}
+                    onChange={(event) => updateDocument(index, { url: event.target.value })}
+                    placeholder="https://..."
+                  />
+                )}
               </div>
             </div>
             <label>Notes</label>

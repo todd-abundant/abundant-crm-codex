@@ -9,6 +9,9 @@ import {
 } from "./inline-detail-field";
 import { SearchMatchModal } from "./search-match-modal";
 import { EntityLookupInput } from "./entity-lookup-input";
+import { AddContactModal } from "./add-contact-modal";
+import { EntityDocumentsPane } from "./entity-documents-pane";
+import { EntityNotesPane } from "./entity-notes-pane";
 
 type SearchCandidate = {
   name: string;
@@ -106,7 +109,7 @@ type DetailDraft = {
   researchNotes: string;
 };
 
-type DetailTab = "overview" | "actions" | "contacts" | "venture-partners" | "investments";
+type DetailTab = "overview" | "documents" | "notes" | "contacts" | "relationships";
 
 function formatLocation(record: {
   headquartersCity?: string | null;
@@ -278,6 +281,7 @@ export function HealthSystemWorkbench() {
   });
   const [status, setStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [addingContact, setAddingContact] = useState(false);
+  const [addContactModalOpen, setAddContactModalOpen] = useState(false);
   const [contactName, setContactName] = useState("");
   const [contactTitle, setContactTitle] = useState("");
   const [contactRelationshipTitle, setContactRelationshipTitle] = useState("");
@@ -633,6 +637,7 @@ export function HealthSystemWorkbench() {
         text: `${payload.contact.name} linked (${matchLabel}).`
       });
       resetContactForm();
+      setAddContactModalOpen(false);
       await loadRecords();
     } catch (error) {
       setStatus({
@@ -1266,6 +1271,7 @@ export function HealthSystemWorkbench() {
     if (!selectedRecord) {
       setDetailDraft(null);
       setDraftRecordId(null);
+      setAddContactModalOpen(false);
       resetEditingContactForm();
       resetVenturePartnerForm();
       resetEditingVenturePartnerForm();
@@ -1281,6 +1287,7 @@ export function HealthSystemWorkbench() {
       setDetailDraft(draftFromRecord(selectedRecord));
       setDraftRecordId(selectedRecord.id);
       setActiveDetailTab("overview");
+      setAddContactModalOpen(false);
     }
   }, [selectedRecord, draftRecordId]);
 
@@ -1471,11 +1478,20 @@ export function HealthSystemWorkbench() {
                 <button
                   type="button"
                   role="tab"
-                  className={`detail-tab ${activeDetailTab === "actions" ? "active" : ""}`}
-                  aria-selected={activeDetailTab === "actions"}
-                  onClick={() => setActiveDetailTab("actions")}
+                  className={`detail-tab ${activeDetailTab === "documents" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "documents"}
+                  onClick={() => setActiveDetailTab("documents")}
                 >
-                  Actions
+                  Documents
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`detail-tab ${activeDetailTab === "notes" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "notes"}
+                  onClick={() => setActiveDetailTab("notes")}
+                >
+                  Notes
                 </button>
                 <button
                   type="button"
@@ -1489,20 +1505,11 @@ export function HealthSystemWorkbench() {
                 <button
                   type="button"
                   role="tab"
-                  className={`detail-tab ${activeDetailTab === "venture-partners" ? "active" : ""}`}
-                  aria-selected={activeDetailTab === "venture-partners"}
-                  onClick={() => setActiveDetailTab("venture-partners")}
+                  className={`detail-tab ${activeDetailTab === "relationships" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "relationships"}
+                  onClick={() => setActiveDetailTab("relationships")}
                 >
-                  Venture Partners
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  className={`detail-tab ${activeDetailTab === "investments" ? "active" : ""}`}
-                  aria-selected={activeDetailTab === "investments"}
-                  onClick={() => setActiveDetailTab("investments")}
-                >
-                  Investments
+                  Relationships
                 </button>
               </div>
 
@@ -1610,7 +1617,17 @@ export function HealthSystemWorkbench() {
                 </>
               )}
 
-              {activeDetailTab === "actions" && (
+              {activeDetailTab === "documents" && (
+                <>
+                  <EntityDocumentsPane
+                    entityPath="health-systems"
+                    entityId={selectedRecord.id}
+                    onStatus={setStatus}
+                  />
+                </>
+              )}
+
+              {activeDetailTab === "notes" && (
                 <>
               <div className="detail-section">
                 <InlineTextareaField
@@ -1627,6 +1644,12 @@ export function HealthSystemWorkbench() {
                   <p>{selectedRecord.researchError}</p>
                 </div>
               )}
+
+              <EntityNotesPane
+                entityPath="health-systems"
+                entityId={selectedRecord.id}
+                onStatus={setStatus}
+              />
 
                 </>
               )}
@@ -1727,21 +1750,23 @@ export function HealthSystemWorkbench() {
                           </div>
                         </div>
                       ) : (
-                        <div>
-                          <strong>{link.contact.name}</strong>
-                          {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
-                          {` | ${link.roleType}`}
-                          {link.contact.email ? ` | ${link.contact.email}` : ""}
-                          {link.contact.phone ? ` | ${link.contact.phone}` : ""}
-                          {link.contact.linkedinUrl && (
-                            <>
-                              {" "}-{" "}
-                              <a href={link.contact.linkedinUrl} target="_blank" rel="noreferrer">
-                                profile
-                              </a>
-                            </>
-                          )}
-                          <div className="actions">
+                        <div className="contact-row">
+                          <div className="contact-row-details">
+                            <strong>{link.contact.name}</strong>
+                            {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
+                            {` | ${link.roleType}`}
+                            {link.contact.email ? ` | ${link.contact.email}` : ""}
+                            {link.contact.phone ? ` | ${link.contact.phone}` : ""}
+                            {link.contact.linkedinUrl && (
+                              <>
+                                {" "}-{" "}
+                                <a href={link.contact.linkedinUrl} target="_blank" rel="noreferrer">
+                                  profile
+                                </a>
+                              </>
+                            )}
+                          </div>
+                          <div className="contact-row-actions">
                             <button
                               className="ghost small"
                               onClick={() => beginEditingContact(link)}
@@ -1763,80 +1788,57 @@ export function HealthSystemWorkbench() {
                   ))
                 )}
 
-                <div className="detail-grid">
-                  <div>
-                    <label>Contact Name</label>
-                    <input
-                      value={contactName}
-                      onChange={(event) => setContactName(event.target.value)}
-                      placeholder="William Smith"
-                    />
-                  </div>
-                  <div>
-                    <label>Role Type</label>
-                    <select
-                      value={contactRoleType}
-                      onChange={(event) =>
-                        setContactRoleType(event.target.value as "EXECUTIVE" | "VENTURE_PARTNER" | "OTHER")
-                      }
-                    >
-                      <option value="EXECUTIVE">Executive</option>
-                      <option value="VENTURE_PARTNER">Venture Partner</option>
-                      <option value="OTHER">Other</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label>Contact Title</label>
-                    <input
-                      value={contactTitle}
-                      onChange={(event) => setContactTitle(event.target.value)}
-                      placeholder="Chief Innovation Officer"
-                    />
-                  </div>
-                  <div>
-                    <label>Relationship Title</label>
-                    <input
-                      value={contactRelationshipTitle}
-                      onChange={(event) => setContactRelationshipTitle(event.target.value)}
-                      placeholder="Board Observer"
-                    />
-                  </div>
-                  <div>
-                    <label>Email</label>
-                    <input
-                      value={contactEmail}
-                      onChange={(event) => setContactEmail(event.target.value)}
-                      placeholder="name@org.com"
-                    />
-                  </div>
-                  <div>
-                    <label>Phone</label>
-                    <input
-                      value={contactPhone}
-                      onChange={(event) => setContactPhone(event.target.value)}
-                      placeholder="+1 555 555 5555"
-                    />
-                  </div>
-                  <div>
-                    <label>LinkedIn URL</label>
-                    <input
-                      value={contactLinkedinUrl}
-                      onChange={(event) => setContactLinkedinUrl(event.target.value)}
-                      placeholder="https://linkedin.com/in/..."
-                    />
-                  </div>
-                </div>
                 <div className="actions">
-                  <button className="secondary" onClick={addContactToSelectedRecord} disabled={addingContact}>
-                    {addingContact ? "Adding..." : "Add Contact"}
+                  <button
+                    type="button"
+                    className="ghost small contact-add-link"
+                    onClick={() => {
+                      setStatus(null);
+                      setAddContactModalOpen(true);
+                    }}
+                  >
+                    Add Contact
                   </button>
                 </div>
+                <AddContactModal
+                  open={addContactModalOpen}
+                  onClose={() => setAddContactModalOpen(false)}
+                  onSubmit={addContactToSelectedRecord}
+                  addingContact={addingContact}
+                  contactName={contactName}
+                  onContactNameChange={setContactName}
+                  contactRoleType={contactRoleType}
+                  onContactRoleTypeChange={(value) =>
+                    setContactRoleType(value as "EXECUTIVE" | "VENTURE_PARTNER" | "OTHER")
+                  }
+                  roleOptions={[
+                    { value: "EXECUTIVE", label: "Executive" },
+                    { value: "VENTURE_PARTNER", label: "Venture Partner" },
+                    { value: "OTHER", label: "Other" }
+                  ]}
+                  contactTitle={contactTitle}
+                  onContactTitleChange={setContactTitle}
+                  contactRelationshipTitle={contactRelationshipTitle}
+                  onContactRelationshipTitleChange={setContactRelationshipTitle}
+                  contactEmail={contactEmail}
+                  onContactEmailChange={setContactEmail}
+                  contactPhone={contactPhone}
+                  onContactPhoneChange={setContactPhone}
+                  contactLinkedinUrl={contactLinkedinUrl}
+                  onContactLinkedinUrlChange={setContactLinkedinUrl}
+                  namePlaceholder="William Smith"
+                  titlePlaceholder="Chief Innovation Officer"
+                  relationshipTitlePlaceholder="Board Observer"
+                  emailPlaceholder="name@org.com"
+                  phonePlaceholder="+1 555 555 5555"
+                  linkedinPlaceholder="https://linkedin.com/in/..."
+                />
               </div>
 
                 </>
               )}
 
-              {activeDetailTab === "venture-partners" && (
+              {activeDetailTab === "relationships" && (
                 <>
               <div className="detail-section">
                 <p className="detail-label">Venture Partners</p>
@@ -1964,7 +1966,7 @@ export function HealthSystemWorkbench() {
                 </>
               )}
 
-              {activeDetailTab === "investments" && (
+              {activeDetailTab === "relationships" && (
                 <>
               <div className="detail-section">
                 <p className="detail-label">Investments</p>

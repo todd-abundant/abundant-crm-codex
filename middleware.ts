@@ -4,7 +4,12 @@ import { AUTH_COOKIE_MAX_AGE_SECONDS, AUTH_COOKIE_NAME } from "@/lib/auth/consta
 import { createAuthToken, verifyAuthToken } from "@/lib/auth/token";
 
 function isPublicRoute(pathname: string) {
-  return pathname === "/sign-in" || pathname.startsWith("/api/auth/");
+  return (
+    pathname === "/sign-in" ||
+    pathname.startsWith("/api/auth/") ||
+    pathname.startsWith("/survey/live/") ||
+    pathname.startsWith("/api/screening-surveys/live/")
+  );
 }
 
 function isAdminRoute(pathname: string) {
@@ -17,7 +22,8 @@ function isWorkbenchPage(pathname: string) {
     pathname.startsWith("/co-investors") ||
     pathname.startsWith("/companies") ||
     pathname.startsWith("/narrative-agent") ||
-    pathname.startsWith("/workbench")
+    pathname.startsWith("/workbench") ||
+    pathname.startsWith("/tests")
   );
 }
 
@@ -28,6 +34,7 @@ function isWorkbenchApi(pathname: string) {
     pathname.startsWith("/api/companies") ||
     pathname.startsWith("/api/narrative-agent") ||
     pathname.startsWith("/api/workbench") ||
+    pathname.startsWith("/api/tests") ||
     pathname.startsWith("/api/debug")
   );
 }

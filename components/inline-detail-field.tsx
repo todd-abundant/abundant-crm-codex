@@ -35,6 +35,8 @@ type TextAreaFieldProps = {
   placeholder?: string;
   emptyText?: string;
   insight?: NoteInsightPayload;
+  rows?: number;
+  enableFormatting?: boolean;
   multiline: true;
 };
 
@@ -79,23 +81,40 @@ function linkMatches(value: string) {
 }
 
 function renderMarkdownLikeText(value: string) {
+  const boldAndLinkPattern = /\*\*([^*]+)\*\*|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
   const nodes: React.ReactNode[] = [];
-  const matches = linkMatches(value);
   let lastIndex = 0;
+  let match: RegExpExecArray | null;
 
-  for (const match of matches) {
-    if (match.index > lastIndex) {
-      nodes.push(value.slice(lastIndex, match.index));
+  while ((match = boldAndLinkPattern.exec(value)) !== null) {
+    const token = match[0];
+    const tokenIndex = match.index;
+    if (tokenIndex > lastIndex) {
+      nodes.push(value.slice(lastIndex, tokenIndex));
     }
 
-    nodes.push(
-      <a key={`${match.href}-${match.index}`} href={match.href} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
-        {match.label}
-      </a>
-    );
+    if (match[1]) {
+      nodes.push(<strong key={`bold-${tokenIndex}-${match[1]}`}>{match[1]}</strong>);
+      lastIndex = tokenIndex + token.length;
+      continue;
+    }
 
-    const raw = `[${match.label}](${match.href})`;
-    lastIndex = match.index + raw.length;
+    const label = match[2];
+    const href = match[3];
+    if (label && href) {
+      nodes.push(
+        <a
+          key={`${href}-${tokenIndex}`}
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {label}
+        </a>
+      );
+      lastIndex = tokenIndex + token.length;
+    }
   }
 
   if (lastIndex < value.length) {
@@ -246,6 +265,125 @@ function renderMultilineValue(value: string, insight?: NoteInsightPayload, expan
   );
 }
 
+type MarkdownBlock =
+  | { kind: "paragraph"; text: string }
+  | { kind: "unordered-list"; items: string[] }
+  | { kind: "ordered-list"; items: string[] };
+
+function markdownBlocks(value: string) {
+  const lines = value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const blocks: MarkdownBlock[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    const isUnordered = /^[-*]\s+/.test(line);
+    const isOrdered = /^\d+\.\s+/.test(line);
+
+    if (isUnordered) {
+      const items: string[] = [];
+      while (index < lines.length && /^[-*]\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^[-*]\s+/, "").trim());
+        index += 1;
+      }
+      blocks.push({ kind: "unordered-list", items });
+      continue;
+    }
+
+    if (isOrdered) {
+      const items: string[] = [];
+      while (index < lines.length && /^\d+\.\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\d+\.\s+/, "").trim());
+        index += 1;
+      }
+      blocks.push({ kind: "ordered-list", items });
+      continue;
+    }
+
+    blocks.push({ kind: "paragraph", text: line });
+    index += 1;
+  }
+
+  return blocks;
+}
+
+function renderFormattedMultilineValue(value: string) {
+  const blocks = markdownBlocks(value);
+  if (blocks.length === 0) return null;
+
+  return (
+    <div className="inline-note-body">
+      {blocks.map((block, blockIndex) => {
+        if (block.kind === "paragraph") {
+          return <p key={`paragraph-${blockIndex}`}>{renderMarkdownLikeText(block.text)}</p>;
+        }
+        if (block.kind === "unordered-list") {
+          return (
+            <ul key={`unordered-list-${blockIndex}`} className="inline-note-list">
+              {block.items.map((item, itemIndex) => (
+                <li key={`unordered-list-${blockIndex}-${itemIndex}`}>{renderMarkdownLikeText(item)}</li>
+              ))}
+            </ul>
+          );
+        }
+
+        return (
+          <ol key={`ordered-list-${blockIndex}`} className="inline-note-list inline-note-list--ordered">
+            {block.items.map((item, itemIndex) => (
+              <li key={`ordered-list-${blockIndex}-${itemIndex}`}>{renderMarkdownLikeText(item)}</li>
+            ))}
+          </ol>
+        );
+      })}
+    </div>
+  );
+}
+
+function applyMarkdownFormatToDraft(
+  source: string,
+  selectionStart: number,
+  selectionEnd: number,
+  action: "bold" | "unordered-list" | "ordered-list" | "link"
+) {
+  if (action === "bold") {
+    const selected = source.slice(selectionStart, selectionEnd);
+    const replacement = selected ? `**${selected}**` : "**bold text**";
+    const nextValue = `${source.slice(0, selectionStart)}${replacement}${source.slice(selectionEnd)}`;
+    const nextSelectionStart = selectionStart + 2;
+    const nextSelectionEnd = selected ? selectionEnd + 2 : selectionStart + 11;
+    return { nextValue, selectionStart: nextSelectionStart, selectionEnd: nextSelectionEnd };
+  }
+
+  if (action === "link") {
+    const selected = source.slice(selectionStart, selectionEnd);
+    const replacement = selected ? `[${selected}](https://)` : "[link text](https://)";
+    const nextValue = `${source.slice(0, selectionStart)}${replacement}${source.slice(selectionEnd)}`;
+    const urlStart = selectionStart + replacement.indexOf("https://");
+    const urlEnd = urlStart + "https://".length;
+    return { nextValue, selectionStart: urlStart, selectionEnd: urlEnd };
+  }
+
+  const lineStart = source.lastIndexOf("\n", Math.max(0, selectionStart - 1)) + 1;
+  const lineEndBoundary = source.indexOf("\n", selectionEnd);
+  const lineEnd = lineEndBoundary === -1 ? source.length : lineEndBoundary;
+  const selectedLines = source.slice(lineStart, lineEnd);
+  const lines = selectedLines.split("\n");
+  const normalized = lines.map((line) => line.replace(/^(\s*)(?:[-*]|\d+\.)\s+/, "$1"));
+  const transformed =
+    action === "unordered-list"
+      ? normalized.map((line) => `- ${line.trim()}`).join("\n")
+      : normalized.map((line, index) => `${index + 1}. ${line.trim()}`).join("\n");
+  const nextValue = `${source.slice(0, lineStart)}${transformed}${source.slice(lineEnd)}`;
+  return {
+    nextValue,
+    selectionStart: lineStart,
+    selectionEnd: lineStart + transformed.length
+  };
+}
+
 
 export function InlineTextField({
   label,
@@ -358,10 +496,13 @@ export function InlineTextareaField({
   onSave,
   placeholder,
   emptyText = emptyDisplayDefault,
-  insight
+  insight,
+  rows,
+  enableFormatting = false
 }: Omit<TextAreaFieldProps, "kind">) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(value);
+  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
 
   React.useEffect(() => {
     if (!editing) {
@@ -381,27 +522,83 @@ export function InlineTextareaField({
     setEditing(false);
   };
 
+  const applyFormat = (action: "bold" | "unordered-list" | "ordered-list" | "link") => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const selectionStart = textarea.selectionStart;
+    const selectionEnd = textarea.selectionEnd;
+    const formatted = applyMarkdownFormatToDraft(draft, selectionStart, selectionEnd, action);
+    setDraft(formatted.nextValue);
+
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(formatted.selectionStart, formatted.selectionEnd);
+    });
+  };
+
   if (editing) {
     return (
       <div className="inline-edit-field">
         <label>{label}</label>
-        <textarea
-          value={draft}
-          placeholder={placeholder}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={(event) => commit(event.target.value)}
-          onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-              event.preventDefault();
-              (event.currentTarget as HTMLTextAreaElement).blur();
-            }
-            if (event.key === "Escape") {
-              event.preventDefault();
-              cancel();
-            }
-          }}
-          autoFocus
-        />
+        <div className="inline-textarea-editor">
+          {enableFormatting ? (
+            <div className="inline-formatting-toolbar" aria-label={`${label} formatting tools`}>
+              <button
+                type="button"
+                className="ghost small"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => applyFormat("bold")}
+              >
+                Bold
+              </button>
+              <button
+                type="button"
+                className="ghost small"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => applyFormat("unordered-list")}
+              >
+                Bullets
+              </button>
+              <button
+                type="button"
+                className="ghost small"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => applyFormat("ordered-list")}
+              >
+                Numbered
+              </button>
+              <button
+                type="button"
+                className="ghost small"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => applyFormat("link")}
+              >
+                Link
+              </button>
+            </div>
+          ) : null}
+          <textarea
+            ref={textareaRef}
+            className={enableFormatting ? "inline-formatting-textarea" : undefined}
+            value={draft}
+            rows={rows}
+            placeholder={placeholder}
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={(event) => commit(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                event.preventDefault();
+                (event.currentTarget as HTMLTextAreaElement).blur();
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                cancel();
+              }
+            }}
+            autoFocus
+          />
+        </div>
       </div>
     );
   }
@@ -424,7 +621,7 @@ export function InlineTextareaField({
         <ReadValue isEmpty={!value}>
           {value ? (
             <span className="inline-rich-text">
-              {renderMultilineValue(value, insight, true)}
+              {enableFormatting ? renderFormattedMultilineValue(value) : renderMultilineValue(value, insight, true)}
             </span>
           ) : (
             <span>{emptyText}</span>

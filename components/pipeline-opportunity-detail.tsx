@@ -11,11 +11,27 @@ import {
   type PipelinePhase
 } from "@/lib/pipeline-opportunities";
 import { EntityLookupInput } from "./entity-lookup-input";
+import { ScreeningSurveySessionSelector } from "./screening-survey-session-selector";
+import { InlineTextareaField } from "./inline-detail-field";
+import {
+  inferGoogleDocumentTitle,
+  MAX_COMPANY_DOCUMENT_FILE_BYTES,
+  normalizeGoogleDocsUrl,
+  readFileAsDataUrl
+} from "@/lib/company-document-links";
 
 type ScreeningStatus = "NOT_STARTED" | "PENDING" | "NEGOTIATING" | "SIGNED" | "DECLINED";
 type ScreeningAttendanceStatus = "INVITED" | "ATTENDED" | "DECLINED" | "NO_SHOW";
 type ScreeningFeedbackSentiment = "POSITIVE" | "MIXED" | "NEUTRAL" | "NEGATIVE";
 type ScreeningCellField = "RELEVANT_FEEDBACK" | "STATUS_UPDATE";
+type CompanyDocumentType =
+  | "INTAKE_REPORT"
+  | "SCREENING_REPORT"
+  | "TERM_SHEET"
+  | "VENTURE_STUDIO_CONTRACT"
+  | "LOI"
+  | "COMMERCIAL_CONTRACT"
+  | "OTHER";
 
 type ScreeningParticipant = {
   id: string;
@@ -56,6 +72,11 @@ type ScreeningQualitativeFeedback = {
   updatedAt: string;
 };
 
+type QualitativeFeedbackEntry = ScreeningQualitativeFeedback & {
+  healthSystemId: string;
+  healthSystemName: string;
+};
+
 type ScreeningCellChange = {
   id: string;
   value: string;
@@ -91,6 +112,11 @@ type PipelineOpportunityDetail = {
   name: string;
   website: string | null;
   description: string | null;
+  atAGlanceProblem: string | null;
+  atAGlanceSolution: string | null;
+  atAGlanceImpact: string | null;
+  atAGlanceKeyStrengths: string | null;
+  atAGlanceKeyConsiderations: string | null;
   location: string;
   phase: PipelinePhase;
   phaseLabel: string;
@@ -111,7 +137,7 @@ type PipelineOpportunityDetail = {
   }>;
   documents: Array<{
     id: string;
-    type: string;
+    type: CompanyDocumentType;
     title: string;
     url: string;
     notes: string | null;
@@ -127,6 +153,14 @@ function formatDate(value: string | null | undefined) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "Not set";
   return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function isEmbeddedDocumentUrl(value: string) {
+  return value.startsWith("data:");
+}
+
+function documentUrlLabel(value: string) {
+  return isEmbeddedDocumentUrl(value) ? "Open uploaded file" : value;
 }
 
 function statusMeta(status: ScreeningStatus) {
@@ -165,6 +199,20 @@ const screeningInlineInterestOptions: Array<{ value: ScreeningStatus; label: str
   { value: "SIGNED", label: "LOI signed" }
 ];
 
+const companyDocumentTypeOptions: Array<{ value: CompanyDocumentType; label: string }> = [
+  { value: "INTAKE_REPORT", label: "Intake Report" },
+  { value: "SCREENING_REPORT", label: "Screening Report" },
+  { value: "TERM_SHEET", label: "Term Sheet" },
+  { value: "VENTURE_STUDIO_CONTRACT", label: "Venture Studio Contract" },
+  { value: "LOI", label: "LOI" },
+  { value: "COMMERCIAL_CONTRACT", label: "Commercial Contract" },
+  { value: "OTHER", label: "Other" }
+];
+
+const companyDocumentUploadAccept =
+  ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.csv,.png,.jpg,.jpeg,.webp";
+const companyDocumentMaxSizeMb = Math.round(MAX_COMPANY_DOCUMENT_FILE_BYTES / (1024 * 1024));
+
 const screeningDetailViewOptions: Array<{ key: ScreeningDetailView; label: string; icon: string }> = [
   { key: "status", label: "Status Matrix", icon: "SM" },
   { key: "quantitative", label: "Quantitative", icon: "Q" },
@@ -189,6 +237,15 @@ const qualitativeCategoryOptions = [
   "Consortium Economics & Research Flywheel",
   "Key Theme"
 ];
+
+function compareQualitativeCategoryName(a: string, b: string) {
+  const categoryAIndex = qualitativeCategoryOptions.indexOf(a);
+  const categoryBIndex = qualitativeCategoryOptions.indexOf(b);
+  if (categoryAIndex >= 0 && categoryBIndex >= 0) return categoryAIndex - categoryBIndex;
+  if (categoryAIndex >= 0) return -1;
+  if (categoryBIndex >= 0) return 1;
+  return a.localeCompare(b);
+}
 
 type QuantitativeQuestionCategory = {
   category: string;
@@ -340,6 +397,15 @@ function uniqueIndividuals(entry: ScreeningHealthSystem) {
 }
 
 type QualitativeFeedbackDraft = {
+  healthSystemId: string;
+  contactId: string;
+  category: string;
+  theme: string;
+  sentiment: ScreeningFeedbackSentiment;
+  feedback: string;
+};
+
+type QualitativeFeedbackEditDraft = {
   contactId: string;
   category: string;
   theme: string;
@@ -369,6 +435,13 @@ type QuantitativeSlideCategorySection = {
   rows: QuantitativeSlideQuestionRow[];
 };
 
+type AtAGlanceFieldKey =
+  | "atAGlanceProblem"
+  | "atAGlanceSolution"
+  | "atAGlanceImpact"
+  | "atAGlanceKeyStrengths"
+  | "atAGlanceKeyConsiderations";
+
 type ScreeningDetailView = "status" | "quantitative" | "qualitative" | "documents";
 type AddAttendeeModalState = {
   healthSystemId: string;
@@ -379,8 +452,9 @@ function screeningCellFieldLabel(field: ScreeningCellField) {
   return field === "RELEVANT_FEEDBACK" ? "Relevant Feedback + Next Steps" : "Status Update";
 }
 
-function emptyQualitativeFeedbackDraft(): QualitativeFeedbackDraft {
+function emptyQualitativeFeedbackDraft(healthSystemId: string): QualitativeFeedbackDraft {
   return {
+    healthSystemId,
     contactId: "",
     category: "Key Theme",
     theme: "",
@@ -391,12 +465,10 @@ function emptyQualitativeFeedbackDraft(): QualitativeFeedbackDraft {
 
 export function PipelineOpportunityDetailView({
   itemId,
-  inModal = false,
-  onClose
+  inModal = false
 }: {
   itemId: string;
   inModal?: boolean;
-  onClose?: () => void;
 }) {
   const [item, setItem] = React.useState<PipelineOpportunityDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -418,9 +490,15 @@ export function PipelineOpportunityDetailView({
     healthSystemId: string;
     field: ScreeningCellField;
   } | null>(null);
-  const [qualitativeDraftByHealthSystemId, setQualitativeDraftByHealthSystemId] = React.useState<
-    Record<string, QualitativeFeedbackDraft>
-  >({});
+  const [qualitativeDraft, setQualitativeDraft] = React.useState<QualitativeFeedbackDraft>(() =>
+    emptyQualitativeFeedbackDraft("")
+  );
+  const [editingQualitativeFeedbackId, setEditingQualitativeFeedbackId] = React.useState<string | null>(null);
+  const [editingQualitativeDraft, setEditingQualitativeDraft] =
+    React.useState<QualitativeFeedbackEditDraft | null>(null);
+  const [savingQualitativeEntryById, setSavingQualitativeEntryById] = React.useState<Record<string, boolean>>({});
+  const [deletingQualitativeEntryById, setDeletingQualitativeEntryById] = React.useState<Record<string, boolean>>({});
+  const [showQualitativePreview, setShowQualitativePreview] = React.useState(false);
   const [quantitativeQuestionCategories, setQuantitativeQuestionCategories] = React.useState<
     QuantitativeQuestionCategory[]
   >(() => cloneQuantitativeQuestionCategories(defaultQuantitativeQuestionCategories));
@@ -428,6 +506,11 @@ export function PipelineOpportunityDetailView({
   const [quantitativeQuestionsReady, setQuantitativeQuestionsReady] = React.useState(false);
   const [screeningDetailView, setScreeningDetailView] = React.useState<ScreeningDetailView>("status");
   const [activeScreeningHealthSystemId, setActiveScreeningHealthSystemId] = React.useState<string | null>(null);
+  const [addingCompanyDocument, setAddingCompanyDocument] = React.useState(false);
+  const [newCompanyDocumentType, setNewCompanyDocumentType] = React.useState<CompanyDocumentType>("OTHER");
+  const [newCompanyDocumentTitle, setNewCompanyDocumentTitle] = React.useState("");
+  const [newCompanyDocumentGoogleUrl, setNewCompanyDocumentGoogleUrl] = React.useState("");
+  const [savingAtAGlanceFieldByKey, setSavingAtAGlanceFieldByKey] = React.useState<Record<string, boolean>>({});
 
   const loadItem = React.useCallback(async () => {
     setLoading(true);
@@ -452,6 +535,27 @@ export function PipelineOpportunityDetailView({
   React.useEffect(() => {
     void loadItem();
   }, [loadItem]);
+
+  React.useEffect(() => {
+    if (!item?.isScreeningStage || screeningDetailView !== "quantitative") return;
+
+    const intervalId = window.setInterval(() => {
+      void (async () => {
+        try {
+          const res = await fetch(`/api/pipeline/opportunities/${itemId}`, { cache: "no-store" });
+          const payload = await res.json();
+          if (!res.ok) return;
+          setItem(payload.item || null);
+        } catch {
+          // Keep background refresh silent; foreground actions surface errors.
+        }
+      })();
+    }, 8000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [item?.isScreeningStage, screeningDetailView, itemId]);
 
   React.useEffect(() => {
     if (!item?.isScreeningStage) {
@@ -494,6 +598,44 @@ export function PipelineOpportunityDetailView({
       return next;
     });
   }, [item]);
+
+  React.useEffect(() => {
+    if (!item?.isScreeningStage) {
+      setQualitativeDraft(emptyQualitativeFeedbackDraft(""));
+      setEditingQualitativeFeedbackId(null);
+      setEditingQualitativeDraft(null);
+      setShowQualitativePreview(false);
+      return;
+    }
+
+    const availableHealthSystemIds = new Set(
+      item.screening.healthSystems.map((entry) => entry.healthSystemId)
+    );
+    const firstHealthSystemId = item.screening.healthSystems[0]?.healthSystemId || "";
+
+    setQualitativeDraft((current) => {
+      const nextHealthSystemId =
+        current.healthSystemId && availableHealthSystemIds.has(current.healthSystemId)
+          ? current.healthSystemId
+          : firstHealthSystemId;
+
+      if (current.healthSystemId === nextHealthSystemId) return current;
+      return {
+        ...current,
+        healthSystemId: nextHealthSystemId
+      };
+    });
+
+    if (!editingQualitativeFeedbackId) return;
+
+    const stillExists = item.screening.healthSystems.some((entry) =>
+      entry.qualitativeFeedback.some((feedback) => feedback.id === editingQualitativeFeedbackId)
+    );
+    if (!stillExists) {
+      setEditingQualitativeFeedbackId(null);
+      setEditingQualitativeDraft(null);
+    }
+  }, [item?.isScreeningStage, item?.screening.healthSystems, editingQualitativeFeedbackId]);
 
   React.useEffect(() => {
     if (!item?.isScreeningStage) {
@@ -686,6 +828,44 @@ export function PipelineOpportunityDetailView({
     }
   }
 
+  async function updateAtAGlanceField(field: AtAGlanceFieldKey, value: string) {
+    if (!item) return;
+    if ((item[field] || "") === value) return;
+
+    setSavingAtAGlanceFieldByKey((current) => ({ ...current, [field]: true }));
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/card`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          [field]: value
+        })
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to update At a Glance field.");
+
+      const returnedValue = payload.item?.[field];
+      const nextValue = typeof returnedValue === "string" ? returnedValue : value;
+      setItem((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          [field]: nextValue
+        };
+      });
+      setStatus({ kind: "ok", text: "At a Glance section updated." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update At a Glance field."
+      });
+    } finally {
+      setSavingAtAGlanceFieldByKey((current) => ({ ...current, [field]: false }));
+    }
+  }
+
   async function addScreeningAttendee(healthSystemId: string, contactId: string) {
     if (!item || !contactId) return false;
     setAddingAttendeeByHealthSystemId((current) => ({ ...current, [healthSystemId]: true }));
@@ -824,15 +1004,32 @@ export function PipelineOpportunityDetailView({
     }
   }
 
-  async function addQualitativeFeedback(healthSystemId: string) {
-    if (!item) return;
-    const draft = qualitativeDraftByHealthSystemId[healthSystemId] || emptyQualitativeFeedbackDraft();
-    const category = draft.category.trim();
-    const theme = draft.theme.trim();
-    const feedback = draft.feedback.trim();
+  function startQualitativeFeedbackEdit(entry: QualitativeFeedbackEntry) {
+    setEditingQualitativeFeedbackId(entry.id);
+    setEditingQualitativeDraft({
+      contactId: entry.contactId || "",
+      category: entry.category || "Key Theme",
+      theme: entry.theme,
+      sentiment: entry.sentiment,
+      feedback: entry.feedback
+    });
+  }
 
-    if (!category || !theme || !feedback) {
-      setStatus({ kind: "error", text: "Category, theme, and feedback are required." });
+  function cancelQualitativeFeedbackEdit() {
+    setEditingQualitativeFeedbackId(null);
+    setEditingQualitativeDraft(null);
+  }
+
+  async function addQualitativeFeedback() {
+    if (!item) return;
+
+    const healthSystemId = qualitativeDraft.healthSystemId;
+    const category = qualitativeDraft.category.trim();
+    const theme = qualitativeDraft.theme.trim();
+    const feedback = qualitativeDraft.feedback.trim();
+
+    if (!healthSystemId || !category || !theme || !feedback) {
+      setStatus({ kind: "error", text: "Alliance member, category, theme, and detail are required." });
       return;
     }
 
@@ -846,10 +1043,10 @@ export function PipelineOpportunityDetailView({
         body: JSON.stringify({
           type: "QUALITATIVE",
           healthSystemId,
-          contactId: draft.contactId || undefined,
+          contactId: qualitativeDraft.contactId || undefined,
           category,
           theme,
-          sentiment: draft.sentiment,
+          sentiment: qualitativeDraft.sentiment,
           feedback
         })
       });
@@ -872,10 +1069,7 @@ export function PipelineOpportunityDetailView({
           }
         };
       });
-      setQualitativeDraftByHealthSystemId((current) => ({
-        ...current,
-        [healthSystemId]: emptyQualitativeFeedbackDraft()
-      }));
+      setQualitativeDraft(emptyQualitativeFeedbackDraft(healthSystemId));
       setStatus({ kind: "ok", text: "Qualitative feedback captured." });
     } catch (error) {
       setStatus({
@@ -884,6 +1078,204 @@ export function PipelineOpportunityDetailView({
       });
     } finally {
       setSavingFeedbackByHealthSystemId((current) => ({ ...current, [healthSystemId]: false }));
+    }
+  }
+
+  async function saveQualitativeFeedbackEdit(entry: QualitativeFeedbackEntry) {
+    if (!item || !editingQualitativeDraft) return;
+
+    const category = editingQualitativeDraft.category.trim();
+    const theme = editingQualitativeDraft.theme.trim();
+    const feedback = editingQualitativeDraft.feedback.trim();
+
+    if (!category || !theme || !feedback) {
+      setStatus({ kind: "error", text: "Category, theme, and detail are required." });
+      return;
+    }
+
+    setSavingQualitativeEntryById((current) => ({ ...current, [entry.id]: true }));
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/screening-feedback/${entry.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactId: editingQualitativeDraft.contactId || null,
+          category,
+          theme,
+          sentiment: editingQualitativeDraft.sentiment,
+          feedback
+        })
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to update qualitative feedback");
+
+      setItem((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          screening: {
+            healthSystems: current.screening.healthSystems.map((healthSystem) => ({
+              ...healthSystem,
+              qualitativeFeedback: healthSystem.qualitativeFeedback.map((feedbackEntry) =>
+                feedbackEntry.id === entry.id ? payload.entry : feedbackEntry
+              )
+            }))
+          }
+        };
+      });
+      setEditingQualitativeFeedbackId(null);
+      setEditingQualitativeDraft(null);
+      setStatus({ kind: "ok", text: "Qualitative feedback updated." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update qualitative feedback"
+      });
+    } finally {
+      setSavingQualitativeEntryById((current) => ({ ...current, [entry.id]: false }));
+    }
+  }
+
+  async function deleteQualitativeFeedback(entry: QualitativeFeedbackEntry) {
+    if (!item) return;
+    if (!window.confirm(`Delete qualitative entry "${entry.theme}"?`)) return;
+
+    setDeletingQualitativeEntryById((current) => ({ ...current, [entry.id]: true }));
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/screening-feedback/${entry.id}`, {
+        method: "DELETE"
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to delete qualitative feedback");
+
+      setItem((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          screening: {
+            healthSystems: current.screening.healthSystems.map((healthSystem) => ({
+              ...healthSystem,
+              qualitativeFeedback: healthSystem.qualitativeFeedback.filter(
+                (feedbackEntry) => feedbackEntry.id !== entry.id
+              )
+            }))
+          }
+        };
+      });
+
+      if (editingQualitativeFeedbackId === entry.id) {
+        setEditingQualitativeFeedbackId(null);
+        setEditingQualitativeDraft(null);
+      }
+
+      setStatus({ kind: "ok", text: "Qualitative feedback deleted." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to delete qualitative feedback"
+      });
+    } finally {
+      setDeletingQualitativeEntryById((current) => ({ ...current, [entry.id]: false }));
+    }
+  }
+
+  function appendCompanyDocument(document: PipelineOpportunityDetail["documents"][number]) {
+    setItem((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        documents: [document, ...current.documents]
+      };
+    });
+  }
+
+  async function createCompanyDocument(input: {
+    type: CompanyDocumentType;
+    title: string;
+    url: string;
+  }) {
+    if (!item) return false;
+
+    setAddingCompanyDocument(true);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/documents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input)
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to add company document.");
+
+      const created = payload.document as PipelineOpportunityDetail["documents"][number] | undefined;
+      if (!created) throw new Error("Failed to add company document.");
+      appendCompanyDocument(created);
+      setStatus({ kind: "ok", text: "Company document added." });
+      return true;
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add company document."
+      });
+      return false;
+    } finally {
+      setAddingCompanyDocument(false);
+    }
+  }
+
+  async function addCompanyDocumentFromUpload(file: File) {
+    if (file.size > MAX_COMPANY_DOCUMENT_FILE_BYTES) {
+      setStatus({
+        kind: "error",
+        text: `File is too large. Max size is ${companyDocumentMaxSizeMb} MB.`
+      });
+      return;
+    }
+
+    const title = newCompanyDocumentTitle.trim() || file.name.trim() || "Uploaded Document";
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const created = await createCompanyDocument({
+        type: newCompanyDocumentType,
+        title,
+        url: dataUrl
+      });
+      if (created) {
+        setNewCompanyDocumentTitle("");
+      }
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to process uploaded document."
+      });
+    }
+  }
+
+  async function addCompanyDocumentFromGoogleLink() {
+    const normalizedUrl = normalizeGoogleDocsUrl(newCompanyDocumentGoogleUrl);
+    if (!normalizedUrl) {
+      setStatus({
+        kind: "error",
+        text: "Provide a valid Google Docs or Google Drive link."
+      });
+      return;
+    }
+
+    const title = newCompanyDocumentTitle.trim() || inferGoogleDocumentTitle(normalizedUrl);
+    const created = await createCompanyDocument({
+      type: newCompanyDocumentType,
+      title,
+      url: normalizedUrl
+    });
+    if (created) {
+      setNewCompanyDocumentGoogleUrl("");
+      setNewCompanyDocumentTitle("");
     }
   }
 
@@ -904,17 +1296,13 @@ export function PipelineOpportunityDetailView({
       <EmptyWrapper className={inModal ? "pipeline-detail-content" : undefined}>
         <section className="panel">
           <p className="muted">Pipeline item not found.</p>
-          <div className="actions">
-            {inModal ? (
-              <button className="secondary" type="button" onClick={onClose}>
-                Close
-              </button>
-            ) : (
+          {!inModal ? (
+            <div className="actions">
               <Link href="/pipeline" className="top-nav-link top-nav-link-quiet">
                 Back to Pipeline Board
               </Link>
-            )}
-          </div>
+            </div>
+          ) : null}
         </section>
       </EmptyWrapper>
     );
@@ -926,16 +1314,111 @@ export function PipelineOpportunityDetailView({
     item.screening.healthSystems[0] ||
     null;
 
-  const selectedIndividualOptions =
-    selectedScreeningHealthSystem?.participants.reduce<Array<{ id: string; label: string }>>((accumulator, participant) => {
-      if (!participant.contactId) return accumulator;
-      if (accumulator.some((entry) => entry.id === participant.contactId)) return accumulator;
-      const label = participant.contactTitle
-        ? `${participant.contactName} (${participant.contactTitle})`
-        : participant.contactName;
-      accumulator.push({ id: participant.contactId, label });
-      return accumulator;
-    }, []) || [];
+  const contactOptionsByHealthSystemId = new Map<string, Array<{ id: string; label: string }>>();
+  for (const healthSystem of item.screening.healthSystems) {
+    const options: Array<{ id: string; label: string }> = [];
+    const seenContactIds = new Set<string>();
+
+    for (const participant of healthSystem.participants) {
+      if (!participant.contactId || seenContactIds.has(participant.contactId)) continue;
+      seenContactIds.add(participant.contactId);
+      options.push({
+        id: participant.contactId,
+        label: participant.contactTitle
+          ? `${participant.contactName} (${participant.contactTitle})`
+          : participant.contactName
+      });
+    }
+
+    contactOptionsByHealthSystemId.set(healthSystem.healthSystemId, options);
+  }
+
+  const qualitativeDraftContactOptions =
+    contactOptionsByHealthSystemId.get(qualitativeDraft.healthSystemId) || [];
+
+  const allQualitativeFeedbackEntries: QualitativeFeedbackEntry[] = [];
+  for (const healthSystem of item.screening.healthSystems) {
+    for (const feedback of healthSystem.qualitativeFeedback) {
+      allQualitativeFeedbackEntries.push({
+        ...feedback,
+        healthSystemId: healthSystem.healthSystemId,
+        healthSystemName: healthSystem.healthSystemName
+      });
+    }
+  }
+
+  allQualitativeFeedbackEntries.sort((a, b) => {
+    const categorySort = compareQualitativeCategoryName(a.category || "Key Theme", b.category || "Key Theme");
+    if (categorySort !== 0) return categorySort;
+
+    const timeA = new Date(a.updatedAt).getTime();
+    const timeB = new Date(b.updatedAt).getTime();
+    if (Number.isFinite(timeA) && Number.isFinite(timeB) && timeA !== timeB) return timeB - timeA;
+
+    return a.theme.localeCompare(b.theme);
+  });
+
+  const companyDocumentComposer = (
+    <div className="detail-section">
+      <p className="detail-label">Add Company Document</p>
+      <div className="detail-grid">
+        <div>
+          <label>Document Type</label>
+          <select
+            value={newCompanyDocumentType}
+            onChange={(event) => setNewCompanyDocumentType(event.target.value as CompanyDocumentType)}
+          >
+            {companyDocumentTypeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label>Document Title (optional)</label>
+          <input
+            value={newCompanyDocumentTitle}
+            onChange={(event) => setNewCompanyDocumentTitle(event.target.value)}
+            placeholder="Screening memo"
+          />
+        </div>
+        <div>
+          <label>Google Docs Link</label>
+          <input
+            value={newCompanyDocumentGoogleUrl}
+            onChange={(event) => setNewCompanyDocumentGoogleUrl(event.target.value)}
+            placeholder="https://docs.google.com/..."
+          />
+        </div>
+        <div>
+          <label>Upload from Computer</label>
+          <input
+            type="file"
+            accept={companyDocumentUploadAccept}
+            disabled={addingCompanyDocument}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (!file) return;
+              void addCompanyDocumentFromUpload(file);
+            }}
+          />
+        </div>
+      </div>
+      <div className="actions">
+        <button
+          className="secondary small"
+          type="button"
+          onClick={() => void addCompanyDocumentFromGoogleLink()}
+          disabled={addingCompanyDocument}
+        >
+          Add Google Doc Link
+        </button>
+      </div>
+      <p className="muted">{`Uploads are limited to ${companyDocumentMaxSizeMb} MB per file.`}</p>
+    </div>
+  );
 
   const quantitativeSlideSectionsResult = (() => {
     type QuantitativeResponseAggregate = {
@@ -1105,22 +1588,52 @@ export function PipelineOpportunityDetailView({
     return colorMap;
   })();
 
+  const atAGlanceFields: Array<{ key: AtAGlanceFieldKey; label: string; value: string }> = [
+    { key: "atAGlanceProblem", label: "Problem", value: item.atAGlanceProblem || "" },
+    { key: "atAGlanceSolution", label: "The Solution", value: item.atAGlanceSolution || "" },
+    { key: "atAGlanceImpact", label: "The Impact", value: item.atAGlanceImpact || "" },
+    { key: "atAGlanceKeyStrengths", label: "Key Strengths", value: item.atAGlanceKeyStrengths || "" },
+    {
+      key: "atAGlanceKeyConsiderations",
+      label: "Key Considerations",
+      value: item.atAGlanceKeyConsiderations || ""
+    }
+  ];
+
   return (
     <ContentWrapper className={inModal ? "pipeline-detail-content" : undefined}>
       <section className="hero">
-        <div className="actions" style={{ marginTop: 0 }}>
-          {inModal ? (
-            <button className="secondary small" type="button" onClick={onClose}>
-              Close
-            </button>
-          ) : (
+        {!inModal ? (
+          <div className="actions" style={{ marginTop: 0 }}>
             <Link href="/pipeline" className="top-nav-link top-nav-link-quiet">
               Back to Pipeline Board
             </Link>
-          )}
-        </div>
+          </div>
+        ) : null}
         <h1>{item.name}</h1>
         <p>{item.location || "Location unavailable"}</p>
+      </section>
+
+      <section className="panel">
+        <h2>At a Glance</h2>
+        <p className="muted">Capture concise intake framing using markdown-style formatting.</p>
+        <div className="detail-section">
+          {atAGlanceFields.map((field) => (
+            <div key={field.key} className="pipeline-at-a-glance-field">
+              <InlineTextareaField
+                multiline
+                label={field.label}
+                value={field.value}
+                rows={12}
+                enableFormatting
+                onSave={(nextValue) => void updateAtAGlanceField(field.key, nextValue)}
+              />
+              {savingAtAGlanceFieldByKey[field.key] ? (
+                <p className="muted pipeline-at-a-glance-saving">Saving...</p>
+              ) : null}
+            </div>
+          ))}
+        </div>
       </section>
 
       {!item.isScreeningStage ? (
@@ -1218,6 +1731,7 @@ export function PipelineOpportunityDetailView({
 
           <section className="panel">
             <h2>Company Documents</h2>
+            {companyDocumentComposer}
             {item.documents.length === 0 ? <p className="muted">No company-level documents.</p> : null}
             <div className="pipeline-doc-list">
               {item.documents.map((document) => (
@@ -1227,8 +1741,13 @@ export function PipelineOpportunityDetailView({
                     <span className="status-pill draft">{document.type}</span>
                   </div>
                   <p className="muted">
-                    <a href={document.url} target="_blank" rel="noreferrer">
-                      {document.url}
+                    <a
+                      href={document.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      download={isEmbeddedDocumentUrl(document.url) ? document.title : undefined}
+                    >
+                      {documentUrlLabel(document.url)}
                     </a>
                   </p>
                   <p className="muted">Uploaded {formatDate(document.uploadedAt)}</p>
@@ -1447,6 +1966,7 @@ export function PipelineOpportunityDetailView({
                 <h3>Company Documents</h3>
                 <span className="status-pill queued">{`${item.documents.length} total`}</span>
               </div>
+              {companyDocumentComposer}
               {item.documents.length === 0 ? <p className="muted">No company-level documents.</p> : null}
               <div className="pipeline-doc-list">
                 {item.documents.map((document) => (
@@ -1456,8 +1976,13 @@ export function PipelineOpportunityDetailView({
                       <span className="status-pill draft">{document.type}</span>
                     </div>
                     <p className="muted">
-                      <a href={document.url} target="_blank" rel="noreferrer">
-                        {document.url}
+                      <a
+                        href={document.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        download={isEmbeddedDocumentUrl(document.url) ? document.title : undefined}
+                      >
+                        {documentUrlLabel(document.url)}
                       </a>
                     </p>
                     <p className="muted">Uploaded {formatDate(document.uploadedAt)}</p>
@@ -1477,34 +2002,10 @@ export function PipelineOpportunityDetailView({
                     <span className="status-pill queued">{`${quantitativeRespondingInstitutions.length} institutions`}</span>
                   </div>
                 ) : (
-                  <>
-                    <div className="pipeline-card-head">
-                      <h3>{selectedScreeningHealthSystem.healthSystemName}</h3>
-                      <span className={`screening-status-pill ${statusMeta(selectedScreeningHealthSystem.status).className}`}>
-                        {statusMeta(selectedScreeningHealthSystem.status).label}
-                      </span>
-                    </div>
-
-                    <div className="row">
-                      <div>
-                        <label>Selected Health System</label>
-                        <select
-                          value={selectedScreeningHealthSystem.healthSystemId}
-                          onChange={(event) => setActiveScreeningHealthSystemId(event.target.value)}
-                        >
-                          {item.screening.healthSystems.map((entry) => (
-                            <option key={entry.healthSystemId} value={entry.healthSystemId}>
-                              {entry.healthSystemName}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label>Status Updated</label>
-                        <input value={formatDate(selectedScreeningHealthSystem.statusUpdatedAt)} readOnly />
-                      </div>
-                    </div>
-                  </>
+                  <div className="pipeline-card-head">
+                    <h3>Qualitative Themes & Details</h3>
+                    <span className="status-pill queued">{`${allQualitativeFeedbackEntries.length} entries`}</span>
+                  </div>
                 )}
 
               {screeningDetailView === "quantitative" ? (
@@ -1516,7 +2017,6 @@ export function PipelineOpportunityDetailView({
                         Each dot is an individual survey response and each block shows the average score for that
                         question.
                       </p>
-                      <p className="muted">Survey response entry will be added in a later sprint.</p>
                     </div>
                     <div className="actions">
                       <button
@@ -1535,6 +2035,7 @@ export function PipelineOpportunityDetailView({
                       ) : null}
                     </div>
                   </div>
+                  <ScreeningSurveySessionSelector companyId={item.id} />
                   {quantitativeRespondingInstitutions.length > 0 ? (
                     <div className="screening-survey-legend">
                       {quantitativeRespondingInstitutions.map((institution) => {
@@ -1723,82 +2224,77 @@ export function PipelineOpportunityDetailView({
 
               {screeningDetailView === "qualitative" ? (
                 <>
-                  <p className="detail-label">Captured Qualitative Feedback</p>
-                  {selectedScreeningHealthSystem.qualitativeFeedback.length === 0 ? (
-                    <p className="muted">No qualitative feedback captured yet.</p>
-                  ) : (
-                    <div className="pipeline-doc-list">
-                      {selectedScreeningHealthSystem.qualitativeFeedback.map((feedback) => (
-                        <div key={feedback.id} className="detail-list-item">
-                          <div className="pipeline-card-head">
-                            <strong>{feedback.theme}</strong>
-                            <span className="status-pill draft">{sentimentLabel(feedback.sentiment)}</span>
-                          </div>
-                          <p className="muted">
-                            Category: {feedback.category || "Key Theme"}
-                          </p>
-                          <p className="muted">
-                            {feedback.contactTitle
-                              ? `${feedback.contactName} (${feedback.contactTitle})`
-                              : feedback.contactName}
-                          </p>
-                          <p>{feedback.feedback}</p>
-                          <p className="muted">Updated {formatDate(feedback.updatedAt)}</p>
-                        </div>
-                      ))}
+                  <div className="screening-qualitative-head">
+                    <p className="detail-label">Qualitative Data Entry</p>
+                    <div className="actions">
+                      <button
+                        className="secondary small"
+                        type="button"
+                        onClick={() => setShowQualitativePreview((current) => !current)}
+                      >
+                        {showQualitativePreview ? "Hide Preview" : "Preview"}
+                      </button>
                     </div>
-                  )}
-
-                  <p className="detail-label">Add Qualitative Feedback</p>
+                  </div>
                   <div className="detail-grid">
+                    <div>
+                      <label>Alliance Member</label>
+                      <select
+                        value={qualitativeDraft.healthSystemId}
+                        onChange={(event) =>
+                          setQualitativeDraft((current) => ({
+                            ...current,
+                            healthSystemId: event.target.value,
+                            contactId: ""
+                          }))
+                        }
+                      >
+                        {item.screening.healthSystems.map((entry) => (
+                          <option key={entry.healthSystemId} value={entry.healthSystemId}>
+                            {entry.healthSystemName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <div>
                       <label>Individual</label>
                       <EntityLookupInput
                         entityKind="CONTACT"
-                        value={
-                          (qualitativeDraftByHealthSystemId[selectedScreeningHealthSystem.healthSystemId] ||
-                            emptyQualitativeFeedbackDraft()).contactId
-                        }
+                        value={qualitativeDraft.contactId}
                         onChange={(nextValue) =>
-                          setQualitativeDraftByHealthSystemId((current) => ({
+                          setQualitativeDraft((current) => ({
                             ...current,
-                            [selectedScreeningHealthSystem.healthSystemId]: {
-                              ...(current[selectedScreeningHealthSystem.healthSystemId] ||
-                                emptyQualitativeFeedbackDraft()),
-                              contactId: nextValue
-                            }
+                            contactId: nextValue
                           }))
                         }
                         allowEmpty
                         emptyLabel="Unlinked individual"
-                        initialOptions={selectedIndividualOptions.map((option) => ({
+                        initialOptions={qualitativeDraftContactOptions.map((option) => ({
                           id: option.id,
                           name: option.label
                         }))}
                         placeholder="Search contacts"
-                        contactCreateContext={{
-                          parentType: "healthSystem",
-                          parentId: selectedScreeningHealthSystem.healthSystemId,
-                          roleType: "EXECUTIVE"
-                        }}
-                        contactSearchHealthSystemId={selectedScreeningHealthSystem.healthSystemId}
+                        contactCreateContext={
+                          qualitativeDraft.healthSystemId
+                            ? {
+                                parentType: "healthSystem",
+                                parentId: qualitativeDraft.healthSystemId,
+                                roleType: "EXECUTIVE"
+                              }
+                            : undefined
+                        }
+                        contactSearchHealthSystemId={qualitativeDraft.healthSystemId || undefined}
+                        disabled={!qualitativeDraft.healthSystemId}
                       />
                     </div>
                     <div>
                       <label>Category</label>
                       <select
-                        value={
-                          (qualitativeDraftByHealthSystemId[selectedScreeningHealthSystem.healthSystemId] ||
-                            emptyQualitativeFeedbackDraft()).category
-                        }
+                        value={qualitativeDraft.category}
                         onChange={(event) =>
-                          setQualitativeDraftByHealthSystemId((current) => ({
+                          setQualitativeDraft((current) => ({
                             ...current,
-                            [selectedScreeningHealthSystem.healthSystemId]: {
-                              ...(current[selectedScreeningHealthSystem.healthSystemId] ||
-                                emptyQualitativeFeedbackDraft()),
-                              category: event.target.value
-                            }
+                            category: event.target.value
                           }))
                         }
                       >
@@ -1812,18 +2308,11 @@ export function PipelineOpportunityDetailView({
                     <div>
                       <label>Theme</label>
                       <input
-                        value={
-                          (qualitativeDraftByHealthSystemId[selectedScreeningHealthSystem.healthSystemId] ||
-                            emptyQualitativeFeedbackDraft()).theme
-                        }
+                        value={qualitativeDraft.theme}
                         onChange={(event) =>
-                          setQualitativeDraftByHealthSystemId((current) => ({
+                          setQualitativeDraft((current) => ({
                             ...current,
-                            [selectedScreeningHealthSystem.healthSystemId]: {
-                              ...(current[selectedScreeningHealthSystem.healthSystemId] ||
-                                emptyQualitativeFeedbackDraft()),
-                              theme: event.target.value
-                            }
+                            theme: event.target.value
                           }))
                         }
                       />
@@ -1831,18 +2320,11 @@ export function PipelineOpportunityDetailView({
                     <div>
                       <label>Sentiment</label>
                       <select
-                        value={
-                          (qualitativeDraftByHealthSystemId[selectedScreeningHealthSystem.healthSystemId] ||
-                            emptyQualitativeFeedbackDraft()).sentiment
-                        }
+                        value={qualitativeDraft.sentiment}
                         onChange={(event) =>
-                          setQualitativeDraftByHealthSystemId((current) => ({
+                          setQualitativeDraft((current) => ({
                             ...current,
-                            [selectedScreeningHealthSystem.healthSystemId]: {
-                              ...(current[selectedScreeningHealthSystem.healthSystemId] ||
-                                emptyQualitativeFeedbackDraft()),
-                              sentiment: event.target.value as ScreeningFeedbackSentiment
-                            }
+                            sentiment: event.target.value as ScreeningFeedbackSentiment
                           }))
                         }
                       >
@@ -1853,20 +2335,13 @@ export function PipelineOpportunityDetailView({
                       </select>
                     </div>
                   </div>
-                  <label>Feedback</label>
+                  <label>Detail</label>
                   <textarea
-                    value={
-                      (qualitativeDraftByHealthSystemId[selectedScreeningHealthSystem.healthSystemId] ||
-                        emptyQualitativeFeedbackDraft()).feedback
-                    }
+                    value={qualitativeDraft.feedback}
                     onChange={(event) =>
-                      setQualitativeDraftByHealthSystemId((current) => ({
+                      setQualitativeDraft((current) => ({
                         ...current,
-                        [selectedScreeningHealthSystem.healthSystemId]: {
-                          ...(current[selectedScreeningHealthSystem.healthSystemId] ||
-                            emptyQualitativeFeedbackDraft()),
-                          feedback: event.target.value
-                        }
+                        feedback: event.target.value
                       }))
                     }
                   />
@@ -1874,16 +2349,246 @@ export function PipelineOpportunityDetailView({
                     <button
                       className="secondary"
                       type="button"
-                      onClick={() => void addQualitativeFeedback(selectedScreeningHealthSystem.healthSystemId)}
-                      disabled={Boolean(
-                        savingFeedbackByHealthSystemId[selectedScreeningHealthSystem.healthSystemId]
-                      )}
+                      onClick={() => void addQualitativeFeedback()}
+                      disabled={
+                        !qualitativeDraft.healthSystemId ||
+                        Boolean(savingFeedbackByHealthSystemId[qualitativeDraft.healthSystemId])
+                      }
                     >
-                      {savingFeedbackByHealthSystemId[selectedScreeningHealthSystem.healthSystemId]
+                      {qualitativeDraft.healthSystemId &&
+                      savingFeedbackByHealthSystemId[qualitativeDraft.healthSystemId]
                         ? "Saving..."
-                        : "Add Qualitative Feedback"}
+                        : "Add Entry"}
                     </button>
                   </div>
+
+                  {showQualitativePreview ? (
+                    <div className="screening-qual-preview">
+                      <p className="detail-label">Report Preview</p>
+                      <p className="muted">
+                        Preview mirrors the final report structure: theme on the left and narrative detail on the
+                        right.
+                      </p>
+                      {allQualitativeFeedbackEntries.length === 0 ? (
+                        <p className="muted">No qualitative feedback captured yet.</p>
+                      ) : (
+                        <div className="screening-qual-preview-list">
+                          {allQualitativeFeedbackEntries.map((feedback) => (
+                            <div key={`preview-${feedback.id}`} className="screening-qual-preview-row">
+                              <div className="screening-qual-preview-theme">{feedback.theme}</div>
+                              <div className="screening-qual-preview-detail">
+                                <p>{feedback.feedback}</p>
+                                <p className="muted">
+                                  {(feedback.category || "Key Theme").trim()} | {feedback.healthSystemName} |{" "}
+                                  {feedback.contactTitle
+                                    ? `${feedback.contactName} (${feedback.contactTitle})`
+                                    : feedback.contactName}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+
+                  <p className="detail-label">All Captured Entries</p>
+                  {allQualitativeFeedbackEntries.length === 0 ? (
+                    <p className="muted">No qualitative feedback captured yet.</p>
+                  ) : (
+                    <div className="pipeline-doc-list">
+                      {allQualitativeFeedbackEntries.map((feedback) => {
+                        const isEditing = editingQualitativeFeedbackId === feedback.id;
+                        const isSaving = Boolean(savingQualitativeEntryById[feedback.id]);
+                        const isDeleting = Boolean(deletingQualitativeEntryById[feedback.id]);
+                        const contactOptions = contactOptionsByHealthSystemId.get(feedback.healthSystemId) || [];
+                        const currentContactLabel = feedback.contactTitle
+                          ? `${feedback.contactName} (${feedback.contactTitle})`
+                          : feedback.contactName;
+                        const editInitialOptions =
+                          feedback.contactId && !contactOptions.some((option) => option.id === feedback.contactId)
+                            ? [{ id: feedback.contactId, label: currentContactLabel }, ...contactOptions]
+                            : contactOptions;
+
+                        return (
+                          <div key={feedback.id} className="detail-list-item screening-qualitative-entry">
+                            <div className="pipeline-card-head">
+                              <div>
+                                <strong>{feedback.theme}</strong>
+                                <p className="muted">{feedback.healthSystemName}</p>
+                              </div>
+                              <span className="status-pill draft">{sentimentLabel(feedback.sentiment)}</span>
+                            </div>
+
+                            {isEditing && editingQualitativeDraft ? (
+                              <>
+                                <div className="detail-grid">
+                                  <div>
+                                    <label>Individual</label>
+                                    <EntityLookupInput
+                                      entityKind="CONTACT"
+                                      value={editingQualitativeDraft.contactId}
+                                      onChange={(nextValue) =>
+                                        setEditingQualitativeDraft((current) =>
+                                          current
+                                            ? {
+                                                ...current,
+                                                contactId: nextValue
+                                              }
+                                            : current
+                                        )
+                                      }
+                                      allowEmpty
+                                      emptyLabel="Unlinked individual"
+                                      initialOptions={editInitialOptions.map((option) => ({
+                                        id: option.id,
+                                        name: option.label
+                                      }))}
+                                      placeholder="Search contacts"
+                                      contactCreateContext={{
+                                        parentType: "healthSystem",
+                                        parentId: feedback.healthSystemId,
+                                        roleType: "EXECUTIVE"
+                                      }}
+                                      contactSearchHealthSystemId={feedback.healthSystemId}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label>Category</label>
+                                    <select
+                                      value={editingQualitativeDraft.category}
+                                      onChange={(event) =>
+                                        setEditingQualitativeDraft((current) =>
+                                          current
+                                            ? {
+                                                ...current,
+                                                category: event.target.value
+                                              }
+                                            : current
+                                        )
+                                      }
+                                    >
+                                      {qualitativeCategoryOptions.map((option) => (
+                                        <option key={option} value={option}>
+                                          {option}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label>Theme</label>
+                                    <input
+                                      value={editingQualitativeDraft.theme}
+                                      onChange={(event) =>
+                                        setEditingQualitativeDraft((current) =>
+                                          current
+                                            ? {
+                                                ...current,
+                                                theme: event.target.value
+                                              }
+                                            : current
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  <div>
+                                    <label>Sentiment</label>
+                                    <select
+                                      value={editingQualitativeDraft.sentiment}
+                                      onChange={(event) =>
+                                        setEditingQualitativeDraft((current) =>
+                                          current
+                                            ? {
+                                                ...current,
+                                                sentiment: event.target.value as ScreeningFeedbackSentiment
+                                              }
+                                            : current
+                                        )
+                                      }
+                                    >
+                                      <option value="POSITIVE">Positive</option>
+                                      <option value="MIXED">Mixed</option>
+                                      <option value="NEUTRAL">Neutral</option>
+                                      <option value="NEGATIVE">Negative</option>
+                                    </select>
+                                  </div>
+                                </div>
+                                <label>Detail</label>
+                                <textarea
+                                  value={editingQualitativeDraft.feedback}
+                                  onChange={(event) =>
+                                    setEditingQualitativeDraft((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            feedback: event.target.value
+                                          }
+                                        : current
+                                    )
+                                  }
+                                />
+                                <div className="actions">
+                                  <button
+                                    className="secondary small"
+                                    type="button"
+                                    onClick={() => void saveQualitativeFeedbackEdit(feedback)}
+                                    disabled={isSaving || isDeleting}
+                                  >
+                                    {isSaving ? "Saving..." : "Save"}
+                                  </button>
+                                  <button
+                                    className="ghost small"
+                                    type="button"
+                                    onClick={cancelQualitativeFeedbackEdit}
+                                    disabled={isSaving || isDeleting}
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    className="ghost small"
+                                    type="button"
+                                    onClick={() => void deleteQualitativeFeedback(feedback)}
+                                    disabled={isSaving || isDeleting}
+                                  >
+                                    {isDeleting ? "Deleting..." : "Delete"}
+                                  </button>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <p className="muted">Category: {(feedback.category || "Key Theme").trim()}</p>
+                                <p className="muted">
+                                  {feedback.contactTitle
+                                    ? `${feedback.contactName} (${feedback.contactTitle})`
+                                    : feedback.contactName}
+                                </p>
+                                <p>{feedback.feedback}</p>
+                                <p className="muted">Updated {formatDate(feedback.updatedAt)}</p>
+                                <div className="actions">
+                                  <button
+                                    className="ghost small"
+                                    type="button"
+                                    onClick={() => startQualitativeFeedbackEdit(feedback)}
+                                    disabled={isDeleting}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    className="ghost small"
+                                    type="button"
+                                    onClick={() => void deleteQualitativeFeedback(feedback)}
+                                    disabled={isDeleting}
+                                  >
+                                    {isDeleting ? "Deleting..." : "Delete"}
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </>
               ) : null}
               </article>
@@ -1902,17 +2607,22 @@ export function PipelineOpportunityDetailView({
       {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
 
       {addAttendeeModal ? (
-        <div className="pipeline-note-backdrop" onClick={() => setAddAttendeeModal(null)}>
+        <div className="pipeline-note-backdrop" onMouseDown={() => setAddAttendeeModal(null)}>
           <div
             className="pipeline-note-modal"
             role="dialog"
             aria-modal="true"
-            onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="pipeline-card-head">
               <h3>Add Contact</h3>
-              <button className="ghost small" type="button" onClick={() => setAddAttendeeModal(null)}>
-                Close
+              <button
+                className="modal-icon-close"
+                type="button"
+                onClick={() => setAddAttendeeModal(null)}
+                aria-label="Close add contact dialog"
+              >
+                <span aria-hidden="true">×</span>
               </button>
             </div>
             <p className="muted">{addAttendeeModal.healthSystemName}</p>

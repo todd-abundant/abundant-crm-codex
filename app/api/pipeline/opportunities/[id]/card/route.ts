@@ -12,7 +12,12 @@ import {
 const cardUpdateSchema = z.object({
   nextStep: z.string().optional().nullable(),
   ventureLikelihoodPercent: z.number().int().min(0).max(100).optional().nullable(),
-  ventureExpectedCloseDate: z.string().optional().nullable()
+  ventureExpectedCloseDate: z.string().optional().nullable(),
+  atAGlanceProblem: z.string().optional().nullable(),
+  atAGlanceSolution: z.string().optional().nullable(),
+  atAGlanceImpact: z.string().optional().nullable(),
+  atAGlanceKeyStrengths: z.string().optional().nullable(),
+  atAGlanceKeyConsiderations: z.string().optional().nullable()
 });
 
 function toNullableDate(value?: string | null) {
@@ -39,6 +44,13 @@ export async function PATCH(
       ventureLikelihoodPercent?: number | null;
       ventureExpectedCloseDate?: Date | null;
     } = {};
+    const companyUpdatePayload: {
+      atAGlanceProblem?: string | null;
+      atAGlanceSolution?: string | null;
+      atAGlanceImpact?: string | null;
+      atAGlanceKeyStrengths?: string | null;
+      atAGlanceKeyConsiderations?: string | null;
+    } = {};
     if (Object.prototype.hasOwnProperty.call(body, "nextStep")) {
       updatePayload.nextStep = toNullableString(input.nextStep);
     }
@@ -47,6 +59,21 @@ export async function PATCH(
     }
     if (Object.prototype.hasOwnProperty.call(body, "ventureExpectedCloseDate")) {
       updatePayload.ventureExpectedCloseDate = toNullableDate(input.ventureExpectedCloseDate);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "atAGlanceProblem")) {
+      companyUpdatePayload.atAGlanceProblem = toNullableString(input.atAGlanceProblem);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "atAGlanceSolution")) {
+      companyUpdatePayload.atAGlanceSolution = toNullableString(input.atAGlanceSolution);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "atAGlanceImpact")) {
+      companyUpdatePayload.atAGlanceImpact = toNullableString(input.atAGlanceImpact);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "atAGlanceKeyStrengths")) {
+      companyUpdatePayload.atAGlanceKeyStrengths = toNullableString(input.atAGlanceKeyStrengths);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "atAGlanceKeyConsiderations")) {
+      companyUpdatePayload.atAGlanceKeyConsiderations = toNullableString(input.atAGlanceKeyConsiderations);
     }
 
     const company = await prisma.company.findUnique({
@@ -71,7 +98,35 @@ export async function PATCH(
       update: updatePayload
     });
 
+    if (Object.keys(companyUpdatePayload).length > 0) {
+      await prisma.company.update({
+        where: { id },
+        data: companyUpdatePayload
+      });
+    }
+
     const phase = pipeline.phase as PipelinePhase;
+    const nextAtAGlanceProblem = Object.prototype.hasOwnProperty.call(companyUpdatePayload, "atAGlanceProblem")
+      ? companyUpdatePayload.atAGlanceProblem
+      : company.atAGlanceProblem;
+    const nextAtAGlanceSolution = Object.prototype.hasOwnProperty.call(companyUpdatePayload, "atAGlanceSolution")
+      ? companyUpdatePayload.atAGlanceSolution
+      : company.atAGlanceSolution;
+    const nextAtAGlanceImpact = Object.prototype.hasOwnProperty.call(companyUpdatePayload, "atAGlanceImpact")
+      ? companyUpdatePayload.atAGlanceImpact
+      : company.atAGlanceImpact;
+    const nextAtAGlanceKeyStrengths = Object.prototype.hasOwnProperty.call(
+      companyUpdatePayload,
+      "atAGlanceKeyStrengths"
+    )
+      ? companyUpdatePayload.atAGlanceKeyStrengths
+      : company.atAGlanceKeyStrengths;
+    const nextAtAGlanceKeyConsiderations = Object.prototype.hasOwnProperty.call(
+      companyUpdatePayload,
+      "atAGlanceKeyConsiderations"
+    )
+      ? companyUpdatePayload.atAGlanceKeyConsiderations
+      : company.atAGlanceKeyConsiderations;
 
     return NextResponse.json({
       item: {
@@ -79,6 +134,11 @@ export async function PATCH(
         nextStep: pipeline.nextStep || "",
         ventureLikelihoodPercent: pipeline.ventureLikelihoodPercent,
         ventureExpectedCloseDate: pipeline.ventureExpectedCloseDate,
+        atAGlanceProblem: nextAtAGlanceProblem ?? "",
+        atAGlanceSolution: nextAtAGlanceSolution ?? "",
+        atAGlanceImpact: nextAtAGlanceImpact ?? "",
+        atAGlanceKeyStrengths: nextAtAGlanceKeyStrengths ?? "",
+        atAGlanceKeyConsiderations: nextAtAGlanceKeyConsiderations ?? "",
         phase,
         phaseLabel: phaseLabel(phase),
         column: mapPhaseToBoardColumn(phase)

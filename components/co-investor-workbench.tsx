@@ -8,6 +8,9 @@ import {
 } from "./inline-detail-field";
 import { DateInputField } from "./date-input-field";
 import { SearchMatchModal } from "./search-match-modal";
+import { AddContactModal } from "./add-contact-modal";
+import { EntityDocumentsPane } from "./entity-documents-pane";
+import { EntityNotesPane } from "./entity-notes-pane";
 
 type SearchCandidate = {
   name: string;
@@ -88,7 +91,7 @@ type CoInvestorRecord = {
   }>;
 };
 
-type DetailTab = "overview" | "contacts" | "actions" | "next-steps" | "network";
+type DetailTab = "overview" | "documents" | "notes" | "contacts" | "relationships";
 
 type DetailDraft = {
   name: string;
@@ -293,6 +296,7 @@ export function CoInvestorWorkbench() {
   const [selectedCandidateIndex, setSelectedCandidateIndex] = React.useState(-1);
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [addingContact, setAddingContact] = React.useState(false);
+  const [addContactModalOpen, setAddContactModalOpen] = React.useState(false);
   const [contactName, setContactName] = React.useState("");
   const [contactTitle, setContactTitle] = React.useState("");
   const [contactRelationshipTitle, setContactRelationshipTitle] = React.useState("");
@@ -628,13 +632,8 @@ export function CoInvestorWorkbench() {
         text: `${payload.contact.name} linked (${matchLabel}).`
       });
 
-      setContactName("");
-      setContactTitle("");
-      setContactRelationshipTitle("");
-      setContactEmail("");
-      setContactPhone("");
-      setContactLinkedinUrl("");
-      setContactRoleType("INVESTOR_PARTNER");
+      resetContactForm();
+      setAddContactModalOpen(false);
       await loadRecords();
     } catch (error) {
       setStatus({
@@ -656,6 +655,16 @@ export function CoInvestorWorkbench() {
     setEditingContactLinkedinUrl(link.contact.linkedinUrl || "");
     setEditingContactRoleType(link.roleType === "INVESTOR_PARTNER" ? "INVESTOR_PARTNER" : "OTHER");
     setStatus(null);
+  }
+
+  function resetContactForm() {
+    setContactName("");
+    setContactTitle("");
+    setContactRelationshipTitle("");
+    setContactEmail("");
+    setContactPhone("");
+    setContactLinkedinUrl("");
+    setContactRoleType("INVESTOR_PARTNER");
   }
 
   function resetEditingContactForm() {
@@ -1215,6 +1224,7 @@ export function CoInvestorWorkbench() {
     if (!selectedRecord) {
       setDetailDraft(null);
       setDraftRecordId(null);
+      setAddContactModalOpen(false);
       resetEditingContactForm();
       setDeletingContactLinkId(null);
       setEditingInteractionId(null);
@@ -1228,6 +1238,7 @@ export function CoInvestorWorkbench() {
       setDetailDraft(draftFromRecord(selectedRecord));
       setDraftRecordId(selectedRecord.id);
       setActiveDetailTab("overview");
+      setAddContactModalOpen(false);
     }
   }, [selectedRecord, draftRecordId]);
 
@@ -1399,10 +1410,10 @@ export function CoInvestorWorkbench() {
 
                 <div className="detail-tabs" role="tablist" aria-label="Co-investor detail sections">
                   <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "overview" ? "active" : ""}`} aria-selected={activeDetailTab === "overview"} onClick={() => setActiveDetailTab("overview")}>Overview</button>
+                  <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "documents" ? "active" : ""}`} aria-selected={activeDetailTab === "documents"} onClick={() => setActiveDetailTab("documents")}>Documents</button>
+                  <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "notes" ? "active" : ""}`} aria-selected={activeDetailTab === "notes"} onClick={() => setActiveDetailTab("notes")}>Notes</button>
                   <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "contacts" ? "active" : ""}`} aria-selected={activeDetailTab === "contacts"} onClick={() => setActiveDetailTab("contacts")}>Contacts</button>
-                  <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "actions" ? "active" : ""}`} aria-selected={activeDetailTab === "actions"} onClick={() => setActiveDetailTab("actions")}>Actions</button>
-                  <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "next-steps" ? "active" : ""}`} aria-selected={activeDetailTab === "next-steps"} onClick={() => setActiveDetailTab("next-steps")}>Next Steps</button>
-                  <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "network" ? "active" : ""}`} aria-selected={activeDetailTab === "network"} onClick={() => setActiveDetailTab("network")}>Network</button>
+                  <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "relationships" ? "active" : ""}`} aria-selected={activeDetailTab === "relationships"} onClick={() => setActiveDetailTab("relationships")}>Relationships</button>
                 </div>
 
                 {activeDetailTab === "overview" && (
@@ -1480,6 +1491,26 @@ export function CoInvestorWorkbench() {
                 </div>
               )}
 
+                  </>
+                )}
+
+                {activeDetailTab === "documents" && (
+                  <>
+                    <EntityDocumentsPane
+                      entityPath="co-investors"
+                      entityId={selectedRecord.id}
+                      onStatus={setStatus}
+                    />
+                  </>
+                )}
+
+                {activeDetailTab === "notes" && (
+                  <>
+                    <EntityNotesPane
+                      entityPath="co-investors"
+                      entityId={selectedRecord.id}
+                      onStatus={setStatus}
+                    />
                   </>
                 )}
 
@@ -1572,21 +1603,23 @@ export function CoInvestorWorkbench() {
                           </div>
                         </div>
                       ) : (
-                        <div>
-                          <strong>{link.contact.name}</strong>
-                          {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
-                          {` | ${link.roleType}`}
-                          {link.contact.email ? ` | ${link.contact.email}` : ""}
-                          {link.contact.phone ? ` | ${link.contact.phone}` : ""}
-                          {link.contact.linkedinUrl && (
-                            <>
-                              {" "}-{" "}
-                              <a href={link.contact.linkedinUrl} target="_blank" rel="noreferrer">
-                                profile
-                              </a>
-                            </>
-                          )}
-                          <div className="actions">
+                        <div className="contact-row">
+                          <div className="contact-row-details">
+                            <strong>{link.contact.name}</strong>
+                            {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
+                            {` | ${link.roleType}`}
+                            {link.contact.email ? ` | ${link.contact.email}` : ""}
+                            {link.contact.phone ? ` | ${link.contact.phone}` : ""}
+                            {link.contact.linkedinUrl && (
+                              <>
+                                {" "}-{" "}
+                                <a href={link.contact.linkedinUrl} target="_blank" rel="noreferrer">
+                                  profile
+                                </a>
+                              </>
+                            )}
+                          </div>
+                          <div className="contact-row-actions">
                             <button
                               className="ghost small"
                               onClick={() => beginEditingContact(link)}
@@ -1608,79 +1641,54 @@ export function CoInvestorWorkbench() {
                   ))
                 )}
 
-                <div className="detail-grid">
-                  <div>
-                    <label>Contact Name</label>
-                    <input
-                      value={contactName}
-                      onChange={(event) => setContactName(event.target.value)}
-                      placeholder="William Smith"
-                    />
-                  </div>
-                  <div>
-                    <label>Role Type</label>
-                    <select
-                      value={contactRoleType}
-                      onChange={(event) =>
-                        setContactRoleType(event.target.value as "INVESTOR_PARTNER" | "OTHER")
-                      }
-                    >
-                      <option value="INVESTOR_PARTNER">Investor Partner</option>
-                      <option value="OTHER">Other</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label>Contact Title</label>
-                    <input
-                      value={contactTitle}
-                      onChange={(event) => setContactTitle(event.target.value)}
-                      placeholder="General Partner"
-                    />
-                  </div>
-                  <div>
-                    <label>Relationship Title</label>
-                    <input
-                      value={contactRelationshipTitle}
-                      onChange={(event) => setContactRelationshipTitle(event.target.value)}
-                      placeholder="Board Member"
-                    />
-                  </div>
-                  <div>
-                    <label>Email</label>
-                    <input
-                      value={contactEmail}
-                      onChange={(event) => setContactEmail(event.target.value)}
-                      placeholder="name@firm.com"
-                    />
-                  </div>
-                  <div>
-                    <label>Phone</label>
-                    <input
-                      value={contactPhone}
-                      onChange={(event) => setContactPhone(event.target.value)}
-                      placeholder="+1 555 555 5555"
-                    />
-                  </div>
-                  <div>
-                    <label>LinkedIn URL</label>
-                    <input
-                      value={contactLinkedinUrl}
-                      onChange={(event) => setContactLinkedinUrl(event.target.value)}
-                      placeholder="https://linkedin.com/in/..."
-                    />
-                  </div>
-                </div>
                 <div className="actions">
-                  <button className="secondary" onClick={addContactToSelectedRecord} disabled={addingContact}>
-                    {addingContact ? "Adding..." : "Add Contact"}
+                  <button
+                    type="button"
+                    className="ghost small contact-add-link"
+                    onClick={() => {
+                      setStatus(null);
+                      setAddContactModalOpen(true);
+                    }}
+                  >
+                    Add Contact
                   </button>
                 </div>
+                <AddContactModal
+                  open={addContactModalOpen}
+                  onClose={() => setAddContactModalOpen(false)}
+                  onSubmit={addContactToSelectedRecord}
+                  addingContact={addingContact}
+                  contactName={contactName}
+                  onContactNameChange={setContactName}
+                  contactRoleType={contactRoleType}
+                  onContactRoleTypeChange={(value) => setContactRoleType(value as "INVESTOR_PARTNER" | "OTHER")}
+                  roleOptions={[
+                    { value: "INVESTOR_PARTNER", label: "Investor Partner" },
+                    { value: "OTHER", label: "Other" }
+                  ]}
+                  contactTitle={contactTitle}
+                  onContactTitleChange={setContactTitle}
+                  contactRelationshipTitle={contactRelationshipTitle}
+                  onContactRelationshipTitleChange={setContactRelationshipTitle}
+                  contactEmail={contactEmail}
+                  onContactEmailChange={setContactEmail}
+                  contactPhone={contactPhone}
+                  onContactPhoneChange={setContactPhone}
+                  contactLinkedinUrl={contactLinkedinUrl}
+                  onContactLinkedinUrlChange={setContactLinkedinUrl}
+                  namePlaceholder="William Smith"
+                  titlePlaceholder="General Partner"
+                  relationshipTitlePlaceholder="Board Member"
+                  emailPlaceholder="name@firm.com"
+                  phonePlaceholder="+1 555 555 5555"
+                  linkedinPlaceholder="https://linkedin.com/in/..."
+                />
               </div>
 
                   </>
                 )}
 
-                {activeDetailTab === "actions" && (
+                {activeDetailTab === "relationships" && (
                   <>
               <div className="detail-section">
                 <p className="detail-label">Relationship Highlights</p>
@@ -1821,7 +1829,7 @@ export function CoInvestorWorkbench() {
                   </>
                 )}
 
-                {activeDetailTab === "next-steps" && (
+                {activeDetailTab === "relationships" && (
                   <>
               <div className="detail-section">
                 <p className="detail-label">Next Actions</p>
@@ -1926,7 +1934,7 @@ export function CoInvestorWorkbench() {
                   </>
                 )}
 
-                {activeDetailTab === "network" && (
+                {activeDetailTab === "relationships" && (
                   <>
               <div className="detail-section">
                 <p className="detail-label">Co-Investor Partners</p>
