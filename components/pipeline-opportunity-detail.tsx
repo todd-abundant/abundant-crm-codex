@@ -148,6 +148,15 @@ type PipelineOpportunityDetail = {
   };
 };
 
+type IntakeDetailTab =
+  | "pipeline-status"
+  | "at-a-glance-status"
+  | "venture-studio-criteria"
+  | "market-landscape"
+  | "recommendations"
+  | "notes"
+  | "documents";
+
 function formatDate(value: string | null | undefined) {
   if (!value) return "Not set";
   const parsed = new Date(value);
@@ -473,6 +482,7 @@ export function PipelineOpportunityDetailView({
   const [item, setItem] = React.useState<PipelineOpportunityDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [activeIntakeDetailTab, setActiveIntakeDetailTab] = React.useState<IntakeDetailTab>("pipeline-status");
   const [savingPhase, setSavingPhase] = React.useState(false);
   const [savingStatusByHealthSystemId, setSavingStatusByHealthSystemId] = React.useState<Record<string, boolean>>({});
   const [savingFeedbackByHealthSystemId, setSavingFeedbackByHealthSystemId] = React.useState<Record<string, boolean>>({});
@@ -1615,31 +1625,75 @@ export function PipelineOpportunityDetailView({
       </section>
 
       <section className="panel">
-        <h2>At a Glance</h2>
-        <p className="muted">Capture concise intake framing using markdown-style formatting.</p>
-        <div className="detail-section">
-          {atAGlanceFields.map((field) => (
-            <div key={field.key} className="pipeline-at-a-glance-field">
-              <InlineTextareaField
-                multiline
-                label={field.label}
-                value={field.value}
-                rows={12}
-                enableFormatting
-                onSave={(nextValue) => void updateAtAGlanceField(field.key, nextValue)}
-              />
-              {savingAtAGlanceFieldByKey[field.key] ? (
-                <p className="muted pipeline-at-a-glance-saving">Saving...</p>
-              ) : null}
-            </div>
-          ))}
+        <div className="detail-tabs" role="tablist" aria-label="Pipeline intake detail sections">
+          <button
+            type="button"
+            role="tab"
+            className={`detail-tab ${activeIntakeDetailTab === "pipeline-status" ? "active" : ""}`}
+            aria-selected={activeIntakeDetailTab === "pipeline-status"}
+            onClick={() => setActiveIntakeDetailTab("pipeline-status")}
+          >
+            Pipeline Status
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`detail-tab ${activeIntakeDetailTab === "at-a-glance-status" ? "active" : ""}`}
+            aria-selected={activeIntakeDetailTab === "at-a-glance-status"}
+            onClick={() => setActiveIntakeDetailTab("at-a-glance-status")}
+          >
+            At a Glance Status
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`detail-tab ${activeIntakeDetailTab === "venture-studio-criteria" ? "active" : ""}`}
+            aria-selected={activeIntakeDetailTab === "venture-studio-criteria"}
+            onClick={() => setActiveIntakeDetailTab("venture-studio-criteria")}
+          >
+            Venture Studio Criteria
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`detail-tab ${activeIntakeDetailTab === "market-landscape" ? "active" : ""}`}
+            aria-selected={activeIntakeDetailTab === "market-landscape"}
+            onClick={() => setActiveIntakeDetailTab("market-landscape")}
+          >
+            Market Landscape
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`detail-tab ${activeIntakeDetailTab === "recommendations" ? "active" : ""}`}
+            aria-selected={activeIntakeDetailTab === "recommendations"}
+            onClick={() => setActiveIntakeDetailTab("recommendations")}
+          >
+            Recommendations
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`detail-tab ${activeIntakeDetailTab === "notes" ? "active" : ""}`}
+            aria-selected={activeIntakeDetailTab === "notes"}
+            onClick={() => setActiveIntakeDetailTab("notes")}
+          >
+            Notes
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`detail-tab ${activeIntakeDetailTab === "documents" ? "active" : ""}`}
+            aria-selected={activeIntakeDetailTab === "documents"}
+            onClick={() => setActiveIntakeDetailTab("documents")}
+          >
+            Documents
+          </button>
         </div>
-      </section>
 
-      {!item.isScreeningStage ? (
-        <>
-          <section className="panel">
-            <h2>Pipeline Overview</h2>
+        {activeIntakeDetailTab === "pipeline-status" ? (
+          <>
+            <h2>Pipeline Status</h2>
             <div className="row">
               <div>
                 <label>Current Stage</label>
@@ -1686,51 +1740,64 @@ export function PipelineOpportunityDetailView({
                 <textarea value={item.description} readOnly />
               </div>
             ) : null}
-          </section>
+          </>
+        ) : null}
 
-          <section className="panel">
-            <h2>Open Opportunities</h2>
-            {item.opportunities.length === 0 ? <p className="muted">No open opportunities.</p> : null}
-            <div className="pipeline-detail-list">
-              {item.opportunities.map((opportunity) => (
-                <div key={opportunity.id} className="detail-list-item">
-                  <div className="detail-grid">
-                    <div>
-                      <label>Title</label>
-                      <input value={opportunity.title} readOnly />
-                    </div>
-                    <div>
-                      <label>Stage</label>
-                      <input value={opportunity.stage} readOnly />
-                    </div>
-                    <div>
-                      <label>Type</label>
-                      <input value={opportunity.type} readOnly />
-                    </div>
-                    <div>
-                      <label>Health System</label>
-                      <input value={opportunity.healthSystem?.name || "Not linked"} readOnly />
-                    </div>
-                  </div>
-                  {opportunity.nextSteps ? (
-                    <>
-                      <label>Next Steps</label>
-                      <textarea value={opportunity.nextSteps} readOnly />
-                    </>
-                  ) : null}
-                  {opportunity.notes ? (
-                    <>
-                      <label>Notes</label>
-                      <textarea value={opportunity.notes} readOnly />
-                    </>
+        {activeIntakeDetailTab === "at-a-glance-status" ? (
+          <>
+            <h2>At a Glance Status</h2>
+            <p className="muted">Capture concise intake framing using markdown-style formatting.</p>
+            <div className="detail-section">
+              {atAGlanceFields.map((field) => (
+                <div key={field.key} className="pipeline-at-a-glance-field">
+                  <InlineTextareaField
+                    multiline
+                    label={field.label}
+                    value={field.value}
+                    rows={12}
+                    enableFormatting
+                    onSave={(nextValue) => void updateAtAGlanceField(field.key, nextValue)}
+                  />
+                  {savingAtAGlanceFieldByKey[field.key] ? (
+                    <p className="muted pipeline-at-a-glance-saving">Saving...</p>
                   ) : null}
                 </div>
               ))}
             </div>
-          </section>
+          </>
+        ) : null}
 
-          <section className="panel">
-            <h2>Company Documents</h2>
+        {activeIntakeDetailTab === "venture-studio-criteria" ? (
+          <>
+            <h2>Venture Studio Criteria</h2>
+            <p className="muted">Content for this section will be added later.</p>
+          </>
+        ) : null}
+
+        {activeIntakeDetailTab === "market-landscape" ? (
+          <>
+            <h2>Market Landscape</h2>
+            <p className="muted">Content for this section will be added later.</p>
+          </>
+        ) : null}
+
+        {activeIntakeDetailTab === "recommendations" ? (
+          <>
+            <h2>Recommendations</h2>
+            <p className="muted">Content for this section will be added later.</p>
+          </>
+        ) : null}
+
+        {activeIntakeDetailTab === "notes" ? (
+          <>
+            <h2>Notes</h2>
+            <p className="muted">Content for this section will be added later.</p>
+          </>
+        ) : null}
+
+        {activeIntakeDetailTab === "documents" ? (
+          <>
+            <h2>Documents</h2>
             {companyDocumentComposer}
             {item.documents.length === 0 ? <p className="muted">No company-level documents.</p> : null}
             <div className="pipeline-doc-list">
@@ -1755,856 +1822,11 @@ export function PipelineOpportunityDetailView({
                 </div>
               ))}
             </div>
-          </section>
-        </>
-      ) : null}
+          </>
+        ) : null}
+      </section>
 
-      {item.isScreeningStage ? (
-        <section className="panel">
-          <h2>Alliance Screening Status</h2>
-          <p className="muted">
-            Overview mirrors screening operations: all alliance systems, tracked individuals, and each system LOI status.
-          </p>
-          <p className="muted">{`Showing ${item.screening.healthSystems.length} alliance members.`}</p>
-
-          <div className="detail-action-bar screening-bubble-nav" role="tablist" aria-label="Screening detail views">
-            {screeningDetailViewOptions.map((view) => (
-              <button
-                key={view.key}
-                type="button"
-                role="tab"
-                className={`quick-action-pill screening-bubble-pill ${screeningDetailView === view.key ? "active" : ""}`}
-                aria-selected={screeningDetailView === view.key}
-                onClick={() => setScreeningDetailView(view.key)}
-              >
-                <span className="screening-bubble-icon" aria-hidden="true">
-                  {view.icon}
-                </span>
-                {view.label}
-              </button>
-            ))}
-          </div>
-
-          {screeningDetailView === "status" ? (
-            <div className="screening-overview-table-wrap">
-              <table className="screening-overview-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Organization</th>
-                    <th scope="col">Attend? (#)</th>
-                    <th scope="col">Preliminary Interest</th>
-                    <th scope="col">Attendees</th>
-                    <th scope="col">Relevant Feedback + Next Steps</th>
-                    <th scope="col">Status Update</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {item.screening.healthSystems.map((entry) => {
-                    const individuals = uniqueIndividuals(entry);
-                    const attendedCount = entry.participants.filter(
-                      (participant) => participant.attendanceStatus === "ATTENDED"
-                    ).length;
-                    const relevantFeedbackDraft =
-                      relevantFeedbackDraftByHealthSystemId[entry.healthSystemId] ?? entry.relevantFeedback ?? "";
-                    const statusUpdateDraft =
-                      statusUpdateDraftByHealthSystemId[entry.healthSystemId] ?? entry.statusUpdate ?? "";
-                    const savingFeedbackCell = Boolean(
-                      savingScreeningCellByKey[screeningCellKey(entry.healthSystemId, "RELEVANT_FEEDBACK")]
-                    );
-                    const savingStatusCell = Boolean(
-                      savingScreeningCellByKey[screeningCellKey(entry.healthSystemId, "STATUS_UPDATE")]
-                    );
-                    const isEditingRelevant =
-                      editingScreeningCell?.healthSystemId === entry.healthSystemId &&
-                      editingScreeningCell.field === "RELEVANT_FEEDBACK";
-                    const isEditingStatus =
-                      editingScreeningCell?.healthSystemId === entry.healthSystemId &&
-                      editingScreeningCell.field === "STATUS_UPDATE";
-
-                    return (
-                      <tr key={entry.healthSystemId}>
-                        <td>
-                          <span className="screening-overview-org-name">{entry.healthSystemName}</span>
-                        </td>
-                        <td>
-                          {attendedCount > 0 ? (
-                            <span className="screening-attendance-pill">{`\u25cf (${attendedCount})`}</span>
-                          ) : (
-                            <span className="muted">NA</span>
-                          )}
-                        </td>
-                        <td>
-                          <select
-                            value={entry.status}
-                            className={`screening-inline-status-select ${inlineInterestClassName(entry.status)}`}
-                            onChange={(event) =>
-                              void updateScreeningStatus(entry.healthSystemId, event.target.value as ScreeningStatus)
-                            }
-                            disabled={Boolean(savingStatusByHealthSystemId[entry.healthSystemId])}
-                          >
-                            {screeningInlineInterestOptions.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td>
-                          {individuals.length === 0 ? (
-                            <span className="muted">No attendees listed</span>
-                          ) : (
-                            <div className="screening-attendee-list">
-                              {individuals.map((individual) => (
-                                <p key={individual.key}>{individual.label}</p>
-                              ))}
-                            </div>
-                          )}
-                          <p className="screening-inline-link-row">
-                            <a
-                              href="#"
-                              className="screening-inline-add-contact"
-                              onClick={(event) => {
-                                event.preventDefault();
-                                setAddAttendeeLookupValue("");
-                                setAddAttendeeModal({
-                                  healthSystemId: entry.healthSystemId,
-                                  healthSystemName: entry.healthSystemName
-                                });
-                              }}
-                            >
-                              add contact
-                            </a>
-                            {addingAttendeeByHealthSystemId[entry.healthSystemId] ? (
-                              <span className="muted">Adding...</span>
-                            ) : null}
-                          </p>
-                        </td>
-                        <td>
-                          {isEditingRelevant ? (
-                            <textarea
-                              className="screening-inline-cell-editor"
-                              autoFocus
-                              value={relevantFeedbackDraft}
-                              onChange={(event) =>
-                                setRelevantFeedbackDraftByHealthSystemId((current) => ({
-                                  ...current,
-                                  [entry.healthSystemId]: event.target.value
-                                }))
-                              }
-                              onBlur={() => {
-                                setEditingScreeningCell((current) =>
-                                  current?.healthSystemId === entry.healthSystemId &&
-                                  current.field === "RELEVANT_FEEDBACK"
-                                    ? null
-                                    : current
-                                );
-                                void saveScreeningCell(entry.healthSystemId, "RELEVANT_FEEDBACK");
-                              }}
-                            />
-                          ) : (
-                            <p
-                              className={`screening-inline-cell-text ${relevantFeedbackDraft.trim() ? "" : "empty"}`}
-                              onClick={() =>
-                                setEditingScreeningCell({
-                                  healthSystemId: entry.healthSystemId,
-                                  field: "RELEVANT_FEEDBACK"
-                                })
-                              }
-                            >
-                              {relevantFeedbackDraft.trim() || "Click to add relevant feedback + next steps"}
-                            </p>
-                          )}
-                          {savingFeedbackCell ? <p className="muted screening-inline-saving">Saving...</p> : null}
-                        </td>
-                        <td>
-                          {isEditingStatus ? (
-                            <textarea
-                              className="screening-inline-cell-editor"
-                              autoFocus
-                              value={statusUpdateDraft}
-                              onChange={(event) =>
-                                setStatusUpdateDraftByHealthSystemId((current) => ({
-                                  ...current,
-                                  [entry.healthSystemId]: event.target.value
-                                }))
-                              }
-                              onBlur={() => {
-                                setEditingScreeningCell((current) =>
-                                  current?.healthSystemId === entry.healthSystemId && current.field === "STATUS_UPDATE"
-                                    ? null
-                                    : current
-                                );
-                                void saveScreeningCell(entry.healthSystemId, "STATUS_UPDATE");
-                              }}
-                            />
-                          ) : (
-                            <p
-                              className={`screening-inline-cell-text ${statusUpdateDraft.trim() ? "" : "empty"}`}
-                              onClick={() =>
-                                setEditingScreeningCell({
-                                  healthSystemId: entry.healthSystemId,
-                                  field: "STATUS_UPDATE"
-                                })
-                              }
-                            >
-                              {statusUpdateDraft.trim() || "Click to add status update"}
-                            </p>
-                          )}
-                          {savingStatusCell ? <p className="muted screening-inline-saving">Saving...</p> : null}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-
-          {screeningDetailView === "documents" ? (
-            <article className="screening-system-card">
-              <div className="pipeline-card-head">
-                <h3>Company Documents</h3>
-                <span className="status-pill queued">{`${item.documents.length} total`}</span>
-              </div>
-              {companyDocumentComposer}
-              {item.documents.length === 0 ? <p className="muted">No company-level documents.</p> : null}
-              <div className="pipeline-doc-list">
-                {item.documents.map((document) => (
-                  <div key={document.id} className="detail-list-item">
-                    <div className="pipeline-doc-head">
-                      <strong>{document.title}</strong>
-                      <span className="status-pill draft">{document.type}</span>
-                    </div>
-                    <p className="muted">
-                      <a
-                        href={document.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        download={isEmbeddedDocumentUrl(document.url) ? document.title : undefined}
-                      >
-                        {documentUrlLabel(document.url)}
-                      </a>
-                    </p>
-                    <p className="muted">Uploaded {formatDate(document.uploadedAt)}</p>
-                    {document.notes ? <p className="muted">{document.notes}</p> : null}
-                  </div>
-                ))}
-              </div>
-            </article>
-          ) : null}
-
-          {screeningDetailView === "quantitative" || screeningDetailView === "qualitative" ? (
-            selectedScreeningHealthSystem ? (
-              <article className="screening-system-card">
-                {screeningDetailView === "quantitative" ? (
-                  <div className="pipeline-card-head">
-                    <h3>Alliance Quantitative Survey Results</h3>
-                    <span className="status-pill queued">{`${quantitativeRespondingInstitutions.length} institutions`}</span>
-                  </div>
-                ) : (
-                  <div className="pipeline-card-head">
-                    <h3>Qualitative Themes & Details</h3>
-                    <span className="status-pill queued">{`${allQualitativeFeedbackEntries.length} entries`}</span>
-                  </div>
-                )}
-
-              {screeningDetailView === "quantitative" ? (
-                <>
-                  <div className="screening-quant-header">
-                    <div>
-                      <p className="detail-label">Quantitative Results</p>
-                      <p className="muted">
-                        Each dot is an individual survey response and each block shows the average score for that
-                        question.
-                      </p>
-                    </div>
-                    <div className="actions">
-                      <button
-                        className="secondary small"
-                        type="button"
-                        onClick={() =>
-                          setQuantitativeQuestionEditorOpen((current) => !current)
-                        }
-                      >
-                        {quantitativeQuestionEditorOpen ? "Done Editing Questions" : "Admin: Edit Questions"}
-                      </button>
-                      {quantitativeQuestionEditorOpen ? (
-                        <button className="ghost small" type="button" onClick={resetQuantitativeQuestions}>
-                          Reset to Standard Questions
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                  <ScreeningSurveySessionSelector companyId={item.id} />
-                  {quantitativeRespondingInstitutions.length > 0 ? (
-                    <div className="screening-survey-legend">
-                      {quantitativeRespondingInstitutions.map((institution) => {
-                        const institutionColor =
-                          quantitativeInstitutionColorByName.get(institution) || {
-                            fill: "#1f80dc",
-                            border: "#145ea8"
-                          };
-                        return (
-                          <span key={institution} className="screening-survey-legend-item">
-                            <span
-                              className="screening-survey-legend-dot"
-                              style={{
-                                background: institutionColor.fill,
-                                borderColor: institutionColor.border
-                              }}
-                            />
-                            {institution}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                  <div
-                    className={`screening-quant-layout ${quantitativeQuestionEditorOpen ? "with-editor" : ""}`}
-                  >
-                    {quantitativeSlideSections.length === 0 ? (
-                      <p className="muted">No quantitative feedback captured yet.</p>
-                    ) : (
-                      <div className="screening-survey-pane">
-                        {quantitativeSlideSections.map((section) => (
-                          <section key={section.category} className="screening-survey-section">
-                            <div className="pipeline-card-head">
-                              <strong>{section.category}</strong>
-                              <span className="screening-survey-category-average">
-                                {section.categoryAverageScore === null
-                                  ? "Category avg: N/A"
-                                  : `Category avg: ${section.categoryAverageScore.toFixed(1)}`}
-                              </span>
-                            </div>
-
-                            <div className="screening-survey-question-list">
-                              {section.rows.map((row, rowIndex) => {
-                                const laneCountByBucket = new Map<number, number>();
-
-                                return (
-                                  <div
-                                    key={`${section.category}-${row.metric}-${rowIndex}`}
-                                    className="screening-survey-question-row"
-                                  >
-                                    <p className="screening-survey-question-text">
-                                      {row.metric}
-                                      <span className="screening-survey-question-meta">
-                                        {row.responseCount > 0
-                                          ? `${row.responseCount} response${row.responseCount === 1 ? "" : "s"}`
-                                          : "No responses yet"}
-                                        {row.isUnmapped ? " - legacy question text" : ""}
-                                      </span>
-                                    </p>
-
-                                    <div className="screening-survey-track-wrap">
-                                      <div className="screening-survey-scale-labels">
-                                        {Array.from({ length: 10 }, (_, index) => (
-                                          <span key={`scale-${section.category}-${row.metric}-${index + 1}`}>
-                                            {index + 1}
-                                          </span>
-                                        ))}
-                                      </div>
-                                      <div className="screening-survey-track">
-                                        <div className="screening-survey-grid" aria-hidden="true">
-                                          {Array.from({ length: 10 }, (_, index) => (
-                                            <span key={`grid-${section.category}-${row.metric}-${index + 1}`} />
-                                          ))}
-                                        </div>
-                                        {row.responses.map((response) => {
-                                          const bucket = Math.round(response.score * 2);
-                                          const lane = laneCountByBucket.get(bucket) || 0;
-                                          laneCountByBucket.set(bucket, lane + 1);
-                                          const leftPercent = ((response.score - 1) / 9) * 100;
-                                          const topOffset = 8 + (lane % 4) * 10;
-                                          const institutionColor =
-                                            quantitativeInstitutionColorByName.get(response.institution) || {
-                                              fill: "#1f80dc",
-                                              border: "#145ea8"
-                                            };
-                                          const hoverLabel = response.contactTitle
-                                            ? `${response.contactName} (${response.contactTitle}) - ${response.institution}`
-                                            : `${response.contactName} - ${response.institution}`;
-
-                                          return (
-                                            <span
-                                              key={response.id}
-                                              className="screening-survey-dot"
-                                              title={`${hoverLabel}: ${response.score.toFixed(1)}`}
-                                              style={{
-                                                left: `${leftPercent}%`,
-                                                top: `${topOffset}px`,
-                                                background: institutionColor.fill,
-                                                borderColor: institutionColor.border
-                                              }}
-                                            />
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-
-                                    <div className="screening-survey-average-block">
-                                      {row.averageScore === null ? "N/A" : row.averageScore.toFixed(1)}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </section>
-                        ))}
-                      </div>
-                    )}
-                    {quantitativeQuestionEditorOpen ? (
-                      <aside className="screening-question-editor">
-                        <div className="pipeline-card-head">
-                          <strong>Question Set (Admin)</strong>
-                          <span className="status-pill draft">{`${quantitativeQuestionCount} questions`}</span>
-                        </div>
-                        <p className="muted">
-                          Standard questions can be adjusted for this screening. Changes are saved for this card.
-                        </p>
-                        <div className="screening-question-editor-sections">
-                          {quantitativeQuestionCategories.map((section) => (
-                            <section key={section.category} className="screening-question-editor-section">
-                              <div className="pipeline-card-head">
-                                <strong>{section.category}</strong>
-                                <button
-                                  className="ghost small"
-                                  type="button"
-                                  onClick={() => addQuantitativeQuestion(section.category)}
-                                >
-                                  Add question
-                                </button>
-                              </div>
-                              <div className="screening-question-editor-list">
-                                {section.questions.map((question, questionIndex) => (
-                                  <div
-                                    key={`${section.category}-question-${questionIndex}`}
-                                    className="screening-question-editor-row"
-                                  >
-                                    <input
-                                      value={question}
-                                      onChange={(event) =>
-                                        updateQuantitativeQuestion(
-                                          section.category,
-                                          questionIndex,
-                                          event.target.value
-                                        )
-                                      }
-                                      onBlur={() =>
-                                        normalizeQuantitativeQuestion(section.category, questionIndex)
-                                      }
-                                      placeholder={`Question ${questionIndex + 1}`}
-                                    />
-                                    <button
-                                      className="ghost small"
-                                      type="button"
-                                      onClick={() =>
-                                        removeQuantitativeQuestion(section.category, questionIndex)
-                                      }
-                                      disabled={section.questions.length <= 1}
-                                    >
-                                      Remove
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            </section>
-                          ))}
-                        </div>
-                      </aside>
-                    ) : null}
-                  </div>
-                  <p className="screening-survey-footnote">
-                    {quantitativeRespondingInstitutions.length === 0
-                      ? "* Institution footnote will populate as quantitative responses are captured."
-                      : `* Responding institutions: ${quantitativeRespondingInstitutions.join(", ")}.`}
-                  </p>
-                </>
-              ) : null}
-
-              {screeningDetailView === "qualitative" ? (
-                <>
-                  <div className="screening-qualitative-head">
-                    <p className="detail-label">Qualitative Data Entry</p>
-                    <div className="actions">
-                      <button
-                        className="secondary small"
-                        type="button"
-                        onClick={() => setShowQualitativePreview((current) => !current)}
-                      >
-                        {showQualitativePreview ? "Hide Preview" : "Preview"}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="detail-grid">
-                    <div>
-                      <label>Alliance Member</label>
-                      <select
-                        value={qualitativeDraft.healthSystemId}
-                        onChange={(event) =>
-                          setQualitativeDraft((current) => ({
-                            ...current,
-                            healthSystemId: event.target.value,
-                            contactId: ""
-                          }))
-                        }
-                      >
-                        {item.screening.healthSystems.map((entry) => (
-                          <option key={entry.healthSystemId} value={entry.healthSystemId}>
-                            {entry.healthSystemName}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label>Individual</label>
-                      <EntityLookupInput
-                        entityKind="CONTACT"
-                        value={qualitativeDraft.contactId}
-                        onChange={(nextValue) =>
-                          setQualitativeDraft((current) => ({
-                            ...current,
-                            contactId: nextValue
-                          }))
-                        }
-                        allowEmpty
-                        emptyLabel="Unlinked individual"
-                        initialOptions={qualitativeDraftContactOptions.map((option) => ({
-                          id: option.id,
-                          name: option.label
-                        }))}
-                        placeholder="Search contacts"
-                        contactCreateContext={
-                          qualitativeDraft.healthSystemId
-                            ? {
-                                parentType: "healthSystem",
-                                parentId: qualitativeDraft.healthSystemId,
-                                roleType: "EXECUTIVE"
-                              }
-                            : undefined
-                        }
-                        contactSearchHealthSystemId={qualitativeDraft.healthSystemId || undefined}
-                        disabled={!qualitativeDraft.healthSystemId}
-                      />
-                    </div>
-                    <div>
-                      <label>Category</label>
-                      <select
-                        value={qualitativeDraft.category}
-                        onChange={(event) =>
-                          setQualitativeDraft((current) => ({
-                            ...current,
-                            category: event.target.value
-                          }))
-                        }
-                      >
-                        {qualitativeCategoryOptions.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label>Theme</label>
-                      <input
-                        value={qualitativeDraft.theme}
-                        onChange={(event) =>
-                          setQualitativeDraft((current) => ({
-                            ...current,
-                            theme: event.target.value
-                          }))
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label>Sentiment</label>
-                      <select
-                        value={qualitativeDraft.sentiment}
-                        onChange={(event) =>
-                          setQualitativeDraft((current) => ({
-                            ...current,
-                            sentiment: event.target.value as ScreeningFeedbackSentiment
-                          }))
-                        }
-                      >
-                        <option value="POSITIVE">Positive</option>
-                        <option value="MIXED">Mixed</option>
-                        <option value="NEUTRAL">Neutral</option>
-                        <option value="NEGATIVE">Negative</option>
-                      </select>
-                    </div>
-                  </div>
-                  <label>Detail</label>
-                  <textarea
-                    value={qualitativeDraft.feedback}
-                    onChange={(event) =>
-                      setQualitativeDraft((current) => ({
-                        ...current,
-                        feedback: event.target.value
-                      }))
-                    }
-                  />
-                  <div className="actions">
-                    <button
-                      className="secondary"
-                      type="button"
-                      onClick={() => void addQualitativeFeedback()}
-                      disabled={
-                        !qualitativeDraft.healthSystemId ||
-                        Boolean(savingFeedbackByHealthSystemId[qualitativeDraft.healthSystemId])
-                      }
-                    >
-                      {qualitativeDraft.healthSystemId &&
-                      savingFeedbackByHealthSystemId[qualitativeDraft.healthSystemId]
-                        ? "Saving..."
-                        : "Add Entry"}
-                    </button>
-                  </div>
-
-                  {showQualitativePreview ? (
-                    <div className="screening-qual-preview">
-                      <p className="detail-label">Report Preview</p>
-                      <p className="muted">
-                        Preview mirrors the final report structure: theme on the left and narrative detail on the
-                        right.
-                      </p>
-                      {allQualitativeFeedbackEntries.length === 0 ? (
-                        <p className="muted">No qualitative feedback captured yet.</p>
-                      ) : (
-                        <div className="screening-qual-preview-list">
-                          {allQualitativeFeedbackEntries.map((feedback) => (
-                            <div key={`preview-${feedback.id}`} className="screening-qual-preview-row">
-                              <div className="screening-qual-preview-theme">{feedback.theme}</div>
-                              <div className="screening-qual-preview-detail">
-                                <p>{feedback.feedback}</p>
-                                <p className="muted">
-                                  {(feedback.category || "Key Theme").trim()} | {feedback.healthSystemName} |{" "}
-                                  {feedback.contactTitle
-                                    ? `${feedback.contactName} (${feedback.contactTitle})`
-                                    : feedback.contactName}
-                                </p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
-
-                  <p className="detail-label">All Captured Entries</p>
-                  {allQualitativeFeedbackEntries.length === 0 ? (
-                    <p className="muted">No qualitative feedback captured yet.</p>
-                  ) : (
-                    <div className="pipeline-doc-list">
-                      {allQualitativeFeedbackEntries.map((feedback) => {
-                        const isEditing = editingQualitativeFeedbackId === feedback.id;
-                        const isSaving = Boolean(savingQualitativeEntryById[feedback.id]);
-                        const isDeleting = Boolean(deletingQualitativeEntryById[feedback.id]);
-                        const contactOptions = contactOptionsByHealthSystemId.get(feedback.healthSystemId) || [];
-                        const currentContactLabel = feedback.contactTitle
-                          ? `${feedback.contactName} (${feedback.contactTitle})`
-                          : feedback.contactName;
-                        const editInitialOptions =
-                          feedback.contactId && !contactOptions.some((option) => option.id === feedback.contactId)
-                            ? [{ id: feedback.contactId, label: currentContactLabel }, ...contactOptions]
-                            : contactOptions;
-
-                        return (
-                          <div key={feedback.id} className="detail-list-item screening-qualitative-entry">
-                            <div className="pipeline-card-head">
-                              <div>
-                                <strong>{feedback.theme}</strong>
-                                <p className="muted">{feedback.healthSystemName}</p>
-                              </div>
-                              <span className="status-pill draft">{sentimentLabel(feedback.sentiment)}</span>
-                            </div>
-
-                            {isEditing && editingQualitativeDraft ? (
-                              <>
-                                <div className="detail-grid">
-                                  <div>
-                                    <label>Individual</label>
-                                    <EntityLookupInput
-                                      entityKind="CONTACT"
-                                      value={editingQualitativeDraft.contactId}
-                                      onChange={(nextValue) =>
-                                        setEditingQualitativeDraft((current) =>
-                                          current
-                                            ? {
-                                                ...current,
-                                                contactId: nextValue
-                                              }
-                                            : current
-                                        )
-                                      }
-                                      allowEmpty
-                                      emptyLabel="Unlinked individual"
-                                      initialOptions={editInitialOptions.map((option) => ({
-                                        id: option.id,
-                                        name: option.label
-                                      }))}
-                                      placeholder="Search contacts"
-                                      contactCreateContext={{
-                                        parentType: "healthSystem",
-                                        parentId: feedback.healthSystemId,
-                                        roleType: "EXECUTIVE"
-                                      }}
-                                      contactSearchHealthSystemId={feedback.healthSystemId}
-                                    />
-                                  </div>
-                                  <div>
-                                    <label>Category</label>
-                                    <select
-                                      value={editingQualitativeDraft.category}
-                                      onChange={(event) =>
-                                        setEditingQualitativeDraft((current) =>
-                                          current
-                                            ? {
-                                                ...current,
-                                                category: event.target.value
-                                              }
-                                            : current
-                                        )
-                                      }
-                                    >
-                                      {qualitativeCategoryOptions.map((option) => (
-                                        <option key={option} value={option}>
-                                          {option}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                  <div>
-                                    <label>Theme</label>
-                                    <input
-                                      value={editingQualitativeDraft.theme}
-                                      onChange={(event) =>
-                                        setEditingQualitativeDraft((current) =>
-                                          current
-                                            ? {
-                                                ...current,
-                                                theme: event.target.value
-                                              }
-                                            : current
-                                        )
-                                      }
-                                    />
-                                  </div>
-                                  <div>
-                                    <label>Sentiment</label>
-                                    <select
-                                      value={editingQualitativeDraft.sentiment}
-                                      onChange={(event) =>
-                                        setEditingQualitativeDraft((current) =>
-                                          current
-                                            ? {
-                                                ...current,
-                                                sentiment: event.target.value as ScreeningFeedbackSentiment
-                                              }
-                                            : current
-                                        )
-                                      }
-                                    >
-                                      <option value="POSITIVE">Positive</option>
-                                      <option value="MIXED">Mixed</option>
-                                      <option value="NEUTRAL">Neutral</option>
-                                      <option value="NEGATIVE">Negative</option>
-                                    </select>
-                                  </div>
-                                </div>
-                                <label>Detail</label>
-                                <textarea
-                                  value={editingQualitativeDraft.feedback}
-                                  onChange={(event) =>
-                                    setEditingQualitativeDraft((current) =>
-                                      current
-                                        ? {
-                                            ...current,
-                                            feedback: event.target.value
-                                          }
-                                        : current
-                                    )
-                                  }
-                                />
-                                <div className="actions">
-                                  <button
-                                    className="secondary small"
-                                    type="button"
-                                    onClick={() => void saveQualitativeFeedbackEdit(feedback)}
-                                    disabled={isSaving || isDeleting}
-                                  >
-                                    {isSaving ? "Saving..." : "Save"}
-                                  </button>
-                                  <button
-                                    className="ghost small"
-                                    type="button"
-                                    onClick={cancelQualitativeFeedbackEdit}
-                                    disabled={isSaving || isDeleting}
-                                  >
-                                    Cancel
-                                  </button>
-                                  <button
-                                    className="ghost small"
-                                    type="button"
-                                    onClick={() => void deleteQualitativeFeedback(feedback)}
-                                    disabled={isSaving || isDeleting}
-                                  >
-                                    {isDeleting ? "Deleting..." : "Delete"}
-                                  </button>
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <p className="muted">Category: {(feedback.category || "Key Theme").trim()}</p>
-                                <p className="muted">
-                                  {feedback.contactTitle
-                                    ? `${feedback.contactName} (${feedback.contactTitle})`
-                                    : feedback.contactName}
-                                </p>
-                                <p>{feedback.feedback}</p>
-                                <p className="muted">Updated {formatDate(feedback.updatedAt)}</p>
-                                <div className="actions">
-                                  <button
-                                    className="ghost small"
-                                    type="button"
-                                    onClick={() => startQualitativeFeedbackEdit(feedback)}
-                                    disabled={isDeleting}
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    className="ghost small"
-                                    type="button"
-                                    onClick={() => void deleteQualitativeFeedback(feedback)}
-                                    disabled={isDeleting}
-                                  >
-                                    {isDeleting ? "Deleting..." : "Delete"}
-                                  </button>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
-              ) : null}
-              </article>
-            ) : (
-              <p className="muted">No alliance health systems configured.</p>
-            )
-          ) : null}
-        </section>
-      ) : (
-        <section className="panel">
-          <h2>Alliance Screening Status</h2>
-          <p className="muted">This section appears when the item is in the Screening column.</p>
-        </section>
-      )}
-
-      {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
+    {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
 
       {addAttendeeModal ? (
         <div className="pipeline-note-backdrop" onMouseDown={() => setAddAttendeeModal(null)}>
