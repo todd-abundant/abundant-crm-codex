@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { DateInputField, normalizeDateValue } from "./date-input-field";
+import { normalizeRichText, RichTextArea } from "./rich-text-area";
 
 type SelectOption = {
   value: string;
@@ -265,126 +266,6 @@ function renderMultilineValue(value: string, insight?: NoteInsightPayload, expan
   );
 }
 
-type MarkdownBlock =
-  | { kind: "paragraph"; text: string }
-  | { kind: "unordered-list"; items: string[] }
-  | { kind: "ordered-list"; items: string[] };
-
-function markdownBlocks(value: string) {
-  const lines = value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  const blocks: MarkdownBlock[] = [];
-  let index = 0;
-
-  while (index < lines.length) {
-    const line = lines[index];
-    const isUnordered = /^[-*]\s+/.test(line);
-    const isOrdered = /^\d+\.\s+/.test(line);
-
-    if (isUnordered) {
-      const items: string[] = [];
-      while (index < lines.length && /^[-*]\s+/.test(lines[index])) {
-        items.push(lines[index].replace(/^[-*]\s+/, "").trim());
-        index += 1;
-      }
-      blocks.push({ kind: "unordered-list", items });
-      continue;
-    }
-
-    if (isOrdered) {
-      const items: string[] = [];
-      while (index < lines.length && /^\d+\.\s+/.test(lines[index])) {
-        items.push(lines[index].replace(/^\d+\.\s+/, "").trim());
-        index += 1;
-      }
-      blocks.push({ kind: "ordered-list", items });
-      continue;
-    }
-
-    blocks.push({ kind: "paragraph", text: line });
-    index += 1;
-  }
-
-  return blocks;
-}
-
-function renderFormattedMultilineValue(value: string) {
-  const blocks = markdownBlocks(value);
-  if (blocks.length === 0) return null;
-
-  return (
-    <div className="inline-note-body">
-      {blocks.map((block, blockIndex) => {
-        if (block.kind === "paragraph") {
-          return <p key={`paragraph-${blockIndex}`}>{renderMarkdownLikeText(block.text)}</p>;
-        }
-        if (block.kind === "unordered-list") {
-          return (
-            <ul key={`unordered-list-${blockIndex}`} className="inline-note-list">
-              {block.items.map((item, itemIndex) => (
-                <li key={`unordered-list-${blockIndex}-${itemIndex}`}>{renderMarkdownLikeText(item)}</li>
-              ))}
-            </ul>
-          );
-        }
-
-        return (
-          <ol key={`ordered-list-${blockIndex}`} className="inline-note-list inline-note-list--ordered">
-            {block.items.map((item, itemIndex) => (
-              <li key={`ordered-list-${blockIndex}-${itemIndex}`}>{renderMarkdownLikeText(item)}</li>
-            ))}
-          </ol>
-        );
-      })}
-    </div>
-  );
-}
-
-function applyMarkdownFormatToDraft(
-  source: string,
-  selectionStart: number,
-  selectionEnd: number,
-  action: "bold" | "unordered-list" | "ordered-list" | "link"
-) {
-  if (action === "bold") {
-    const selected = source.slice(selectionStart, selectionEnd);
-    const replacement = selected ? `**${selected}**` : "**bold text**";
-    const nextValue = `${source.slice(0, selectionStart)}${replacement}${source.slice(selectionEnd)}`;
-    const nextSelectionStart = selectionStart + 2;
-    const nextSelectionEnd = selected ? selectionEnd + 2 : selectionStart + 11;
-    return { nextValue, selectionStart: nextSelectionStart, selectionEnd: nextSelectionEnd };
-  }
-
-  if (action === "link") {
-    const selected = source.slice(selectionStart, selectionEnd);
-    const replacement = selected ? `[${selected}](https://)` : "[link text](https://)";
-    const nextValue = `${source.slice(0, selectionStart)}${replacement}${source.slice(selectionEnd)}`;
-    const urlStart = selectionStart + replacement.indexOf("https://");
-    const urlEnd = urlStart + "https://".length;
-    return { nextValue, selectionStart: urlStart, selectionEnd: urlEnd };
-  }
-
-  const lineStart = source.lastIndexOf("\n", Math.max(0, selectionStart - 1)) + 1;
-  const lineEndBoundary = source.indexOf("\n", selectionEnd);
-  const lineEnd = lineEndBoundary === -1 ? source.length : lineEndBoundary;
-  const selectedLines = source.slice(lineStart, lineEnd);
-  const lines = selectedLines.split("\n");
-  const normalized = lines.map((line) => line.replace(/^(\s*)(?:[-*]|\d+\.)\s+/, "$1"));
-  const transformed =
-    action === "unordered-list"
-      ? normalized.map((line) => `- ${line.trim()}`).join("\n")
-      : normalized.map((line, index) => `${index + 1}. ${line.trim()}`).join("\n");
-  const nextValue = `${source.slice(0, lineStart)}${transformed}${source.slice(lineEnd)}`;
-  return {
-    nextValue,
-    selectionStart: lineStart,
-    selectionEnd: lineStart + transformed.length
-  };
-}
-
-
 export function InlineTextField({
   label,
   value,
@@ -402,7 +283,7 @@ export function InlineTextField({
     }
   }, [value, editing]);
 
-  const commit = (nextValue: string) => {
+ const commit = (nextValue: string) => {
     setEditing(false);
     if (nextValue !== value) {
       onSave(nextValue);
@@ -545,97 +426,56 @@ export function InlineTextareaField({
     setEditing(false);
   };
 
-  const applyFormat = (action: "bold" | "unordered-list" | "ordered-list" | "link") => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    const selectionStart = textarea.selectionStart;
-    const selectionEnd = textarea.selectionEnd;
-    const formatted = applyMarkdownFormatToDraft(draft, selectionStart, selectionEnd, action);
-    setDraft(formatted.nextValue);
-
-    requestAnimationFrame(() => {
-      textarea.focus();
-      textarea.setSelectionRange(formatted.selectionStart, formatted.selectionEnd);
-    });
-  };
-
   if (editing) {
+    if (enableFormatting) {
+      return (
+        <div className="inline-edit-field">
+          <label>{label}</label>
+          <div className="inline-textarea-editor">
+            <RichTextArea
+              value={draft}
+              onChange={setDraft}
+              rows={rows}
+              placeholder={placeholder}
+              className="inline-formatting-textarea"
+              onBlurCapture={(event) => {
+                const nextFocus = event.relatedTarget as Node | null;
+                if (nextFocus && event.currentTarget.contains(nextFocus)) return;
+                commit(draft);
+              }}
+            />
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="inline-edit-field">
         <label>{label}</label>
         <div className="inline-textarea-editor">
-          {enableFormatting ? (
-            <div className="inline-formatting-toolbar" aria-label={`${label} formatting tools`}>
-              <button
-                type="button"
-                className="inline-formatting-tool"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => applyFormat("bold")}
-                title="Bold"
-                aria-label="Bold"
-              >
-                <strong>B</strong>
-              </button>
-              <button
-                type="button"
-                className="inline-formatting-tool"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => applyFormat("unordered-list")}
-                title="Bulleted list"
-                aria-label="Bulleted list"
-              >
-                • List
-              </button>
-              <button
-                type="button"
-                className="inline-formatting-tool"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => applyFormat("ordered-list")}
-                title="Numbered list"
-                aria-label="Numbered list"
-              >
-                1. List
-              </button>
-              <button
-                type="button"
-                className="inline-formatting-tool"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => applyFormat("link")}
-                title="Insert link"
-                aria-label="Insert link"
-              >
-                🔗
-              </button>
-            </div>
-          ) : null}
-          <div
+          <textarea
+            ref={textareaRef}
+            value={draft}
+            rows={rows}
+            placeholder={placeholder}
+            onChange={(event) => setDraft(event.target.value)}
             onBlurCapture={(event) => {
               const nextFocus = event.relatedTarget as Node | null;
               if (nextFocus && event.currentTarget.contains(nextFocus)) return;
               commit(draft);
             }}
-          >
-            <textarea
-              ref={textareaRef}
-              className={enableFormatting ? "inline-formatting-textarea" : undefined}
-              value={draft}
-              rows={rows}
-              placeholder={placeholder}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                  event.preventDefault();
-                  (event.currentTarget as HTMLTextAreaElement).blur();
-                }
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  cancel();
-                }
-              }}
-              autoFocus
-            />
-          </div>
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                event.preventDefault();
+                (event.currentTarget as HTMLTextAreaElement).blur();
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                cancel();
+              }
+            }}
+            autoFocus
+          />
         </div>
       </div>
     );
@@ -659,7 +499,11 @@ export function InlineTextareaField({
         <ReadValue isEmpty={!value}>
           {value ? (
             <span className="inline-rich-text">
-              {enableFormatting ? renderFormattedMultilineValue(value) : renderMultilineValue(value, insight, true)}
+              {enableFormatting ? (
+                <span dangerouslySetInnerHTML={{ __html: normalizeRichText(value) }} />
+              ) : (
+                renderMultilineValue(value, insight, true)
+              )}
             </span>
           ) : (
             <span>{emptyText}</span>

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { PipelineOpportunityDetailView } from "./pipeline-opportunity-detail";
+import { RichTextArea } from "./rich-text-area";
 import {
   PIPELINE_BOARD_COLUMNS,
   mapBoardColumnToCanonicalPhase,
@@ -1144,14 +1145,14 @@ export function PipelineKanban() {
 
       {noteModal ? (
         <div className="pipeline-note-backdrop" onMouseDown={() => setNoteModal(null)}>
-          <div className="pipeline-note-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="pipeline-note-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
             <h3>Add Note</h3>
             <p className="muted">{noteModal.itemName}</p>
-            <textarea
+            <RichTextArea
               className="pipeline-note-textarea"
               value={noteModal.draft}
-              onChange={(event) =>
-                setNoteModal((current) => (current ? { ...current, draft: event.target.value } : current))
+              onChange={(nextValue) =>
+                setNoteModal((current) => (current ? { ...current, draft: nextValue } : current))
               }
               placeholder="Enter note text"
             />

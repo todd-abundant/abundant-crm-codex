@@ -3,6 +3,7 @@
 :root {
   --colorBrandPrimary: #0a2f5a;
   --colorBrandAccent: #00a39d;
+  --accent-strong: #008881;
   --colorBackgroundLight: #f8fafc;
   --colorSurface: #ffffff;
   --colorTextPrimary: #1f2937;
@@ -1148,54 +1149,166 @@ a {
   gap: 6px;
 }
 
-.inline-formatting-toolbar {
+.rich-text-toolbar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--surface-muted);
+  flex-wrap: nowrap;
+  gap: 4px;
+  padding: 6px;
+  overflow-x: auto;
+  white-space: nowrap;
+  border: 1px solid #c7d6e8;
+  border-radius: 10px;
+  background: #f7fbff;
+  align-items: center;
 }
 
-.inline-formatting-tool {
-  border: 1px solid var(--border-color);
+.rich-text-toolbar-button,
+.rich-text-toolbar-select,
+.rich-text-toolbar-color,
+.rich-text-toolbar-color input[type="color"] {
+  border: 1px solid #bfd3e5;
   border-radius: 8px;
-  background: var(--surface);
-  color: var(--foreground);
-  min-width: 42px;
-  height: 34px;
-  padding: 0 10px;
+  background: #ffffff;
+  color: #0f243e;
+}
+
+.rich-text-toolbar-button {
+  color: #0f243e;
+  min-width: 30px;
+  width: 30px;
+  height: 28px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
 }
 
-.inline-formatting-tool:hover,
-.inline-formatting-tool:focus-visible {
+.rich-text-toolbar-button:hover,
+.rich-text-toolbar-button:focus-visible,
+.rich-text-toolbar-select:hover,
+.rich-text-toolbar-select:focus-within,
+.rich-text-toolbar-color:hover {
   border-color: var(--accent-strong);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-strong) 24%, transparent);
   outline: none;
 }
 
+.rich-text-toolbar-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rich-text-toolbar-select span {
+  color: #1f4668;
+  white-space: nowrap;
+}
+
+.rich-text-toolbar-select select,
+.rich-text-toolbar-color input[type="color"] {
+  border: 0;
+  border-left: 1px solid #c9d7e7;
+  background: transparent;
+  color: inherit;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  height: 100%;
+  min-width: 0;
+}
+
+.rich-text-toolbar-select select {
+  padding-right: 14px;
+  appearance: none;
+}
+
+.rich-text-toolbar-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 4px;
+}
+
+.rich-text-toolbar-color input[type="color"] {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.rich-text-editor {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+
+.rich-text-editor-input {
+  min-height: 140px;
+  border: 1px solid #bfd3e5;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px 10px;
+  line-height: 1.45;
+  color: #0b1930;
+  outline: none;
+  min-width: 0;
+  overflow: auto;
+}
+
+.rich-text-editor-input.rich-text-editor-input--empty::before {
+  content: attr(data-placeholder);
+  color: #8b95a5;
+  pointer-events: none;
+}
+
+.rich-text-editor-input:focus-visible {
+  border-color: #8fb3dc;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #0f60b0 16%, transparent);
+}
+
+.rich-text-editor-input ul,
+.rich-text-editor-input ol {
+  margin: 0.5rem 0 0.5rem 1.5rem;
+  padding: 0;
+}
+
+.rich-text-editor-input a {
+  color: #0b5cad;
+  text-decoration: underline;
+}
+
+.rich-text-editor-input * {
+  max-width: 100%;
+  word-break: break-word;
+}
+
 .inline-formatting-textarea {
-  min-height: 240px;
-  resize: vertical;
+  display: block;
 }
 
 .detail-card .detail-grid > div:not(.inline-edit-field) > label:has(+ input:not([type="checkbox"]):not([type="radio"])),
 .detail-card .detail-grid > div:not(.inline-edit-field) > label:has(+ select),
 .detail-card .detail-grid > div:not(.inline-edit-field) > label:has(+ textarea),
+.detail-card .detail-grid > div:not(.inline-edit-field) > label:has(+ .rich-text-editor),
 .detail-card .detail-section > label:has(+ input:not([type="checkbox"]):not([type="radio"])),
 .detail-card .detail-section > label:has(+ select),
 .detail-card .detail-section > label:has(+ textarea),
+.detail-card .detail-section > label:has(+ .rich-text-editor),
 .detail-card .detail-list-item > label:has(+ input:not([type="checkbox"]):not([type="radio"])),
 .detail-card .detail-list-item > label:has(+ select),
-.detail-card .detail-list-item > label:has(+ textarea) {
+.detail-card .detail-list-item > label:has(+ textarea),
+.detail-card .detail-list-item > label:has(+ .rich-text-editor) {
   display: inline-block;
   width: var(--detail-field-label-width);
   max-width: var(--detail-field-label-width);
@@ -1210,12 +1323,15 @@ a {
 .detail-card .detail-grid > div:not(.inline-edit-field) > label + input:not([type="checkbox"]):not([type="radio"]),
 .detail-card .detail-grid > div:not(.inline-edit-field) > label + select,
 .detail-card .detail-grid > div:not(.inline-edit-field) > label + textarea,
+.detail-card .detail-grid > div:not(.inline-edit-field) > label + .rich-text-editor,
 .detail-card .detail-section > label + input:not([type="checkbox"]):not([type="radio"]),
 .detail-card .detail-section > label + select,
 .detail-card .detail-section > label + textarea,
+.detail-card .detail-section > label + .rich-text-editor,
 .detail-card .detail-list-item > label + input:not([type="checkbox"]):not([type="radio"]),
 .detail-card .detail-list-item > label + select,
-.detail-card .detail-list-item > label + textarea {
+.detail-card .detail-list-item > label + textarea,
+.detail-card .detail-list-item > label + .rich-text-editor {
   display: inline-block;
   width: calc(100% - var(--detail-field-label-width) - 10px);
   min-width: 0;
@@ -1234,24 +1350,33 @@ a {
   min-height: 100px;
 }
 
+.detail-card .detail-grid > div:not(.inline-edit-field) > label + .rich-text-editor .rich-text-editor-input,
+.detail-card .detail-section > label + .rich-text-editor .rich-text-editor-input,
+.detail-card .detail-list-item > label + .rich-text-editor .rich-text-editor-input {
+  min-height: 100px;
+}
+
 .detail-card .detail-grid > div:not(.inline-edit-field) > label + input:not([type="checkbox"]):not([type="radio"]):hover,
 .detail-card .detail-grid > div:not(.inline-edit-field) > label + input:not([type="checkbox"]):not([type="radio"]):focus,
 .detail-card .detail-grid > div:not(.inline-edit-field) > label + select:hover,
 .detail-card .detail-grid > div:not(.inline-edit-field) > label + select:focus,
 .detail-card .detail-grid > div:not(.inline-edit-field) > label + textarea:hover,
 .detail-card .detail-grid > div:not(.inline-edit-field) > label + textarea:focus,
+.detail-card .detail-grid > div:not(.inline-edit-field) > label + .rich-text-editor:hover,
 .detail-card .detail-section > label + input:not([type="checkbox"]):not([type="radio"]):hover,
 .detail-card .detail-section > label + input:not([type="checkbox"]):not([type="radio"]):focus,
 .detail-card .detail-section > label + select:hover,
 .detail-card .detail-section > label + select:focus,
 .detail-card .detail-section > label + textarea:hover,
 .detail-card .detail-section > label + textarea:focus,
+.detail-card .detail-section > label + .rich-text-editor:hover,
 .detail-card .detail-list-item > label + input:not([type="checkbox"]):not([type="radio"]):hover,
 .detail-card .detail-list-item > label + input:not([type="checkbox"]):not([type="radio"]):focus,
 .detail-card .detail-list-item > label + select:hover,
 .detail-card .detail-list-item > label + select:focus,
 .detail-card .detail-list-item > label + textarea:hover,
-.detail-card .detail-list-item > label + textarea:focus {
+.detail-card .detail-list-item > label + textarea:focus,
+.detail-card .detail-list-item > label + .rich-text-editor:hover {
   border-color: #d7e4f2;
   background: #f7fbff;
   box-shadow: none;
@@ -1472,12 +1597,22 @@ a {
 }
 
 .entity-note-textarea {
+  min-height: 0;
+}
+
+.entity-note-textarea .rich-text-editor-input {
   min-height: 110px;
 }
 
 .entity-note-body {
   margin: 0;
-  white-space: pre-wrap;
+  white-space: normal;
+}
+
+.entity-note-body ul,
+.entity-note-body ol {
+  margin: 0.4rem 0;
+  padding-left: 1.2rem;
 }
 
 .entity-note-attachments {
@@ -2548,7 +2683,21 @@ select {
 }
 
 .pipeline-note-textarea {
+  min-height: 0;
+}
+
+.pipeline-note-textarea .rich-text-editor-input {
   min-height: 180px;
+}
+
+.pipeline-note-textarea .rich-text-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.co-investor-interaction-textarea .rich-text-editor-input {
+  min-height: 120px;
 }
 
 .screening-overview-table-wrap {

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { DateInputField } from "./date-input-field";
 import { EntityLookupInput } from "./entity-lookup-input";
+import { RichTextArea } from "./rich-text-area";
 import {
   inferGoogleDocumentTitle,
   MAX_COMPANY_DOCUMENT_FILE_BYTES,
@@ -887,10 +888,11 @@ export function CompanyPipelineManager({
           S1 Invested
         </label>
         <label>Intake Decision Notes</label>
-        <textarea
+        <RichTextArea
           value={draft.intakeDecisionNotes}
-          onChange={(event) => updateDraft({ intakeDecisionNotes: event.target.value })}
+          onChange={(value) => updateDraft({ intakeDecisionNotes: value })}
           placeholder="Notes on why we advanced or declined"
+          rows={8}
         />
       </div>
 
@@ -1022,7 +1024,12 @@ export function CompanyPipelineManager({
               </div>
             </div>
             <label>Notes</label>
-            <textarea value={document.notes} onChange={(event) => updateDocument(index, { notes: event.target.value })} />
+            <RichTextArea
+              value={document.notes}
+              onChange={(value) => updateDocument(index, { notes: value })}
+              placeholder="Notes on this document"
+              rows={6}
+            />
             <div className="actions">
               <button
                 className="ghost small"
@@ -1145,12 +1152,19 @@ export function CompanyPipelineManager({
               </div>
             </div>
             <label>Next Steps</label>
-            <textarea
+            <RichTextArea
               value={opportunity.nextSteps}
-              onChange={(event) => updateOpportunity(index, { nextSteps: event.target.value })}
+              onChange={(value) => updateOpportunity(index, { nextSteps: value })}
+              rows={8}
+              placeholder="Next steps"
             />
             <label>Notes</label>
-            <textarea value={opportunity.notes} onChange={(event) => updateOpportunity(index, { notes: event.target.value })} />
+            <RichTextArea
+              value={opportunity.notes}
+              onChange={(value) => updateOpportunity(index, { notes: value })}
+              rows={6}
+              placeholder="Opportunity notes"
+            />
             <div className="actions">
               <button
                 className="ghost small"
@@ -1222,7 +1236,12 @@ export function CompanyPipelineManager({
               </div>
             </div>
             <label>Notes</label>
-            <textarea value={event.notes} onChange={(entry) => updateScreeningEvent(eventIndex, { notes: entry.target.value })} />
+            <RichTextArea
+              value={event.notes}
+              onChange={(value) => updateScreeningEvent(eventIndex, { notes: value })}
+              rows={6}
+              placeholder="Screening event notes"
+            />
 
             <p className="detail-label">Participants</p>
             {event.participants.length === 0 && <p className="muted">No participants captured.</p>}
@@ -1290,9 +1309,13 @@ export function CompanyPipelineManager({
                   </div>
                 </div>
                 <label>Notes</label>
-                <textarea
+                <RichTextArea
                   value={participant.notes}
-                  onChange={(entry) => updateScreeningParticipant(eventIndex, participantIndex, { notes: entry.target.value })}
+                  onChange={(value) =>
+                    updateScreeningParticipant(eventIndex, participantIndex, { notes: value })
+                  }
+                  rows={6}
+                  placeholder="Participant notes"
                 />
                 <div className="actions">
                   <button
@@ -1413,7 +1436,12 @@ export function CompanyPipelineManager({
               </div>
             </div>
             <label>Notes</label>
-            <textarea value={loi.notes} onChange={(event) => updateLoi(index, { notes: event.target.value })} />
+            <RichTextArea
+              value={loi.notes}
+              onChange={(value) => updateLoi(index, { notes: value })}
+              rows={6}
+              placeholder="LOI notes"
+            />
             <div className="actions">
               <button
                 className="ghost small"
@@ -1504,7 +1532,12 @@ export function CompanyPipelineManager({
               </div>
             </div>
             <label>Notes</label>
-            <textarea value={fundraise.notes} onChange={(event) => updateFundraise(fundraiseIndex, { notes: event.target.value })} />
+            <RichTextArea
+              value={fundraise.notes}
+              onChange={(value) => updateFundraise(fundraiseIndex, { notes: value })}
+              rows={6}
+              placeholder="Fundraise notes"
+            />
 
             <p className="detail-label">Co-Investors</p>
             {fundraise.investors.length === 0 && <p className="muted">No co-investors yet.</p>}
@@ -1561,9 +1594,13 @@ export function CompanyPipelineManager({
                   </div>
                 </div>
                 <label>Notes</label>
-                <textarea
+                <RichTextArea
                   value={investor.notes}
-                  onChange={(event) => updateFundraiseInvestor(fundraiseIndex, investorIndex, { notes: event.target.value })}
+                  onChange={(value) =>
+                    updateFundraiseInvestor(fundraiseIndex, investorIndex, { notes: value })
+                  }
+                  rows={6}
+                  placeholder="Co-investor notes"
                 />
                 <div className="actions">
                   <button

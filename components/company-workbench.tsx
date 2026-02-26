@@ -12,6 +12,7 @@ import { EntityLookupInput } from "./entity-lookup-input";
 import { AddContactModal } from "./add-contact-modal";
 import { EntityDocumentsPane } from "./entity-documents-pane";
 import { EntityNotesPane } from "./entity-notes-pane";
+import { RichTextArea } from "./rich-text-area";
 
 type SearchCandidate = {
   name: string;
@@ -1283,7 +1284,7 @@ export function CompanyWorkbench() {
           spinOutOwnershipPercent:
             draftToSave.companyType === "SPIN_OUT" ? toNullableNumber(draftToSave.spinOutOwnershipPercent) : null,
           intakeStatus: intakeStatusForSave,
-          leadSourceOther: draftToSave.leadSourceType === "OTHER" ? draftToSave.leadSourceOther : null,
+          leadSourceOther: draftToSave.leadSourceType === "OTHER" ? draftToSave.leadSourceOther : "",
           intakeScheduledAt: intakeStatusForSave === "NOT_SCHEDULED" ? null : draftToSave.intakeScheduledAt,
           screeningEvaluationAt:
             draftToSave.intakeStatus === "SCREENING_EVALUATION" ? new Date().toISOString() : null,
@@ -1606,20 +1607,24 @@ export function CompanyWorkbench() {
 
               {isManualCreationType(newCompanyType) && (
                 <>
-                  <div className="detail-section">
-                    <label>Description</label>
-                    <textarea
-                      value={newDescription}
-                      onChange={(event) => setNewDescription(event.target.value)}
-                    />
-                  </div>
-                  <div className="detail-section">
-                    <label>Research Notes</label>
-                    <textarea
-                      value={newResearchNotes}
-                      onChange={(event) => setNewResearchNotes(event.target.value)}
-                    />
-                  </div>
+                <div className="detail-section">
+                  <label>Description</label>
+                  <RichTextArea
+                    value={newDescription}
+                    onChange={setNewDescription}
+                    rows={10}
+                    placeholder="Describe the company"
+                  />
+                </div>
+                <div className="detail-section">
+                  <label>Research Notes</label>
+                  <RichTextArea
+                    value={newResearchNotes}
+                    onChange={setNewResearchNotes}
+                    rows={10}
+                    placeholder="Research notes"
+                  />
+                </div>
                   <div className="detail-section">
                     <label>Google Transcript Doc URL</label>
                     <input
@@ -1992,6 +1997,8 @@ export function CompanyWorkbench() {
                   multiline
                   label="Description"
                   value={detailDraft.description}
+                  rows={12}
+                  enableFormatting
                   onSave={(value) => updateDetailDraft({ description: value })}
                 />
               </div>
@@ -2064,6 +2071,8 @@ export function CompanyWorkbench() {
                   multiline
                   label="Notes"
                   value={detailDraft.researchNotes}
+                  rows={12}
+                  enableFormatting
                   onSave={(value) => updateDetailDraft({ researchNotes: value })}
                 />
                 <p className="muted">Use notes to capture interaction updates for this company.</p>

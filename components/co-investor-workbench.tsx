@@ -11,6 +11,7 @@ import { SearchMatchModal } from "./search-match-modal";
 import { AddContactModal } from "./add-contact-modal";
 import { EntityDocumentsPane } from "./entity-documents-pane";
 import { EntityNotesPane } from "./entity-notes-pane";
+import { RichTextArea } from "./rich-text-area";
 
 type SearchCandidate = {
   name: string;
@@ -1475,6 +1476,8 @@ export function CoInvestorWorkbench() {
                     label="Investment Notes"
                     value={detailDraft.investmentNotes}
                     insight={coInvestorInsightPayload(selectedRecord)}
+                    rows={12}
+                    enableFormatting
                     onSave={(value) => updateDetailDraft({ investmentNotes: value })}
                   />
                 </div>
@@ -1484,6 +1487,8 @@ export function CoInvestorWorkbench() {
                     multiline
                     label="Research Notes"
                     value={detailDraft.researchNotes}
+                    rows={12}
+                    enableFormatting
                     onSave={(value) => updateDetailDraft({ researchNotes: value })}
                   />
                 </div>
@@ -1760,10 +1765,12 @@ export function CoInvestorWorkbench() {
                 </div>
                 <div>
                   <label>Summary</label>
-                  <textarea
+                  <RichTextArea
+                    className="co-investor-interaction-textarea"
                     value={newInteractionSummary}
-                    onChange={(event) => setNewInteractionSummary(event.target.value)}
+                    onChange={setNewInteractionSummary}
                     placeholder="Key notes from this interaction"
+                    rows={10}
                   />
                 </div>
                 <div className="actions">
@@ -1786,10 +1793,12 @@ export function CoInvestorWorkbench() {
                             placeholder="Subject"
                           />
                           <label>Summary</label>
-                          <textarea
+                          <RichTextArea
+                            className="co-investor-interaction-textarea"
                             value={editingInteractionSummary}
-                            onChange={(event) => setEditingInteractionSummary(event.target.value)}
+                            onChange={setEditingInteractionSummary}
                             placeholder="Summary"
+                            rows={10}
                           />
                           <div className="actions">
                             <button

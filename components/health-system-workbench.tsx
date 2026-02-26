@@ -1614,6 +1614,8 @@ export function HealthSystemWorkbench() {
                   multiline
                   label="Venture Team Summary"
                   value={detailDraft.ventureTeamSummary}
+                  rows={12}
+                  enableFormatting
                   onSave={(value) => updateDetailDraft({ ventureTeamSummary: value })}
                 />
               </div>
@@ -1638,6 +1640,8 @@ export function HealthSystemWorkbench() {
                   multiline
                   label="Research Notes"
                   value={detailDraft.researchNotes}
+                  rows={12}
+                  enableFormatting
                   onSave={(value) => updateDetailDraft({ researchNotes: value })}
                 />
               </div>

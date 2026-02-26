@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { normalizeRichText, RichTextArea } from "./rich-text-area";
 
 type EntityPath = "health-systems" | "co-investors" | "companies";
 
@@ -242,15 +243,16 @@ export function EntityNotesPane({ entityPath, entityId, onStatus }: EntityNotesP
       {!loading && !error
         ? notes.map((note) => (
             <div key={note.id} className="detail-list-item">
-              {editingNoteId === note.id ? (
-                <div className="detail-card">
-                  <label>Note</label>
-                  <textarea
-                    className="entity-note-textarea"
-                    value={editingNoteText}
-                    onChange={(event) => setEditingNoteText(event.target.value)}
-                    placeholder="Relationship context, meeting notes, and follow-ups"
-                  />
+                  {editingNoteId === note.id ? (
+                    <div className="detail-card">
+                      <label>Note</label>
+                      <RichTextArea
+                        className="entity-note-textarea"
+                        value={editingNoteText}
+                        onChange={setEditingNoteText}
+                        placeholder="Relationship context, meeting notes, and follow-ups"
+                        rows={10}
+                      />
 
                   {documents.length > 0 ? (
                     <div className="entity-document-picker">
@@ -288,10 +290,13 @@ export function EntityNotesPane({ entityPath, entityId, onStatus }: EntityNotesP
                     </button>
                   </div>
                 </div>
-              ) : (
-                <div className="contact-row">
-                  <div className="contact-row-details">
-                    <p className="entity-note-body">{note.note}</p>
+                  ) : (
+                    <div className="contact-row">
+                      <div className="contact-row-details">
+                        <p
+                          className="entity-note-body"
+                          dangerouslySetInnerHTML={{ __html: normalizeRichText(note.note) }}
+                        />
                     <p className="muted">{formatDateTime(note.createdAt)}</p>
                     {note.documents.length > 0 ? (
                       <div className="entity-note-attachments">
@@ -325,11 +330,12 @@ export function EntityNotesPane({ entityPath, entityId, onStatus }: EntityNotesP
       {showCreateForm ? (
         <div className="detail-card" style={{ marginTop: 12 }}>
           <label>Note</label>
-          <textarea
+          <RichTextArea
             className="entity-note-textarea"
             value={newNoteText}
-            onChange={(event) => setNewNoteText(event.target.value)}
+            onChange={setNewNoteText}
             placeholder="Relationship context, meeting notes, and follow-ups"
+            rows={10}
           />
 
           {documents.length > 0 ? (
