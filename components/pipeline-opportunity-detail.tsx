@@ -1827,6 +1827,10 @@ export function PipelineOpportunityDetailView({
         ) : null}
       </section>
 
+<<<<<<< Updated upstream
+=======
+    {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
+>>>>>>> Stashed changes
       {item.isScreeningStage ? (
         <section className="panel">
           <h2>Alliance Screening Status</h2>
