@@ -28,6 +28,16 @@ export async function GET() {
           }
         }
       },
+      companyHealthSystemLinks: {
+        include: {
+          company: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      },
       researchJobs: {
         orderBy: { createdAt: "desc" },
         take: 1
@@ -86,6 +96,9 @@ export async function POST(request: Request) {
             leadPartnerName: i.leadPartnerName || null,
             sourceUrl: i.sourceUrl || null
           }))
+        },
+        companyHealthSystemLinks: {
+          create: []
         }
       },
       include: {
@@ -94,6 +107,16 @@ export async function POST(request: Request) {
           include: { contact: true }
         },
         investments: true,
+        companyHealthSystemLinks: {
+          include: {
+            company: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
         researchJobs: {
           orderBy: { createdAt: "desc" },
           take: 1

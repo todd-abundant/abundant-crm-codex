@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
 const baseUrl = process.env.APP_BASE_URL || "http://localhost:3000";
+const authCookie = process.env.SMOKE_AUTH_COOKIE?.trim() || "";
+const requestedApiMode = process.env.SMOKE_API_AUTH_MODE?.trim().toLowerCase();
+const apiMode = resolveApiMode(requestedApiMode, authCookie);
 const failures = [];
 
 function assert(condition, message) {
@@ -30,77 +33,123 @@ async function expectJson(response) {
   }
 }
 
+function resolveApiMode(requestedMode, cookie) {
+  if (!requestedMode) {
+    return cookie ? "authenticated" : "anonymous";
+  }
+
+  if (requestedMode !== "anonymous" && requestedMode !== "authenticated") {
+    throw new Error(
+      `Invalid SMOKE_API_AUTH_MODE "${requestedMode}". Use "anonymous" or "authenticated".`
+    );
+  }
+
+  return requestedMode;
+}
+
+async function request(path, init = {}) {
+  const url = `${baseUrl}${path}`;
+  const headers = new Headers(init.headers || {});
+  if (authCookie && !headers.has("cookie")) {
+    headers.set("cookie", authCookie);
+  }
+  try {
+    return await fetch(url, { ...init, headers });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Request failed for ${url}: ${detail}. Check APP_BASE_URL and ensure the app is running.`);
+  }
+}
+
+async function checkProtectedApi(label, runRequest, validateSuccess) {
+  await check(label, async () => {
+    const response = await runRequest();
+
+    if (apiMode === "authenticated") {
+      assert(response.status === 200, `Expected 200 in authenticated mode, got ${response.status}`);
+      const json = await expectJson(response);
+      await validateSuccess(json);
+      return;
+    }
+
+    assert(response.status === 401, `Expected 401 in anonymous mode, got ${response.status}`);
+    const json = await expectJson(response);
+    assert(json?.error === "Unauthorized", 'Anonymous API response should contain error: "Unauthorized"');
+  });
+}
+
 async function run() {
-  console.log(`Running HTTP smoke checks against ${baseUrl}`);
+  if (apiMode === "authenticated" && !authCookie) {
+    throw new Error("Authenticated API smoke mode requires SMOKE_AUTH_COOKIE.");
+  }
+
+  console.log(`Running HTTP smoke checks against ${baseUrl} (API mode: ${apiMode})`);
 
   await check("GET /", async () => {
-    const response = await fetch(`${baseUrl}/`);
+    const response = await request("/");
     assert(response.status === 200, `Expected 200, got ${response.status}`);
   });
 
   await check("GET /co-investors", async () => {
-    const response = await fetch(`${baseUrl}/co-investors`);
+    const response = await request("/co-investors");
     assert(response.status === 200, `Expected 200, got ${response.status}`);
   });
 
   await check("GET /companies", async () => {
-    const response = await fetch(`${baseUrl}/companies`);
+    const response = await request("/companies");
     assert(response.status === 200, `Expected 200, got ${response.status}`);
   });
 
-  await check("GET /api/health-systems", async () => {
-    const response = await fetch(`${baseUrl}/api/health-systems`);
-    assert(response.status === 200, `Expected 200, got ${response.status}`);
-    const json = await expectJson(response);
+  await checkProtectedApi("GET /api/health-systems", () => request("/api/health-systems"), async (json) => {
     assert(Array.isArray(json.healthSystems), "healthSystems must be an array");
   });
 
-  await check("GET /api/co-investors", async () => {
-    const response = await fetch(`${baseUrl}/api/co-investors`);
-    assert(response.status === 200, `Expected 200, got ${response.status}`);
-    const json = await expectJson(response);
+  await checkProtectedApi("GET /api/co-investors", () => request("/api/co-investors"), async (json) => {
     assert(Array.isArray(json.coInvestors), "coInvestors must be an array");
   });
 
-  await check("GET /api/companies", async () => {
-    const response = await fetch(`${baseUrl}/api/companies`);
-    assert(response.status === 200, `Expected 200, got ${response.status}`);
-    const json = await expectJson(response);
+  await checkProtectedApi("GET /api/companies", () => request("/api/companies"), async (json) => {
     assert(Array.isArray(json.companies), "companies must be an array");
   });
 
-  await check("POST /api/health-systems/search", async () => {
-    const response = await fetch(`${baseUrl}/api/health-systems/search`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: "Intermountain Health" })
-    });
-    assert(response.status === 200, `Expected 200, got ${response.status}`);
-    const json = await expectJson(response);
-    assert(Array.isArray(json.candidates), "health-system search candidates must be an array");
-  });
+  await checkProtectedApi(
+    "POST /api/health-systems/search",
+    () =>
+      request("/api/health-systems/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: "Intermountain Health" })
+      }),
+    async (json) => {
+      assert(Array.isArray(json.candidates), "health-system search candidates must be an array");
+    }
+  );
 
-  await check("POST /api/co-investors/search", async () => {
-    const response = await fetch(`${baseUrl}/api/co-investors/search`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: "General Catalyst" })
-    });
-    assert(response.status === 200, `Expected 200, got ${response.status}`);
-    const json = await expectJson(response);
-    assert(Array.isArray(json.candidates), "co-investor search candidates must be an array");
-  });
+  await checkProtectedApi(
+    "POST /api/co-investors/search",
+    () =>
+      request("/api/co-investors/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: "General Catalyst" })
+      }),
+    async (json) => {
+      assert(Array.isArray(json.candidates), "co-investor search candidates must be an array");
+    }
+  );
 
-  await check("POST /api/companies/search", async () => {
-    const response = await fetch(`${baseUrl}/api/companies/search`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: "Abridge" })
-    });
-    assert(response.status === 200, `Expected 200, got ${response.status}`);
-    const json = await expectJson(response);
-    assert(Array.isArray(json.candidates), "company search candidates must be an array");
-  });
+  await checkProtectedApi(
+    "POST /api/companies/search",
+    () =>
+      request("/api/companies/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: "Abridge" })
+      }),
+    async (json) => {
+      assert(Array.isArray(json.candidates), "company search candidates must be an array");
+    }
+  );
 
   if (failures.length > 0) {
     console.error(`\nHTTP smoke checks failed (${failures.length}): ${failures.join(", ")}`);

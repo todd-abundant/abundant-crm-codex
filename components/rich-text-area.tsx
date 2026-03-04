@@ -17,6 +17,7 @@ type RichTextAreaProps = {
   className?: string;
   disabled?: boolean;
   onBlurCapture?: React.FocusEventHandler<HTMLDivElement>;
+  stripFormattingOnPaste?: boolean;
 };
 
 const markdownPattern = /\*\*([^*]+)\*\*|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
@@ -331,7 +332,6 @@ const quillFormats = [
   "underline",
   "strike",
   "list",
-  "bullet",
   "script",
   "indent",
   "link",
@@ -349,9 +349,11 @@ export function RichTextArea({
   rows,
   className,
   disabled = false,
-  onBlurCapture
+  onBlurCapture,
+  stripFormattingOnPaste = false
 }: RichTextAreaProps) {
   const [editorValue, setEditorValue] = React.useState(() => normalizeRichText(value));
+  const quillRef = React.useRef<any>(null);
   const minHeight = rows ? Math.max(rows, 3) * 20 + 76 : 170;
 
   React.useEffect(() => {
@@ -379,9 +381,54 @@ export function RichTextArea({
     [onChange]
   );
 
+  const handlePlainTextPaste = React.useCallback(
+    (event: ClipboardEvent) => {
+      if (!stripFormattingOnPaste || disabled) return;
+
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      if (!text) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      }
+
+      const editor = quillRef.current?.getEditor?.();
+      if (!editor) return;
+
+      const selection = editor.getSelection(true);
+      const index = selection ? selection.index : editor.getLength();
+      const length = selection ? selection.length : 0;
+
+      if (length > 0) {
+        editor.deleteText(index, length, "user");
+      }
+      editor.insertText(index, text, "user");
+      editor.setSelection(index + text.length, 0, "silent");
+    },
+    [disabled, stripFormattingOnPaste]
+  );
+
+  React.useEffect(() => {
+    if (!stripFormattingOnPaste || disabled) return;
+
+    const editor = quillRef.current?.getEditor?.();
+    const root = editor?.root as HTMLElement | undefined;
+    if (!root) return;
+
+    const listener = (event: Event) => handlePlainTextPaste(event as ClipboardEvent);
+    root.addEventListener("paste", listener, true);
+
+    return () => {
+      root.removeEventListener("paste", listener, true);
+    };
+  }, [disabled, handlePlainTextPaste, stripFormattingOnPaste]);
+
   return (
     <div className={`rich-text-editor ${className || ""}`} onBlurCapture={onBlurCapture}>
       <ReactQuill
+        ref={quillRef}
         theme="snow"
         value={editorValue}
         onChange={handleChange}

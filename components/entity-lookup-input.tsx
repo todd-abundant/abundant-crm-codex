@@ -573,9 +573,6 @@ export function EntityLookupInput({
             Clear
           </button>
         ) : null}
-        <button type="button" className="secondary small" onClick={openAddModal} disabled={disabled}>
-          Add New
-        </button>
       </div>
 
       {allowEmpty && !value && !query.trim() ? <p className="muted entity-lookup-meta">{emptyLabel}</p> : null}
@@ -584,23 +581,34 @@ export function EntityLookupInput({
         <div className="entity-lookup-results">
           {loading ? <p className="muted">Searching…</p> : null}
           {searchError ? <p className="status error">{searchError}</p> : null}
-          {!loading && !searchError && results.length === 0 ? (
-            <p className="muted">No matching {entityKindLabel[entityKind]} found.</p>
+          {!loading && !searchError ? (
+            <>
+              <button
+                type="button"
+                className="entity-lookup-option"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={openAddModal}
+              >
+                Add New
+              </button>
+              {results.length === 0 ? (
+                <p className="muted">No matching {entityKindLabel[entityKind]} found.</p>
+              ) : (
+                results.map((option) => (
+                  <button
+                    type="button"
+                    key={option.id}
+                    className={`entity-lookup-option ${value === option.id ? "active" : ""}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => selectOption(option)}
+                  >
+                    <span className="entity-lookup-option-name">{option.name}</span>
+                    {option.subtitle ? <span className="entity-lookup-option-subtitle">{option.subtitle}</span> : null}
+                  </button>
+                ))
+              )}
+            </>
           ) : null}
-          {!loading && !searchError
-            ? results.map((option) => (
-                <button
-                  type="button"
-                  key={option.id}
-                  className={`entity-lookup-option ${value === option.id ? "active" : ""}`}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => selectOption(option)}
-                >
-                  <span className="entity-lookup-option-name">{option.name}</span>
-                  {option.subtitle ? <span className="entity-lookup-option-subtitle">{option.subtitle}</span> : null}
-                </button>
-              ))
-            : null}
         </div>
       ) : null}
 

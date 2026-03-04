@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { marketLandscapePayloadFromRecord } from "@/lib/market-landscape";
 import {
   inferDefaultPhaseFromCompany,
   isScreeningPhase,
@@ -152,6 +153,13 @@ export async function GET(
                 name: true,
                 email: true
               }
+            }
+          }
+        },
+        marketLandscape: {
+          include: {
+            cards: {
+              orderBy: [{ sortOrder: "asc" }, { cellKey: "asc" }]
             }
           }
         }
@@ -387,11 +395,14 @@ export async function GET(
         atAGlanceKeyStrengths: company.atAGlanceKeyStrengths,
         atAGlanceKeyConsiderations: company.atAGlanceKeyConsiderations,
         ventureStudioCriteria: sanitizeVentureStudioCriteria(company.pipeline?.ventureStudioCriteria),
+        marketLandscape: marketLandscapePayloadFromRecord(company.marketLandscape, company.name),
         location: formatLocation(company),
         phase,
         phaseLabel: phaseLabel(phase),
         column,
         isScreeningStage: isScreeningPhase(phase),
+        ventureLikelihoodPercent: company.pipeline?.ventureLikelihoodPercent ?? null,
+        ventureExpectedCloseDate: company.pipeline?.ventureExpectedCloseDate ?? null,
         opportunities: company.opportunities.map((opportunity) => ({
           id: opportunity.id,
           title: opportunity.title,

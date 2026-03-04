@@ -25,8 +25,9 @@ export async function GET(request: Request) {
   googleAuthorizeUrl.searchParams.set("response_type", "code");
   googleAuthorizeUrl.searchParams.set("scope", GOOGLE_SCOPES.join(" "));
   googleAuthorizeUrl.searchParams.set("state", state);
-  googleAuthorizeUrl.searchParams.set("prompt", "select_account");
+  googleAuthorizeUrl.searchParams.set("prompt", "consent select_account");
   googleAuthorizeUrl.searchParams.set("access_type", "offline");
+  googleAuthorizeUrl.searchParams.set("include_granted_scopes", "true");
 
   const response = NextResponse.redirect(googleAuthorizeUrl);
   setOAuthStateCookie(response, state);

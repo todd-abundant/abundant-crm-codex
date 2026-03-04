@@ -139,12 +139,6 @@ function formatTimestamp(value: string | null | undefined) {
   });
 }
 
-function nextBoardColumn(column: PipelineBoardColumn): PipelineBoardColumn | null {
-  const index = PIPELINE_BOARD_COLUMNS.findIndex((entry) => entry.key === column);
-  if (index < 0 || index >= PIPELINE_BOARD_COLUMNS.length - 1) return null;
-  return PIPELINE_BOARD_COLUMNS[index + 1].key;
-}
-
 function declineReasonLabel(value: IntakeDeclineReason | "") {
   return intakeDeclineReasonOptions.find((option) => option.value === value)?.label || "Not declined";
 }
@@ -680,14 +674,7 @@ export function PipelineKanban() {
         </p>
       </section>
 
-      <section className="panel">
-        <div className="actions" style={{ marginTop: 0 }}>
-          <button className="secondary" type="button" onClick={() => void loadBoard()} disabled={loading}>
-            {loading ? "Refreshing..." : "Refresh Board"}
-          </button>
-        </div>
-        {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
-      </section>
+      {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
 
       <section className="pipeline-kanban" aria-label="Pipeline opportunities board">
         {PIPELINE_BOARD_COLUMNS.map((column) => {
@@ -1097,25 +1084,6 @@ export function PipelineKanban() {
                         >
                           Add Note
                         </a>
-
-                        {nextBoardColumn(item.column) ? (
-                          <a
-                            href="#"
-                            className={`pipeline-action-link ${updatingId ? "disabled" : ""}`}
-                            onClick={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              if (updatingId) return;
-                              const nextColumn = nextBoardColumn(item.column);
-                              if (nextColumn) {
-                                void moveItemToColumn(item.id, nextColumn);
-                              }
-                            }}
-                          >
-                            Move to{" "}
-                            {PIPELINE_BOARD_COLUMNS.find((entry) => entry.key === nextBoardColumn(item.column))?.label}
-                          </a>
-                        ) : null}
                       </div>
 
                       {updatingId === item.id ? <p className="status">Saving stage change...</p> : null}

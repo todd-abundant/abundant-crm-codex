@@ -2,16 +2,19 @@ import { NextResponse } from "next/server";
 import {
   clearOAuthCookies,
   createSessionTokenForUser,
+  readGoogleApiSession,
   readOAuthNextCookie,
   readOAuthStateCookie,
   resolveGoogleRedirectUri,
   resolvePublicOrigin,
   setAuthCookie,
+  setGoogleApiSession,
   upsertGoogleUser
 } from "@/lib/auth/server";
 
 type GoogleTokenResponse = {
   access_token?: string;
+  refresh_token?: string;
   token_type?: string;
   expires_in?: number;
   scope?: string;
@@ -115,8 +118,27 @@ export async function GET(request: Request) {
   const nextPath = await readOAuthNextCookie();
   const sessionToken = await createSessionTokenForUser(user);
   const response = NextResponse.redirect(new URL(nextPath, resolvePublicOrigin(request)));
+  const existingGoogleApiSession = await readGoogleApiSession();
+  const refreshToken =
+    tokenPayload.refresh_token ||
+    (existingGoogleApiSession && existingGoogleApiSession.userId === user.id
+      ? existingGoogleApiSession.refreshToken
+      : null);
+  const accessTokenExpiresAt =
+    typeof tokenPayload.expires_in === "number" && Number.isFinite(tokenPayload.expires_in)
+      ? Date.now() + Math.max(0, tokenPayload.expires_in) * 1000
+      : null;
 
   setAuthCookie(response, sessionToken);
+  await setGoogleApiSession(response, {
+    userId: user.id,
+    email: user.email,
+    accessToken: tokenPayload.access_token,
+    refreshToken,
+    tokenType: tokenPayload.token_type || null,
+    scope: tokenPayload.scope || null,
+    accessTokenExpiresAt
+  });
   clearOAuthCookies(response);
   return response;
 }

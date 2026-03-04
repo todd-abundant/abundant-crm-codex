@@ -9,6 +9,7 @@
     "build": "npm run clean:next && next build",
     "start": "next start",
     "deploy:gcp": "bash scripts/deploy-gcp.sh",
+    "slides:add-market-landscape": "node scripts/add-market-landscape-template-slide.mjs",
     "lint": "eslint app components lib scripts --ext .js,.jsx,.ts,.tsx,.mjs",
     "check": "npm run lint && npm run build",
     "setup:local": "npm install && npm run db:sync",
@@ -27,6 +28,7 @@
   },
   "dependencies": {
     "@prisma/client": "6.3.1",
+    "googleapis": "^144.0.0",
     "next": "^15.1.7",
     "openai": "^4.85.2",
     "react": "^19.0.0",

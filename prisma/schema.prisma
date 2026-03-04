@@ -496,6 +496,7 @@ model Company {
   screeningCellChanges          CompanyScreeningCellChange[]
   screeningSurveySessions       CompanyScreeningSurveySession[]
   fundraises                    CompanyFundraise[]
+  marketLandscape               CompanyMarketLandscape?
 
   @@index([name])
   @@index([companyType])
@@ -581,6 +582,47 @@ model CompanyPipeline {
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([phase])
+}
+
+model CompanyMarketLandscape {
+  id                  String  @id @default(cuid())
+  companyId           String  @unique
+  sectionLabel        String  @default("Market Landscape")
+  headline            String  @default("")
+  subheadline         String  @default("")
+  template            String  @default("CATEGORY_OVERVIEW")
+  xAxisLabel          String  @default("Product Category")
+  yAxisLabel          String  @default("Differentiation")
+  columnLabel1        String  @default("Adjacent Players")
+  columnLabel2        String  @default("Most Similar")
+  rowLabel1           String  @default("GI-Specific")
+  rowLabel2           String  @default("Generalist")
+  primaryFocusCellKey String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  cards   CompanyMarketLandscapeCard[]
+}
+
+model CompanyMarketLandscapeCard {
+  id                String   @id @default(cuid())
+  marketLandscapeId String
+  cellKey           String
+  sortOrder         Int      @default(0)
+  title             String   @default("")
+  overview          String   @default("")
+  businessModel     String   @default("")
+  strengths         String   @default("")
+  gaps              String   @default("")
+  vendors           String   @default("")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  marketLandscape CompanyMarketLandscape @relation(fields: [marketLandscapeId], references: [id], onDelete: Cascade)
+
+  @@unique([marketLandscapeId, cellKey])
+  @@index([marketLandscapeId, sortOrder])
 }
 
 model CompanyPipelineNote {
@@ -818,11 +860,13 @@ model CompanyScreeningSurveyQuestion {
   scaleMin        Int      @default(1)
   scaleMax        Int      @default(10)
   isActive        Boolean  @default(true)
+  isStandard      Boolean  @default(false)
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   createdByUser    User?                                   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  templateQuestions CompanyScreeningSurveyTemplateQuestion[]
   sessionQuestions CompanyScreeningSurveySessionQuestion[]
   answers          CompanyScreeningSurveyAnswer[]
 
@@ -830,9 +874,51 @@ model CompanyScreeningSurveyQuestion {
   @@index([createdByUserId])
 }
 
+model CompanyScreeningSurveyTemplate {
+  id              String   @id @default(cuid())
+  key             String   @unique
+  name            String
+  description     String?
+  isActive        Boolean  @default(true)
+  isStandard      Boolean  @default(false)
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  createdByUser User?                                  @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  questions     CompanyScreeningSurveyTemplateQuestion[]
+  sessions      CompanyScreeningSurveySession[]
+  answers       CompanyScreeningSurveyAnswer[]
+
+  @@index([name])
+  @@index([isActive, isStandard])
+  @@index([createdByUserId])
+}
+
+model CompanyScreeningSurveyTemplateQuestion {
+  id                   String   @id @default(cuid())
+  templateId           String
+  questionId           String
+  displayOrder         Int      @default(0)
+  categoryOverride     String?
+  promptOverride       String?
+  instructionsOverride String?
+  createdAt            DateTime @default(now())
+
+  template         CompanyScreeningSurveyTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  question         CompanyScreeningSurveyQuestion  @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  sessionQuestions CompanyScreeningSurveySessionQuestion[]
+  answers          CompanyScreeningSurveyAnswer[]
+
+  @@unique([templateId, questionId])
+  @@index([templateId, displayOrder])
+  @@index([questionId])
+}
+
 model CompanyScreeningSurveySession {
   id              String                              @id @default(cuid())
   companyId       String
+  templateId      String?
   title           String
   accessToken     String                              @unique
   status          CompanyScreeningSurveySessionStatus @default(DRAFT)
@@ -843,12 +929,14 @@ model CompanyScreeningSurveySession {
   updatedAt       DateTime                            @updatedAt
 
   company       Company                                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  template      CompanyScreeningSurveyTemplate?         @relation(fields: [templateId], references: [id], onDelete: SetNull)
   createdByUser User?                                   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   questions     CompanyScreeningSurveySessionQuestion[]
   submissions   CompanyScreeningSurveySubmission[]
   answers       CompanyScreeningSurveyAnswer[]
 
   @@index([companyId, createdAt])
+  @@index([templateId, createdAt])
   @@index([status, updatedAt])
   @@index([createdByUserId])
 }
@@ -857,19 +945,22 @@ model CompanyScreeningSurveySessionQuestion {
   id               String   @id @default(cuid())
   sessionId        String
   questionId       String
+  templateQuestionId String?
   displayOrder     Int      @default(0)
   categoryOverride String?
   promptOverride   String?
   instructionsOverride String?
   createdAt        DateTime @default(now())
 
-  session  CompanyScreeningSurveySession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  question CompanyScreeningSurveyQuestion @relation(fields: [questionId], references: [id], onDelete: Restrict)
-  answers  CompanyScreeningSurveyAnswer[]
+  session          CompanyScreeningSurveySession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question         CompanyScreeningSurveyQuestion         @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  templateQuestion CompanyScreeningSurveyTemplateQuestion? @relation(fields: [templateQuestionId], references: [id], onDelete: SetNull)
+  answers          CompanyScreeningSurveyAnswer[]
 
   @@unique([sessionId, questionId])
   @@index([sessionId, displayOrder])
   @@index([questionId])
+  @@index([templateQuestionId])
 }
 
 model CompanyScreeningSurveySubmission {
@@ -897,20 +988,26 @@ model CompanyScreeningSurveySubmission {
 model CompanyScreeningSurveyAnswer {
   id                String   @id @default(cuid())
   sessionId         String
+  templateId        String?
   submissionId      String
   sessionQuestionId String
+  templateQuestionId String?
   questionId        String
   score             Int
   createdAt         DateTime @default(now())
 
-  session         CompanyScreeningSurveySession         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  submission      CompanyScreeningSurveySubmission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  sessionQuestion CompanyScreeningSurveySessionQuestion @relation(fields: [sessionQuestionId], references: [id], onDelete: Cascade)
-  question        CompanyScreeningSurveyQuestion        @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  session          CompanyScreeningSurveySession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  template         CompanyScreeningSurveyTemplate?        @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  submission       CompanyScreeningSurveySubmission       @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  sessionQuestion  CompanyScreeningSurveySessionQuestion  @relation(fields: [sessionQuestionId], references: [id], onDelete: Cascade)
+  templateQuestion CompanyScreeningSurveyTemplateQuestion? @relation(fields: [templateQuestionId], references: [id], onDelete: SetNull)
+  question         CompanyScreeningSurveyQuestion         @relation(fields: [questionId], references: [id], onDelete: Restrict)
 
   @@unique([submissionId, sessionQuestionId])
   @@index([sessionId, questionId])
   @@index([sessionQuestionId])
+  @@index([templateId, questionId])
+  @@index([templateId, templateQuestionId])
 }
 
 model CompanyFundraise {
@@ -1000,6 +1097,7 @@ model User {
   roles                           UserRoleAssignment[]
   companyScreeningCellChanges     CompanyScreeningCellChange[]
   companyScreeningSurveyQuestions CompanyScreeningSurveyQuestion[]
+  companyScreeningSurveyTemplates CompanyScreeningSurveyTemplate[]
   companyScreeningSurveySessions  CompanyScreeningSurveySession[]
   entityNotes                     EntityNote[]
 

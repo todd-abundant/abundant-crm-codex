@@ -239,95 +239,6 @@ export function EntityNotesPane({ entityPath, entityId, onStatus }: EntityNotesP
       {loading ? <p className="muted">Loading notes...</p> : null}
       {!loading && error ? <p className="status error">{error}</p> : null}
 
-      {!loading && !error && notes.length === 0 ? <p className="muted">No notes yet.</p> : null}
-
-      {!loading && !error
-        ? notes.map((note) => (
-            <div key={note.id} className="detail-list-item">
-                  {editingNoteId === note.id ? (
-                    <div className="detail-card">
-                      <label>Note</label>
-                      <RichTextArea
-                        className="entity-note-textarea"
-                        value={editingNoteText}
-                        onChange={setEditingNoteText}
-                        placeholder="Relationship context, meeting notes, and follow-ups"
-                        rows={10}
-                      />
-
-                  {documents.length > 0 ? (
-                    <div className="entity-document-picker">
-                      <p className="muted">Attach documents</p>
-                      <div className="entity-document-picker-list">
-                        {documents.map((document) => (
-                          <label key={document.id} className="entity-document-picker-item">
-                            <input
-                              type="checkbox"
-                              checked={editingNoteDocumentIds.includes(document.id)}
-                              onChange={() =>
-                                setEditingNoteDocumentIds((current) => toggleId(current, document.id))
-                              }
-                            />
-                            <span>{document.title}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="muted">Add documents first to attach them to notes.</p>
-                  )}
-
-                  <div className="actions">
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() => void saveNote(note.id)}
-                      disabled={savingNoteId === note.id}
-                    >
-                      {savingNoteId === note.id ? "Saving..." : "Save Note"}
-                    </button>
-                    <button type="button" className="ghost small" onClick={resetEditingForm}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-                  ) : (
-                    <div className="contact-row">
-                      <div className="contact-row-details">
-                        <p
-                          className="entity-note-body"
-                          dangerouslySetInnerHTML={{ __html: normalizeRichText(note.note) }}
-                        />
-                    <p className="muted">{formatDateTime(note.createdAt)} by {note.createdByName || "Unknown user"}</p>
-                    {note.documents.length > 0 ? (
-                      <div className="entity-note-attachments">
-                        {note.documents.map((document) => (
-                          <a key={`${note.id}-${document.id}`} href={document.url} target="_blank" rel="noreferrer">
-                            {document.title}
-                          </a>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="contact-row-actions">
-                    <button type="button" className="ghost small" onClick={() => beginEdit(note)}>
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost small"
-                      onClick={() => void deleteNote(note.id)}
-                      disabled={deletingNoteId === note.id}
-                    >
-                      {deletingNoteId === note.id ? "Deleting..." : "Delete"}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))
-        : null}
-
       {showCreateForm ? (
         <div className="detail-card" style={{ marginTop: 12 }}>
           <label>Note</label>
@@ -382,6 +293,95 @@ export function EntityNotesPane({ entityPath, entityId, onStatus }: EntityNotesP
           </button>
         </div>
       )}
+
+      {!loading && !error && notes.length === 0 ? <p className="muted">No notes yet.</p> : null}
+
+      {!loading && !error
+        ? notes.map((note) => (
+            <div key={note.id} className="detail-list-item">
+              {editingNoteId === note.id ? (
+                <div className="detail-card">
+                  <label>Note</label>
+                  <RichTextArea
+                    className="entity-note-textarea"
+                    value={editingNoteText}
+                    onChange={setEditingNoteText}
+                    placeholder="Relationship context, meeting notes, and follow-ups"
+                    rows={10}
+                  />
+
+                  {documents.length > 0 ? (
+                    <div className="entity-document-picker">
+                      <p className="muted">Attach documents</p>
+                      <div className="entity-document-picker-list">
+                        {documents.map((document) => (
+                          <label key={document.id} className="entity-document-picker-item">
+                            <input
+                              type="checkbox"
+                              checked={editingNoteDocumentIds.includes(document.id)}
+                              onChange={() =>
+                                setEditingNoteDocumentIds((current) => toggleId(current, document.id))
+                              }
+                            />
+                            <span>{document.title}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="muted">Add documents first to attach them to notes.</p>
+                  )}
+
+                  <div className="actions">
+                    <button
+                      type="button"
+                      className="primary"
+                      onClick={() => void saveNote(note.id)}
+                      disabled={savingNoteId === note.id}
+                    >
+                      {savingNoteId === note.id ? "Saving..." : "Save Note"}
+                    </button>
+                    <button type="button" className="ghost small" onClick={resetEditingForm}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="contact-row">
+                  <div className="contact-row-details">
+                    <p
+                      className="entity-note-body"
+                      dangerouslySetInnerHTML={{ __html: normalizeRichText(note.note) }}
+                    />
+                    <p className="muted">{formatDateTime(note.createdAt)} by {note.createdByName || "Unknown user"}</p>
+                    {note.documents.length > 0 ? (
+                      <div className="entity-note-attachments">
+                        {note.documents.map((document) => (
+                          <a key={`${note.id}-${document.id}`} href={document.url} target="_blank" rel="noreferrer">
+                            {document.title}
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="contact-row-actions">
+                    <button type="button" className="ghost small" onClick={() => beginEdit(note)}>
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost small"
+                      onClick={() => void deleteNote(note.id)}
+                      disabled={deletingNoteId === note.id}
+                    >
+                      {deletingNoteId === note.id ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))
+        : null}
     </div>
   );
 }

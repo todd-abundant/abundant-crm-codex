@@ -45,6 +45,13 @@ export async function GET(
       select: { id: true, name: true }
     });
 
+    const orderedQuestions = [...session.questions].sort((a, b) => {
+      if (a.displayOrder !== b.displayOrder) {
+        return a.displayOrder - b.displayOrder;
+      }
+      return a.id.localeCompare(b.id);
+    });
+
     return NextResponse.json({
       session: {
         id: session.id,
@@ -55,7 +62,7 @@ export async function GET(
         openedAt: session.openedAt,
         closedAt: session.closedAt
       },
-      questions: session.questions.map((entry) => ({
+      questions: orderedQuestions.map((entry) => ({
         sessionQuestionId: entry.id,
         questionId: entry.questionId,
         displayOrder: entry.displayOrder,

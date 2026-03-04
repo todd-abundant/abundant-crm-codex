@@ -10,6 +10,18 @@ export type AuthTokenPayload = {
   image?: string | null;
 };
 
+export type GoogleApiTokenPayload = {
+  sub: string;
+  email: string;
+  accessToken: string;
+  refreshToken?: string | null;
+  tokenType?: string | null;
+  scope?: string | null;
+  accessTokenExpiresAt?: number | null;
+  exp: number;
+  iat: number;
+};
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -87,6 +99,36 @@ function isValidPayload(payload: unknown): payload is AuthTokenPayload {
   );
 }
 
+function isOptionalStringOrNull(value: unknown) {
+  return typeof value === "undefined" || typeof value === "string" || value === null;
+}
+
+function isOptionalFiniteNumberOrNull(value: unknown) {
+  return typeof value === "undefined" || value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isValidGoogleApiPayload(payload: unknown): payload is GoogleApiTokenPayload {
+  if (!payload || typeof payload !== "object") return false;
+  const candidate = payload as Partial<GoogleApiTokenPayload>;
+
+  return (
+    typeof candidate.sub === "string" &&
+    candidate.sub.length > 0 &&
+    typeof candidate.email === "string" &&
+    candidate.email.length > 0 &&
+    typeof candidate.accessToken === "string" &&
+    candidate.accessToken.length > 0 &&
+    isOptionalStringOrNull(candidate.refreshToken) &&
+    isOptionalStringOrNull(candidate.tokenType) &&
+    isOptionalStringOrNull(candidate.scope) &&
+    isOptionalFiniteNumberOrNull(candidate.accessTokenExpiresAt) &&
+    typeof candidate.exp === "number" &&
+    Number.isFinite(candidate.exp) &&
+    typeof candidate.iat === "number" &&
+    Number.isFinite(candidate.iat)
+  );
+}
+
 export async function createAuthToken(payload: AuthTokenPayload, secret: string) {
   const header = encodeJson({ alg: "HS256", typ: "JWT" });
   const body = encodeJson(payload);
@@ -114,6 +156,40 @@ export async function verifyAuthToken(token: string, secret: string) {
 
   const payload = decodeJson<AuthTokenPayload>(body);
   if (!isValidPayload(payload)) return null;
+
+  const now = Math.floor(Date.now() / 1000);
+  if (payload.exp <= now) return null;
+
+  return payload;
+}
+
+export async function createGoogleApiToken(payload: GoogleApiTokenPayload, secret: string) {
+  const header = encodeJson({ alg: "HS256", typ: "JWT" });
+  const body = encodeJson(payload);
+  const unsignedToken = `${header}.${body}`;
+  const signature = await sign(unsignedToken, secret);
+  return `${unsignedToken}.${signature}`;
+}
+
+export async function verifyGoogleApiToken(token: string, secret: string) {
+  if (!token || !secret) return null;
+
+  const segments = token.split(".");
+  if (segments.length !== 3) return null;
+
+  const [header, body, signature] = segments;
+  if (!header || !body || !signature) return null;
+
+  let validSignature = false;
+  try {
+    validSignature = await verify(`${header}.${body}`, signature, secret);
+  } catch {
+    return null;
+  }
+  if (!validSignature) return null;
+
+  const payload = decodeJson<GoogleApiTokenPayload>(body);
+  if (!isValidGoogleApiPayload(payload)) return null;
 
   const now = Math.floor(Date.now() / 1000);
   if (payload.exp <= now) return null;

@@ -6,12 +6,14 @@ import {
   resolveOrCreateContact,
   upsertHealthSystemContactLink
 } from "@/lib/contact-resolution";
+import { inferQualitativeFeedbackFromImpression } from "@/lib/screening-qualitative-inference";
 
 const submitResponseSchema = z
   .object({
     participantName: z.string().trim().optional().or(z.literal("")),
     participantEmail: z.string().trim().email().optional().or(z.literal("")),
     healthSystemId: z.string().min(1),
+    impressions: z.string().trim().min(1).max(1200),
     answers: z
       .array(
         z.object({
@@ -59,6 +61,10 @@ export async function POST(
     const input = submitResponseSchema.parse(await request.json());
     const participantName = trimOrNull(input.participantName);
     const participantEmail = normalizeEmail(input.participantEmail);
+    const impressions = input.impressions.trim();
+    const inferredQualitative = await inferQualitativeFeedbackFromImpression({
+      impression: impressions
+    });
 
     const userAgent = trimOrNull(request.headers.get("user-agent"));
     const forwardedFor = trimOrNull(request.headers.get("x-forwarded-for")?.split(",")[0] || null);
@@ -96,7 +102,7 @@ export async function POST(
 
       const healthSystem = await tx.healthSystem.findUnique({
         where: { id: input.healthSystemId },
-        select: { id: true, isAllianceMember: true }
+        select: { id: true, name: true, isAllianceMember: true }
       });
       if (!healthSystem || !healthSystem.isAllianceMember) {
         throw new Error("Alliance health system not found");
@@ -168,6 +174,52 @@ export async function POST(
         title: null
       });
 
+      const eventTitle = `Alliance Screening - ${healthSystem.name}`;
+      const screeningEvent =
+        (await tx.companyScreeningEvent.findFirst({
+          where: {
+            companyId: session.companyId,
+            type: "INDIVIDUAL_SESSION",
+            title: eventTitle
+          },
+          orderBy: [{ createdAt: "asc" }]
+        })) ||
+        (await tx.companyScreeningEvent.create({
+          data: {
+            companyId: session.companyId,
+            type: "INDIVIDUAL_SESSION",
+            title: eventTitle
+          }
+        }));
+
+      const existingParticipant = await tx.companyScreeningParticipant.findFirst({
+        where: {
+          screeningEventId: screeningEvent.id,
+          healthSystemId: input.healthSystemId,
+          contactId
+        },
+        select: { id: true }
+      });
+
+      if (existingParticipant) {
+        await tx.companyScreeningParticipant.update({
+          where: { id: existingParticipant.id },
+          data: {
+            attendanceStatus: "ATTENDED"
+          }
+        });
+      } else {
+        await tx.companyScreeningParticipant.create({
+          data: {
+            screeningEventId: screeningEvent.id,
+            healthSystemId: input.healthSystemId,
+            contactId,
+            attendanceStatus: "ATTENDED",
+            notes: `Captured via live screening survey: ${session.title}`
+          }
+        });
+      }
+
       const submission = await tx.companyScreeningSurveySubmission.create({
         data: {
           sessionId: session.id,
@@ -187,8 +239,10 @@ export async function POST(
         }
         return {
           sessionId: session.id,
+          templateId: session.templateId || null,
           submissionId: submission.id,
           sessionQuestionId: entry.sessionQuestionId,
+          templateQuestionId: sessionQuestion.templateQuestionId || null,
           questionId: sessionQuestion.questionId,
           score: entry.score,
           metric: sessionQuestion.promptOverride || sessionQuestion.question.prompt,
@@ -199,8 +253,10 @@ export async function POST(
       await tx.companyScreeningSurveyAnswer.createMany({
         data: answerRows.map((row) => ({
           sessionId: row.sessionId,
+          templateId: row.templateId,
           submissionId: row.submissionId,
           sessionQuestionId: row.sessionQuestionId,
+          templateQuestionId: row.templateQuestionId,
           questionId: row.questionId,
           score: row.score
         }))
@@ -218,14 +274,28 @@ export async function POST(
         }))
       });
 
+      await tx.companyScreeningQualitativeFeedback.create({
+        data: {
+          companyId: session.companyId,
+          healthSystemId: input.healthSystemId,
+          contactId,
+          category: "Survey Impression",
+          theme: inferredQualitative.topic,
+          sentiment: inferredQualitative.sentiment,
+          feedback: impressions
+        }
+      });
+
       return {
-        submissionId: submission.id
+        submissionId: submission.id,
+        qualitativeInferenceSource: inferredQualitative.source
       };
     });
 
     return NextResponse.json({
       ok: true,
-      submissionId: result.submissionId
+      submissionId: result.submissionId,
+      qualitativeInferenceSource: result.qualitativeInferenceSource
     });
   } catch (error) {
     console.error("submit_live_screening_survey_response_error", error);

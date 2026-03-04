@@ -10,6 +10,7 @@ import {
 import { SearchMatchModal } from "./search-match-modal";
 import { EntityLookupInput } from "./entity-lookup-input";
 import { AddContactModal } from "./add-contact-modal";
+import { AddRelationshipModal } from "./add-relationship-modal";
 import { EntityDocumentsPane } from "./entity-documents-pane";
 import { EntityNotesPane } from "./entity-notes-pane";
 
@@ -80,6 +81,19 @@ type HealthSystemRecord = {
     companyId?: string | null;
     company?: { id: string; name: string } | null;
   }>;
+  customerLinks: Array<{
+    id: string;
+    relationshipType: "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER";
+    notes?: string | null;
+    annualContractValueUsd?: number | string | null;
+    investmentAmountUsd?: number | string | null;
+    ownershipPercent?: number | string | null;
+    companyId: string;
+    company: {
+      id: string;
+      name: string;
+    };
+  }>;
 };
 
 type CoInvestorOption = {
@@ -91,6 +105,13 @@ type CompanyOption = {
   id: string;
   name: string;
 };
+
+const companyHealthSystemRelationshipOptions: Array<{ value: "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"; label: string }> = [
+  { value: "CUSTOMER", label: "Customer" },
+  { value: "SPIN_OUT_PARTNER", label: "Spin-out Partner" },
+  { value: "INVESTOR_PARTNER", label: "Investor Partner" },
+  { value: "OTHER", label: "Other" }
+];
 
 type DetailDraft = {
   name: string;
@@ -138,6 +159,22 @@ function normalizeWebsiteForMatch(value?: string | null) {
   } catch {
     return trimmed.replace(/^https?:\/\/(www\.)?/, "").replace(/\/+$/g, "").replace(/\/+/g, "/");
   }
+}
+
+function contactNameParts(name: string) {
+  const nameParts = name.trim().split(/\s+/).filter(Boolean);
+  if (nameParts.length === 0) return { firstName: "", lastName: "", displayName: "" };
+  if (nameParts.length === 1) {
+    return { firstName: "", lastName: nameParts[0], displayName: nameParts[0] };
+  }
+
+  const lastName = nameParts[nameParts.length - 1];
+  const firstName = nameParts.slice(0, -1).join(" ");
+  return {
+    firstName,
+    lastName,
+    displayName: `${lastName}, ${firstName}`
+  };
 }
 
 function findDuplicateRecord(records: HealthSystemRecord[], candidate: SearchCandidate) {
@@ -306,6 +343,7 @@ export function HealthSystemWorkbench() {
   const [coInvestors, setCoInvestors] = useState<CoInvestorOption[]>([]);
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [addingVenturePartner, setAddingVenturePartner] = useState(false);
+  const [addVenturePartnerRelationshipModalOpen, setAddVenturePartnerRelationshipModalOpen] = useState(false);
   const [venturePartnerCoInvestorId, setVenturePartnerCoInvestorId] = useState("");
   const [venturePartnerTitle, setVenturePartnerTitle] = useState("");
   const [editingVenturePartnerLinkId, setEditingVenturePartnerLinkId] = useState<string | null>(null);
@@ -314,6 +352,7 @@ export function HealthSystemWorkbench() {
   const [updatingVenturePartner, setUpdatingVenturePartner] = useState(false);
   const [deletingVenturePartnerLinkId, setDeletingVenturePartnerLinkId] = useState<string | null>(null);
   const [addingInvestment, setAddingInvestment] = useState(false);
+  const [addInvestmentRelationshipModalOpen, setAddInvestmentRelationshipModalOpen] = useState(false);
   const [investmentCompanyId, setInvestmentCompanyId] = useState("");
   const [investmentAmount, setInvestmentAmount] = useState("");
   const [investmentDate, setInvestmentDate] = useState("");
@@ -327,6 +366,23 @@ export function HealthSystemWorkbench() {
   const [editingInvestmentSourceUrl, setEditingInvestmentSourceUrl] = useState("");
   const [updatingInvestment, setUpdatingInvestment] = useState(false);
   const [deletingInvestmentLinkId, setDeletingInvestmentLinkId] = useState<string | null>(null);
+  const [addingCustomer, setAddingCustomer] = useState(false);
+  const [addCustomerRelationshipModalOpen, setAddCustomerRelationshipModalOpen] = useState(false);
+  const [customerCompanyId, setCustomerCompanyId] = useState("");
+  const [customerRelationshipType, setCustomerRelationshipType] = useState<
+    "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
+  >("CUSTOMER");
+  const [customerNotes, setCustomerNotes] = useState("");
+  const [customerAnnualContractValue, setCustomerAnnualContractValue] = useState("");
+  const [editingCustomerLinkId, setEditingCustomerLinkId] = useState<string | null>(null);
+  const [editingCustomerCompanyId, setEditingCustomerCompanyId] = useState("");
+  const [editingCustomerRelationshipType, setEditingCustomerRelationshipType] = useState<
+    "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
+  >("CUSTOMER");
+  const [editingCustomerNotes, setEditingCustomerNotes] = useState("");
+  const [editingCustomerAnnualContractValue, setEditingCustomerAnnualContractValue] = useState("");
+  const [updatingCustomer, setUpdatingCustomer] = useState(false);
+  const [deletingCustomerLinkId, setDeletingCustomerLinkId] = useState<string | null>(null);
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTab>("overview");
   const [keepListView, setKeepListView] = useState(false);
   const candidateSearchCacheRef = useRef<Record<string, SearchCandidate[]>>({});
@@ -466,7 +522,11 @@ export function HealthSystemWorkbench() {
   async function loadRecords() {
     const res = await fetch("/api/health-systems", { cache: "no-store" });
     const payload = await res.json();
-    setRecords(payload.healthSystems || []);
+    const healthSystems = (payload.healthSystems || []).map((record: { customerLinks?: HealthSystemRecord["customerLinks"]; companyHealthSystemLinks?: HealthSystemRecord["customerLinks"] }) => ({
+      ...record,
+      customerLinks: record.customerLinks || record.companyHealthSystemLinks || []
+    }));
+    setRecords(healthSystems);
   }
 
   async function runQueuedAgent(maxJobs = 2) {
@@ -772,6 +832,18 @@ export function HealthSystemWorkbench() {
     setVenturePartnerTitle("");
   }
 
+  function openVenturePartnerRelationshipModal() {
+    setStatus(null);
+    resetVenturePartnerForm();
+    setAddVenturePartnerRelationshipModalOpen(true);
+  }
+
+  function closeVenturePartnerRelationshipModal() {
+    if (addingVenturePartner) return;
+    setAddVenturePartnerRelationshipModalOpen(false);
+    resetVenturePartnerForm();
+  }
+
   function resetEditingVenturePartnerForm() {
     setEditingVenturePartnerLinkId(null);
     setEditingVenturePartnerCoInvestorId("");
@@ -816,6 +888,7 @@ export function HealthSystemWorkbench() {
       });
       resetVenturePartnerForm();
       await loadRecords();
+      closeVenturePartnerRelationshipModal();
     } catch (error) {
       setStatus({
         kind: "error",
@@ -912,6 +985,37 @@ export function HealthSystemWorkbench() {
     setInvestmentSourceUrl("");
   }
 
+  function openInvestmentRelationshipModal() {
+    setStatus(null);
+    resetInvestmentForm();
+    setAddInvestmentRelationshipModalOpen(true);
+  }
+
+  function closeInvestmentRelationshipModal() {
+    if (addingInvestment) return;
+    setAddInvestmentRelationshipModalOpen(false);
+    resetInvestmentForm();
+  }
+
+  function resetCustomerForm() {
+    setCustomerCompanyId("");
+    setCustomerRelationshipType("CUSTOMER");
+    setCustomerNotes("");
+    setCustomerAnnualContractValue("");
+  }
+
+  function openCustomerRelationshipModal() {
+    setStatus(null);
+    resetCustomerForm();
+    setAddCustomerRelationshipModalOpen(true);
+  }
+
+  function closeCustomerRelationshipModal() {
+    if (addingCustomer) return;
+    setAddCustomerRelationshipModalOpen(false);
+    resetCustomerForm();
+  }
+
   function resetEditingInvestmentForm() {
     setEditingInvestmentLinkId(null);
     setEditingInvestmentCompanyId("");
@@ -921,6 +1025,14 @@ export function HealthSystemWorkbench() {
     setEditingInvestmentSourceUrl("");
   }
 
+  function resetEditingCustomerForm() {
+    setEditingCustomerLinkId(null);
+    setEditingCustomerCompanyId("");
+    setEditingCustomerRelationshipType("CUSTOMER");
+    setEditingCustomerNotes("");
+    setEditingCustomerAnnualContractValue("");
+  }
+
   function beginEditingInvestment(investment: HealthSystemRecord["investments"][number]) {
     setEditingInvestmentLinkId(investment.id);
     setEditingInvestmentCompanyId(investment.companyId || "");
@@ -928,6 +1040,19 @@ export function HealthSystemWorkbench() {
     setEditingInvestmentDate(investment.investmentDate || "");
     setEditingInvestmentLeadPartnerName(investment.leadPartnerName || "");
     setEditingInvestmentSourceUrl(investment.sourceUrl || "");
+    setStatus(null);
+  }
+
+  function beginEditingCustomer(link: HealthSystemRecord["customerLinks"][number]) {
+    setEditingCustomerLinkId(link.id);
+    setEditingCustomerCompanyId(link.company.id);
+    setEditingCustomerRelationshipType(link.relationshipType);
+    setEditingCustomerNotes(link.notes || "");
+    const annualContractValue =
+      link.annualContractValueUsd !== undefined
+        ? link.annualContractValueUsd
+        : link.investmentAmountUsd;
+    setEditingCustomerAnnualContractValue(annualContractValue?.toString() || "");
     setStatus(null);
   }
 
@@ -965,6 +1090,7 @@ export function HealthSystemWorkbench() {
       });
       resetInvestmentForm();
       await loadRecords();
+      closeInvestmentRelationshipModal();
     } catch (error) {
       setStatus({
         kind: "error",
@@ -1017,6 +1143,130 @@ export function HealthSystemWorkbench() {
       });
     } finally {
       setUpdatingInvestment(false);
+    }
+  }
+
+  async function addCustomerToSelectedRecord() {
+    if (!selectedRecord) return;
+    if (!customerCompanyId) {
+      setStatus({ kind: "error", text: "Select a company." });
+      return;
+    }
+
+    setAddingCustomer(true);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/health-systems/${selectedRecord.id}/customers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId: customerCompanyId,
+          relationshipType: customerRelationshipType,
+          notes: customerNotes,
+          annualContractValueUsd: toNullableNumber(customerAnnualContractValue)
+        })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to add customer link");
+      }
+
+      setStatus({
+        kind: "ok",
+        text: `${payload.link?.company?.name || getCompanyNameById(customerCompanyId)} linked as customer.`
+      });
+      resetCustomerForm();
+      await loadRecords();
+      closeCustomerRelationshipModal();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add customer"
+      });
+    } finally {
+      setAddingCustomer(false);
+    }
+  }
+
+  async function updateCustomerForSelectedRecord(linkId: string) {
+    if (!selectedRecord) return;
+    if (!editingCustomerCompanyId) {
+      setStatus({ kind: "error", text: "Select a company." });
+      return;
+    }
+
+    setUpdatingCustomer(true);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/health-systems/${selectedRecord.id}/customers`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          linkId,
+          companyId: editingCustomerCompanyId,
+          relationshipType: editingCustomerRelationshipType,
+          notes: editingCustomerNotes,
+          annualContractValueUsd: toNullableNumber(editingCustomerAnnualContractValue)
+        })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to update customer link");
+      }
+
+      setStatus({
+        kind: "ok",
+        text: `${payload.link?.company?.name || getCompanyNameById(editingCustomerCompanyId)} updated.`
+      });
+      resetEditingCustomerForm();
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update customer"
+      });
+    } finally {
+      setUpdatingCustomer(false);
+    }
+  }
+
+  async function deleteCustomerFromSelectedRecord(linkId: string, companyName: string) {
+    if (!selectedRecord) return;
+    const confirmDelete = window.confirm(`Remove ${companyName} from customers?`);
+    if (!confirmDelete) return;
+
+    setDeletingCustomerLinkId(linkId);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/health-systems/${selectedRecord.id}/customers`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linkId })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to delete customer link");
+      }
+
+      if (editingCustomerLinkId === linkId) {
+        resetEditingCustomerForm();
+      }
+
+      setStatus({ kind: "ok", text: `${companyName} removed from customers.` });
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to delete customer"
+      });
+    } finally {
+      setDeletingCustomerLinkId(null);
     }
   }
 
@@ -1276,14 +1526,20 @@ export function HealthSystemWorkbench() {
       setDetailDraft(null);
       setDraftRecordId(null);
       setAddContactModalOpen(false);
+      setAddCustomerRelationshipModalOpen(false);
+      setAddInvestmentRelationshipModalOpen(false);
+      setAddVenturePartnerRelationshipModalOpen(false);
       resetEditingContactForm();
       resetVenturePartnerForm();
       resetEditingVenturePartnerForm();
       resetInvestmentForm();
       resetEditingInvestmentForm();
+      resetCustomerForm();
+      resetEditingCustomerForm();
       setDeletingContactLinkId(null);
       setDeletingVenturePartnerLinkId(null);
       setDeletingInvestmentLinkId(null);
+      setDeletingCustomerLinkId(null);
       return;
     }
 
@@ -1292,6 +1548,9 @@ export function HealthSystemWorkbench() {
       setDraftRecordId(selectedRecord.id);
       setActiveDetailTab("overview");
       setAddContactModalOpen(false);
+      setAddCustomerRelationshipModalOpen(false);
+      setAddInvestmentRelationshipModalOpen(false);
+      setAddVenturePartnerRelationshipModalOpen(false);
     }
   }, [selectedRecord, draftRecordId]);
 
@@ -1482,24 +1741,6 @@ export function HealthSystemWorkbench() {
                 <button
                   type="button"
                   role="tab"
-                  className={`detail-tab ${activeDetailTab === "documents" ? "active" : ""}`}
-                  aria-selected={activeDetailTab === "documents"}
-                  onClick={() => setActiveDetailTab("documents")}
-                >
-                  Documents
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  className={`detail-tab ${activeDetailTab === "notes" ? "active" : ""}`}
-                  aria-selected={activeDetailTab === "notes"}
-                  onClick={() => setActiveDetailTab("notes")}
-                >
-                  Notes
-                </button>
-                <button
-                  type="button"
-                  role="tab"
                   className={`detail-tab ${activeDetailTab === "contacts" ? "active" : ""}`}
                   aria-selected={activeDetailTab === "contacts"}
                   onClick={() => setActiveDetailTab("contacts")}
@@ -1514,6 +1755,24 @@ export function HealthSystemWorkbench() {
                   onClick={() => setActiveDetailTab("relationships")}
                 >
                   Relationships
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`detail-tab ${activeDetailTab === "notes" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "notes"}
+                  onClick={() => setActiveDetailTab("notes")}
+                >
+                  Notes
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`detail-tab ${activeDetailTab === "documents" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "documents"}
+                  onClick={() => setActiveDetailTab("documents")}
+                >
+                  Documents
                 </button>
               </div>
 
@@ -1666,10 +1925,33 @@ export function HealthSystemWorkbench() {
                 <>
               <div className="detail-section">
                 <p className="detail-label">Contacts</p>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="ghost small contact-add-link"
+                    onClick={() => {
+                      setStatus(null);
+                      setAddContactModalOpen(true);
+                    }}
+                  >
+                    Add Contact
+                  </button>
+                </div>
                 {selectedRecord.contactLinks.length === 0 ? (
                   <p className="muted">No contacts linked yet.</p>
                 ) : (
-                  selectedRecord.contactLinks.map((link) => (
+                  selectedRecord.contactLinks
+                    .slice()
+                    .sort((left, right) => {
+                      const leftName = contactNameParts(left.contact.name);
+                      const rightName = contactNameParts(right.contact.name);
+                      const byLast = leftName.lastName.localeCompare(rightName.lastName);
+                      if (byLast !== 0) return byLast;
+                      const byFirst = leftName.firstName.localeCompare(rightName.firstName);
+                      if (byFirst !== 0) return byFirst;
+                      return left.contact.name.localeCompare(right.contact.name);
+                    })
+                    .map((link) => (
                     <div key={link.id} className="detail-list-item">
                       {editingContactLinkId === link.id ? (
                         <div className="detail-card">
@@ -1760,7 +2042,7 @@ export function HealthSystemWorkbench() {
                       ) : (
                         <div className="contact-row">
                           <div className="contact-row-details">
-                            <strong>{link.contact.name}</strong>
+                            <strong>{contactNameParts(link.contact.name).displayName}</strong>
                             {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
                             {` | ${link.roleType}`}
                             {link.contact.email ? ` | ${link.contact.email}` : ""}
@@ -1795,19 +2077,6 @@ export function HealthSystemWorkbench() {
                     </div>
                   ))
                 )}
-
-                <div className="actions">
-                  <button
-                    type="button"
-                    className="ghost small contact-add-link"
-                    onClick={() => {
-                      setStatus(null);
-                      setAddContactModalOpen(true);
-                    }}
-                  >
-                    Add Contact
-                  </button>
-                </div>
                 <AddContactModal
                   open={addContactModalOpen}
                   onClose={() => setAddContactModalOpen(false)}
@@ -1849,86 +2118,114 @@ export function HealthSystemWorkbench() {
               {activeDetailTab === "relationships" && (
                 <>
               <div className="detail-section">
-                <p className="detail-label">Venture Partners</p>
-                {selectedRecord.venturePartners.length === 0 ? (
-                  <p className="muted">No venture partners captured.</p>
+                <p className="detail-label">Customers</p>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="ghost small contact-add-link"
+                    onClick={() => void openCustomerRelationshipModal()}
+                  >
+                    Add Customer
+                  </button>
+                </div>
+                {selectedRecord.customerLinks.length === 0 ? (
+                  <p className="muted">No customers linked yet.</p>
                 ) : (
-                  selectedRecord.venturePartners.map((partner) => (
-                    <div key={partner.id} className="detail-list-item">
-                      {editingVenturePartnerLinkId === partner.id ? (
+                  selectedRecord.customerLinks.map((link) => (
+                    <div key={link.id} className="detail-list-item">
+                      {editingCustomerLinkId === link.id ? (
                         <div className="detail-card">
                           <div className="detail-grid">
                             <div>
-                              <label>Co-Investor</label>
+                              <label>Company</label>
                               <EntityLookupInput
-                                entityKind="CO_INVESTOR"
-                                value={editingVenturePartnerCoInvestorId}
-                                onChange={setEditingVenturePartnerCoInvestorId}
-                                initialOptions={coInvestors.map((coInvestor) => ({
-                                  id: coInvestor.id,
-                                  name: coInvestor.name
+                                entityKind="COMPANY"
+                                value={editingCustomerCompanyId}
+                                onChange={setEditingCustomerCompanyId}
+                                initialOptions={companies.map((company) => ({
+                                  id: company.id,
+                                  name: company.name
                                 }))}
-                                placeholder="Search co-investors"
-                                onEntityCreated={(option) => addCoInvestorOption(option)}
+                                placeholder="Search companies"
+                                companyCreateDefaults={{
+                                  companyType: "STARTUP",
+                                  primaryCategory: "OTHER",
+                                  leadSourceType: "OTHER",
+                                  leadSourceOther: "Added from health system customer"
+                                }}
+                                onEntityCreated={(option) => addCompanyOption(option)}
                               />
                             </div>
                             <div>
-                              <label>Title</label>
+                              <label>Relationship Type</label>
+                              <select
+                                value={editingCustomerRelationshipType}
+                                onChange={(event) =>
+                                  setEditingCustomerRelationshipType(
+                                    event.target.value as
+                                      "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
+                                  )
+                                }
+                              >
+                                {companyHealthSystemRelationshipOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label>Notes</label>
                               <input
-                                value={editingVenturePartnerTitle}
-                                onChange={(event) => setEditingVenturePartnerTitle(event.target.value)}
-                                placeholder="Investment partner"
+                                value={editingCustomerNotes}
+                                onChange={(event) => setEditingCustomerNotes(event.target.value)}
+                                placeholder="Notes"
+                              />
+                            </div>
+                            <div>
+                              <label>Annual Contract Value (USD)</label>
+                              <input
+                                value={editingCustomerAnnualContractValue}
+                                onChange={(event) => setEditingCustomerAnnualContractValue(event.target.value)}
+                                placeholder="2500000"
                               />
                             </div>
                           </div>
                           <div className="actions">
                             <button
                               className="primary"
-                              onClick={() => updateVenturePartnerForSelectedRecord(partner.id)}
-                              disabled={updatingVenturePartner}
+                              onClick={() => updateCustomerForSelectedRecord(link.id)}
+                              disabled={updatingCustomer}
                             >
-                              {updatingVenturePartner ? "Saving..." : "Save Venture Partner"}
+                              {updatingCustomer ? "Saving..." : "Save Customer"}
                             </button>
-                            <button
-                              className="ghost small"
-                              onClick={resetEditingVenturePartnerForm}
-                              type="button"
-                            >
+                            <button className="ghost small" onClick={resetEditingCustomerForm} type="button">
                               Cancel
                             </button>
                           </div>
                         </div>
                       ) : (
                         <div>
-                          <strong>{partner.coInvestor?.name || partner.name}</strong>
-                          {partner.title ? `, ${partner.title}` : ""}
-                          {partner.profileUrl && (
-                            <>
-                              {" "}-{" "}
-                              <a href={partner.profileUrl} target="_blank" rel="noreferrer">
-                                profile
-                              </a>
-                            </>
-                          )}
+                          <strong>
+                            <a href={`/companies/${link.company.id}`}>{link.company.name}</a>
+                          </strong>
+                          {` | Relationship: ${link.relationshipType}`}
+                          {` | Annual Contract Value: ${formatUsd(link.annualContractValueUsd ?? link.investmentAmountUsd)}`}
+                          {link.notes ? ` | ${link.notes}` : ""}
                           <div className="actions">
                             <button
                               className="ghost small"
-                              onClick={() => beginEditingVenturePartner(partner)}
+                              onClick={() => beginEditingCustomer(link)}
                               type="button"
                             >
                               Edit
                             </button>
                             <button
                               className="ghost small"
-                              onClick={() =>
-                                deleteVenturePartnerFromSelectedRecord(
-                                  partner.id,
-                                  partner.coInvestor?.name || partner.name
-                                )
-                              }
-                              disabled={deletingVenturePartnerLinkId === partner.id}
+                              onClick={() => deleteCustomerFromSelectedRecord(link.id, link.company.name)}
+                              disabled={deletingCustomerLinkId === link.id}
                             >
-                              {deletingVenturePartnerLinkId === partner.id ? "Removing..." : "Delete"}
+                              {deletingCustomerLinkId === link.id ? "Removing..." : "Delete"}
                             </button>
                           </div>
                         </div>
@@ -1936,48 +2233,84 @@ export function HealthSystemWorkbench() {
                     </div>
                   ))
                 )}
-                <div className="detail-grid">
-                  <div>
-                    <label>Co-Investor</label>
-                    <EntityLookupInput
-                      entityKind="CO_INVESTOR"
-                      value={venturePartnerCoInvestorId}
-                      onChange={setVenturePartnerCoInvestorId}
-                      initialOptions={coInvestors.map((coInvestor) => ({
-                        id: coInvestor.id,
-                        name: coInvestor.name
-                      }))}
-                      placeholder="Search co-investors"
-                      onEntityCreated={(option) => addCoInvestorOption(option)}
-                    />
+                <AddRelationshipModal
+                  open={addCustomerRelationshipModalOpen}
+                  onClose={closeCustomerRelationshipModal}
+                  onSubmit={() => void addCustomerToSelectedRecord()}
+                  isSubmitting={addingCustomer}
+                  title="Add Customer"
+                  submitLabel="Add Customer"
+                  submitDisabled={!customerCompanyId}
+                >
+                  <div className="detail-grid">
+                    <div>
+                      <label>Company</label>
+                      <EntityLookupInput
+                        entityKind="COMPANY"
+                        value={customerCompanyId}
+                        onChange={setCustomerCompanyId}
+                        initialOptions={companies.map((company) => ({
+                          id: company.id,
+                          name: company.name
+                        }))}
+                        placeholder="Search companies"
+                        companyCreateDefaults={{
+                          companyType: "STARTUP",
+                          primaryCategory: "OTHER",
+                          leadSourceType: "OTHER",
+                          leadSourceOther: "Added from health system customer"
+                        }}
+                        onEntityCreated={(option) => addCompanyOption(option)}
+                      />
+                    </div>
+                    <div>
+                      <label>Relationship Type</label>
+                      <select
+                        value={customerRelationshipType}
+                        onChange={(event) =>
+                          setCustomerRelationshipType(
+                            event.target.value as "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
+                          )
+                        }
+                      >
+                        {companyHealthSystemRelationshipOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label>Notes</label>
+                      <input
+                        value={customerNotes}
+                        onChange={(event) => setCustomerNotes(event.target.value)}
+                        placeholder="Notes"
+                      />
+                    </div>
+                    <div>
+                      <label>Annual Contract Value (USD)</label>
+                      <input
+                        value={customerAnnualContractValue}
+                        onChange={(event) => setCustomerAnnualContractValue(event.target.value)}
+                        placeholder="2500000"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label>Title</label>
-                    <input
-                      value={venturePartnerTitle}
-                      onChange={(event) => setVenturePartnerTitle(event.target.value)}
-                      placeholder="Investment partner"
-                    />
-                  </div>
-                </div>
-                <div className="actions">
-                  <button
-                    className="secondary"
-                    onClick={addVenturePartnerToSelectedRecord}
-                    disabled={addingVenturePartner}
-                  >
-                    {addingVenturePartner ? "Adding..." : "Add Venture Partner"}
-                  </button>
-                </div>
+                </AddRelationshipModal>
               </div>
 
-                </>
-              )}
-
-              {activeDetailTab === "relationships" && (
-                <>
               <div className="detail-section">
                 <p className="detail-label">Investments</p>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="ghost small contact-add-link"
+                    onClick={() => void openInvestmentRelationshipModal()}
+                  >
+                    Add Investment
+                  </button>
+                </div>
                 {selectedRecord.investments.length === 0 ? (
                   <p className="muted">No investments captured.</p>
                 ) : (
@@ -2096,65 +2429,203 @@ export function HealthSystemWorkbench() {
                     </div>
                   ))
                 )}
-                <div className="detail-grid">
-                  <div>
-                    <label>Company</label>
-                    <EntityLookupInput
-                      entityKind="COMPANY"
-                      value={investmentCompanyId}
-                      onChange={setInvestmentCompanyId}
-                      initialOptions={companies.map((company) => ({
-                        id: company.id,
-                        name: company.name
-                      }))}
-                      placeholder="Search companies"
-                      companyCreateDefaults={{
-                        companyType: "STARTUP",
-                        primaryCategory: "OTHER",
-                        leadSourceType: "OTHER",
-                        leadSourceOther: "Added from health system investment"
-                      }}
-                      onEntityCreated={(option) => addCompanyOption(option)}
-                    />
+                <AddRelationshipModal
+                  open={addInvestmentRelationshipModalOpen}
+                  onClose={closeInvestmentRelationshipModal}
+                  onSubmit={() => void addInvestmentToSelectedRecord()}
+                  isSubmitting={addingInvestment}
+                  title="Add Investment"
+                  submitLabel="Add Investment"
+                  submitDisabled={!investmentCompanyId}
+                >
+                  <div className="detail-grid">
+                    <div>
+                      <label>Company</label>
+                      <EntityLookupInput
+                        entityKind="COMPANY"
+                        value={investmentCompanyId}
+                        onChange={setInvestmentCompanyId}
+                        initialOptions={companies.map((company) => ({
+                          id: company.id,
+                          name: company.name
+                        }))}
+                        placeholder="Search companies"
+                        companyCreateDefaults={{
+                          companyType: "STARTUP",
+                          primaryCategory: "OTHER",
+                          leadSourceType: "OTHER",
+                          leadSourceOther: "Added from health system investment"
+                        }}
+                        onEntityCreated={(option) => addCompanyOption(option)}
+                      />
+                    </div>
+                    <div>
+                      <label>Investment Amount (USD)</label>
+                      <input
+                        value={investmentAmount}
+                        onChange={(event) => setInvestmentAmount(event.target.value)}
+                        placeholder="2500000"
+                      />
+                    </div>
+                    <div>
+                      <label>Investment Date</label>
+                      <input
+                        value={investmentDate}
+                        onChange={(event) => setInvestmentDate(event.target.value)}
+                        placeholder="YYYY-MM-DD"
+                      />
+                    </div>
+                    <div>
+                      <label>Lead Partner</label>
+                      <input
+                        value={investmentLeadPartnerName}
+                        onChange={(event) => setInvestmentLeadPartnerName(event.target.value)}
+                        placeholder="Lead partner name"
+                      />
+                    </div>
+                    <div>
+                      <label>Source URL</label>
+                      <input
+                        value={investmentSourceUrl}
+                        onChange={(event) => setInvestmentSourceUrl(event.target.value)}
+                        placeholder="https://source.example.com"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label>Investment Amount (USD)</label>
-                    <input
-                      value={investmentAmount}
-                      onChange={(event) => setInvestmentAmount(event.target.value)}
-                      placeholder="2500000"
-                    />
-                  </div>
-                  <div>
-                    <label>Investment Date</label>
-                    <input
-                      value={investmentDate}
-                      onChange={(event) => setInvestmentDate(event.target.value)}
-                      placeholder="YYYY-MM-DD"
-                    />
-                  </div>
-                  <div>
-                    <label>Lead Partner</label>
-                    <input
-                      value={investmentLeadPartnerName}
-                      onChange={(event) => setInvestmentLeadPartnerName(event.target.value)}
-                      placeholder="Lead partner name"
-                    />
-                  </div>
-                  <div>
-                    <label>Source URL</label>
-                    <input
-                      value={investmentSourceUrl}
-                      onChange={(event) => setInvestmentSourceUrl(event.target.value)}
-                      placeholder="https://source.example.com"
-                    />
-                  </div>
-                </div>
+                </AddRelationshipModal>
+              </div>
+
+              <div className="detail-section">
+                <p className="detail-label">Venture Partners</p>
                 <div className="actions">
-                  <button className="secondary" onClick={addInvestmentToSelectedRecord} disabled={addingInvestment}>
-                    {addingInvestment ? "Adding..." : "Add Investment"}
+                  <button
+                    type="button"
+                    className="ghost small contact-add-link"
+                    onClick={() => void openVenturePartnerRelationshipModal()}
+                  >
+                    Add Venture Partner
                   </button>
                 </div>
+                {selectedRecord.venturePartners.length === 0 ? (
+                  <p className="muted">No venture partners captured.</p>
+                ) : (
+                  selectedRecord.venturePartners.map((partner) => (
+                    <div key={partner.id} className="detail-list-item">
+                      {editingVenturePartnerLinkId === partner.id ? (
+                        <div className="detail-card">
+                          <div className="detail-grid">
+                            <div>
+                              <label>Co-Investor</label>
+                              <EntityLookupInput
+                                entityKind="CO_INVESTOR"
+                                value={editingVenturePartnerCoInvestorId}
+                                onChange={setEditingVenturePartnerCoInvestorId}
+                                initialOptions={coInvestors.map((coInvestor) => ({
+                                  id: coInvestor.id,
+                                  name: coInvestor.name
+                                }))}
+                                placeholder="Search co-investors"
+                                onEntityCreated={(option) => addCoInvestorOption(option)}
+                              />
+                            </div>
+                            <div>
+                              <label>Title</label>
+                              <input
+                                value={editingVenturePartnerTitle}
+                                onChange={(event) => setEditingVenturePartnerTitle(event.target.value)}
+                                placeholder="Investment partner"
+                              />
+                            </div>
+                          </div>
+                          <div className="actions">
+                            <button
+                              className="primary"
+                              onClick={() => updateVenturePartnerForSelectedRecord(partner.id)}
+                              disabled={updatingVenturePartner}
+                            >
+                              {updatingVenturePartner ? "Saving..." : "Save Venture Partner"}
+                            </button>
+                            <button
+                              className="ghost small"
+                              onClick={resetEditingVenturePartnerForm}
+                              type="button"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <strong>{partner.coInvestor?.name || partner.name}</strong>
+                          {partner.title ? `, ${partner.title}` : ""}
+                          {partner.profileUrl && (
+                            <>
+                              {" "}-{" "}
+                              <a href={partner.profileUrl} target="_blank" rel="noreferrer">
+                                profile
+                              </a>
+                            </>
+                          )}
+                          <div className="actions">
+                            <button
+                              className="ghost small"
+                              onClick={() => beginEditingVenturePartner(partner)}
+                              type="button"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="ghost small"
+                              onClick={() =>
+                                deleteVenturePartnerFromSelectedRecord(
+                                  partner.id,
+                                  partner.coInvestor?.name || partner.name
+                                )
+                              }
+                              disabled={deletingVenturePartnerLinkId === partner.id}
+                            >
+                              {deletingVenturePartnerLinkId === partner.id ? "Removing..." : "Delete"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+                <AddRelationshipModal
+                  open={addVenturePartnerRelationshipModalOpen}
+                  onClose={closeVenturePartnerRelationshipModal}
+                  onSubmit={() => void addVenturePartnerToSelectedRecord()}
+                  isSubmitting={addingVenturePartner}
+                  title="Add Venture Partner"
+                  submitLabel="Add Venture Partner"
+                  submitDisabled={!venturePartnerCoInvestorId}
+                >
+                  <div className="detail-grid">
+                    <div>
+                      <label>Co-Investor</label>
+                      <EntityLookupInput
+                        entityKind="CO_INVESTOR"
+                        value={venturePartnerCoInvestorId}
+                        onChange={setVenturePartnerCoInvestorId}
+                        initialOptions={coInvestors.map((coInvestor) => ({
+                          id: coInvestor.id,
+                          name: coInvestor.name
+                        }))}
+                        placeholder="Search co-investors"
+                        onEntityCreated={(option) => addCoInvestorOption(option)}
+                      />
+                    </div>
+                    <div>
+                      <label>Title</label>
+                      <input
+                        value={venturePartnerTitle}
+                        onChange={(event) => setVenturePartnerTitle(event.target.value)}
+                        placeholder="Investment partner"
+                      />
+                    </div>
+                  </div>
+                </AddRelationshipModal>
               </div>
 
                 </>

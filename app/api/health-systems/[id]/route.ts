@@ -56,6 +56,16 @@ export async function PATCH(
             }
           }
         },
+        companyHealthSystemLinks: {
+          include: {
+            company: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
         researchJobs: {
           orderBy: { createdAt: "desc" },
           take: 1

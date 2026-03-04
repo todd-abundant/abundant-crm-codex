@@ -6,11 +6,18 @@ import { canAccessAdmin } from "@/lib/auth/permissions";
 import {
   AUTH_COOKIE_MAX_AGE_SECONDS,
   AUTH_COOKIE_NAME,
+  GOOGLE_API_COOKIE_MAX_AGE_SECONDS,
+  GOOGLE_API_COOKIE_NAME,
   OAUTH_COOKIE_MAX_AGE_SECONDS,
   OAUTH_NEXT_COOKIE_NAME,
   OAUTH_STATE_COOKIE_NAME
 } from "./constants";
-import { createAuthToken, verifyAuthToken } from "./token";
+import {
+  createAuthToken,
+  createGoogleApiToken,
+  verifyAuthToken,
+  verifyGoogleApiToken
+} from "./token";
 
 type AuthenticatedUser = {
   id: string;
@@ -19,6 +26,16 @@ type AuthenticatedUser = {
   image: string | null;
   roles: UserRole[];
   isActive: boolean;
+};
+
+export type GoogleApiSession = {
+  userId: string;
+  email: string;
+  accessToken: string;
+  refreshToken: string | null;
+  tokenType: string | null;
+  scope: string | null;
+  accessTokenExpiresAt: number | null;
 };
 
 type AdminApiCheck =
@@ -130,6 +147,30 @@ export function clearAuthCookie(response: NextResponse) {
   });
 }
 
+export function setGoogleApiCookie(response: NextResponse, token: string) {
+  response.cookies.set({
+    name: GOOGLE_API_COOKIE_NAME,
+    value: token,
+    httpOnly: true,
+    secure: shouldUseSecureCookies(),
+    sameSite: "lax",
+    path: "/",
+    maxAge: GOOGLE_API_COOKIE_MAX_AGE_SECONDS
+  });
+}
+
+export function clearGoogleApiCookie(response: NextResponse) {
+  response.cookies.set({
+    name: GOOGLE_API_COOKIE_NAME,
+    value: "",
+    httpOnly: true,
+    secure: shouldUseSecureCookies(),
+    sameSite: "lax",
+    path: "/",
+    expires: new Date(0)
+  });
+}
+
 export function setOAuthStateCookie(response: NextResponse, state: string) {
   response.cookies.set({
     name: OAUTH_STATE_COOKIE_NAME,
@@ -226,6 +267,67 @@ export async function getCurrentUser() {
     console.error("auth_load_current_user_error", error);
     return null;
   }
+}
+
+export async function createGoogleApiSessionToken(input: {
+  userId: string;
+  email: string;
+  accessToken: string;
+  refreshToken?: string | null;
+  tokenType?: string | null;
+  scope?: string | null;
+  accessTokenExpiresAt?: number | null;
+}) {
+  const now = Math.floor(Date.now() / 1000);
+  return createGoogleApiToken(
+    {
+      sub: input.userId,
+      email: input.email,
+      accessToken: input.accessToken,
+      refreshToken: input.refreshToken || null,
+      tokenType: input.tokenType || null,
+      scope: input.scope || null,
+      accessTokenExpiresAt: input.accessTokenExpiresAt || null,
+      iat: now,
+      exp: now + GOOGLE_API_COOKIE_MAX_AGE_SECONDS
+    },
+    authSecret()
+  );
+}
+
+export async function setGoogleApiSession(
+  response: NextResponse,
+  input: {
+    userId: string;
+    email: string;
+    accessToken: string;
+    refreshToken?: string | null;
+    tokenType?: string | null;
+    scope?: string | null;
+    accessTokenExpiresAt?: number | null;
+  }
+) {
+  const token = await createGoogleApiSessionToken(input);
+  setGoogleApiCookie(response, token);
+}
+
+export async function readGoogleApiSession() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(GOOGLE_API_COOKIE_NAME)?.value;
+  if (!token) return null;
+
+  const payload = await verifyGoogleApiToken(token, authSecret());
+  if (!payload) return null;
+
+  return {
+    userId: payload.sub,
+    email: payload.email,
+    accessToken: payload.accessToken,
+    refreshToken: payload.refreshToken || null,
+    tokenType: payload.tokenType || null,
+    scope: payload.scope || null,
+    accessTokenExpiresAt: payload.accessTokenExpiresAt || null
+  } satisfies GoogleApiSession;
 }
 
 export async function requireAdminApi() {

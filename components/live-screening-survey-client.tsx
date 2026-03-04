@@ -45,6 +45,7 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
   const [participantName, setParticipantName] = React.useState("");
   const [participantEmail, setParticipantEmail] = React.useState("");
   const [healthSystemId, setHealthSystemId] = React.useState("");
+  const [impressions, setImpressions] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
   const [submitted, setSubmitted] = React.useState(false);
   const [questionIndex, setQuestionIndex] = React.useState(0);
@@ -68,9 +69,12 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
         if (cancelled) return;
 
         const nextSession = payload.session as LiveSurveySession;
-        const nextQuestions = ((payload.questions || []) as LiveSurveyQuestion[]).sort(
-          (a, b) => a.displayOrder - b.displayOrder
-        );
+        const nextQuestions = ((payload.questions || []) as LiveSurveyQuestion[]).sort((a, b) => {
+          if (a.displayOrder !== b.displayOrder) {
+            return a.displayOrder - b.displayOrder;
+          }
+          return a.sessionQuestionId.localeCompare(b.sessionQuestionId);
+        });
         const nextHealthSystems = (payload.healthSystems || []) as LiveSurveyHealthSystem[];
 
         setSession(nextSession);
@@ -85,6 +89,8 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
         setQuestionIndex(0);
         setSlideDirection("forward");
         setSlideKey(0);
+        setImpressions("");
+        setSubmitted(false);
       } catch (error) {
         if (!cancelled) {
           setStatus({
@@ -103,20 +109,21 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
   }, [token]);
 
   const questionCount = questions.length;
-  const currentQuestion = questionCount > 0 ? questions[questionIndex] : null;
-  const progressPercent = questionCount > 0 ? ((questionIndex + 1) / questionCount) * 100 : 0;
+  const totalSteps = questionCount > 0 ? questionCount + 1 : 0;
+  const currentQuestion = questionCount > 0 && questionIndex < questionCount ? questions[questionIndex] : null;
+  const isImpressionStep = questionCount > 0 && questionIndex === questionCount;
+  const progressPercent = totalSteps > 0 ? ((questionIndex + 1) / totalSteps) * 100 : 0;
   const currentAnswerValue = currentQuestion ? answers[currentQuestion.sessionQuestionId] : 0;
 
   function goToNextQuestion() {
-    if (!currentQuestion) return;
-    if (questionIndex >= questionCount - 1) return;
+    if (totalSteps === 0) return;
+    if (questionIndex >= totalSteps - 1) return;
     setSlideDirection("forward");
     setQuestionIndex((current) => current + 1);
     setSlideKey((current) => current + 1);
   }
 
   function goToPreviousQuestion() {
-    if (!currentQuestion) return;
     if (questionIndex <= 0) return;
     setSlideDirection("backward");
     setQuestionIndex((current) => current - 1);
@@ -137,6 +144,14 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
       setStatus({ kind: "error", text: "Survey has no questions configured." });
       return;
     }
+    const impressionText = impressions.trim();
+    if (!impressionText) {
+      setStatus({
+        kind: "error",
+        text: "Please add one to two sentences about your overall impressions."
+      });
+      return;
+    }
 
     setSubmitting(true);
     setStatus(null);
@@ -148,6 +163,7 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
           participantName: participantName.trim() || undefined,
           participantEmail: participantEmail.trim() || undefined,
           healthSystemId,
+          impressions: impressionText,
           answers: questions.map((question) => ({
             sessionQuestionId: question.sessionQuestionId,
             score: answers[question.sessionQuestionId]
@@ -232,63 +248,97 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
               </div>
             </div>
 
-            {currentQuestion ? (
+            {questionCount > 0 ? (
               <>
                 <div className="live-survey-progress-meta">
-                  <strong>{`Question ${questionIndex + 1} of ${questionCount}`}</strong>
+                  <strong>{`Question ${Math.min(questionIndex + 1, totalSteps)} of ${totalSteps}`}</strong>
                   <span>{`${Math.round(progressPercent)}% complete`}</span>
                 </div>
                 <div className="live-survey-progress-track" role="progressbar" aria-valuenow={Math.round(progressPercent)} aria-valuemin={0} aria-valuemax={100}>
                   <span className="live-survey-progress-fill" style={{ width: `${progressPercent}%` }} />
                 </div>
 
-                <div
-                  key={`${currentQuestion.sessionQuestionId}-${slideKey}`}
-                  className={`live-survey-question-stage ${
-                    slideDirection === "forward" ? "slide-forward" : "slide-backward"
-                  }`}
-                >
-                  <span className="live-survey-category-chip">{currentQuestion.category}</span>
-                  <h2>{currentQuestion.prompt}</h2>
-                  {currentQuestion.instructions ? (
-                    <p className="live-survey-question-instructions">{currentQuestion.instructions}</p>
-                  ) : null}
-                  <div className="live-survey-scale">
-                    <span>{currentQuestion.scaleMin}</span>
-                    <input
-                      type="range"
-                      min={currentQuestion.scaleMin}
-                      max={currentQuestion.scaleMax}
-                      step={1}
-                      value={currentAnswerValue}
-                      onChange={(event) =>
-                        setAnswers((current) => ({
-                          ...current,
-                          [currentQuestion.sessionQuestionId]: clamp(
-                            event.target.valueAsNumber,
-                            currentQuestion.scaleMin,
-                            currentQuestion.scaleMax
-                          )
-                        }))
-                      }
-                    />
-                    <span>{currentQuestion.scaleMax}</span>
-                    <strong>{currentAnswerValue}</strong>
-                  </div>
-                  <div className="live-survey-nav">
-                    <button
-                      type="button"
-                      className="ghost"
-                      onClick={goToPreviousQuestion}
-                      disabled={questionIndex === 0 || submitting}
-                    >
-                      Back
-                    </button>
-                    {questionIndex < questionCount - 1 ? (
-                      <button type="button" className="secondary" onClick={goToNextQuestion} disabled={submitting}>
-                        Next
+                {currentQuestion ? (
+                  <div
+                    key={`${currentQuestion.sessionQuestionId}-${slideKey}`}
+                    className={`live-survey-question-stage ${
+                      slideDirection === "forward" ? "slide-forward" : "slide-backward"
+                    }`}
+                  >
+                    <span className="live-survey-category-chip">{currentQuestion.category}</span>
+                    <h2>{currentQuestion.prompt}</h2>
+                    {currentQuestion.instructions ? (
+                      <p className="live-survey-question-instructions">{currentQuestion.instructions}</p>
+                    ) : null}
+                    <div className="live-survey-scale">
+                      <span>{currentQuestion.scaleMin}</span>
+                      <input
+                        type="range"
+                        min={currentQuestion.scaleMin}
+                        max={currentQuestion.scaleMax}
+                        step={1}
+                        value={currentAnswerValue}
+                        onChange={(event) =>
+                          setAnswers((current) => ({
+                            ...current,
+                            [currentQuestion.sessionQuestionId]: clamp(
+                              event.target.valueAsNumber,
+                              currentQuestion.scaleMin,
+                              currentQuestion.scaleMax
+                            )
+                          }))
+                        }
+                      />
+                      <span>{currentQuestion.scaleMax}</span>
+                      <strong>{currentAnswerValue}</strong>
+                    </div>
+                    <div className="live-survey-nav">
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={goToPreviousQuestion}
+                        disabled={questionIndex === 0 || submitting}
+                      >
+                        Back
                       </button>
-                    ) : (
+                      <button type="button" className="secondary" onClick={goToNextQuestion} disabled={submitting}>
+                        {questionIndex < questionCount - 1 ? "Next" : "Final Question"}
+                      </button>
+                    </div>
+                  </div>
+                ) : isImpressionStep ? (
+                  <div
+                    key={`impression-step-${slideKey}`}
+                    className={`live-survey-question-stage ${
+                      slideDirection === "forward" ? "slide-forward" : "slide-backward"
+                    }`}
+                  >
+                    <span className="live-survey-category-chip">Qualitative Feedback</span>
+                    <h2>In one to two sentences, what are your overall impressions?</h2>
+                    <p className="live-survey-question-instructions">
+                      This helps us capture qualitative themes from your feedback.
+                    </p>
+                    <div className="live-survey-text-response">
+                      <label htmlFor="live-survey-impressions">Impressions</label>
+                      <textarea
+                        id="live-survey-impressions"
+                        value={impressions}
+                        onChange={(event) => setImpressions(event.target.value)}
+                        maxLength={1200}
+                        rows={5}
+                        placeholder="Share your overall impression, concerns, and level of interest."
+                      />
+                      <p className="muted">{`${impressions.length}/1200 characters`}</p>
+                    </div>
+                    <div className="live-survey-nav">
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={goToPreviousQuestion}
+                        disabled={questionIndex === 0 || submitting}
+                      >
+                        Back
+                      </button>
                       <button
                         type="button"
                         className="secondary"
@@ -297,9 +347,9 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
                       >
                         {submitting ? "Submitting..." : "Submit Survey"}
                       </button>
-                    )}
+                    </div>
                   </div>
-                </div>
+                ) : null}
               </>
             ) : (
               <p className="muted">No questions available in this survey.</p>

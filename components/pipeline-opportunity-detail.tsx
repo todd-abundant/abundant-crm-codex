@@ -12,14 +12,23 @@ import {
 } from "@/lib/pipeline-opportunities";
 import { EntityLookupInput } from "./entity-lookup-input";
 import { ScreeningSurveySessionSelector } from "./screening-survey-session-selector";
-import { InlineTextareaField } from "./inline-detail-field";
-import { RichTextArea } from "./rich-text-area";
+import { InlineTextField, InlineTextareaField } from "./inline-detail-field";
+import { normalizeRichText, RichTextArea } from "./rich-text-area";
 import {
   inferGoogleDocumentTitle,
   MAX_COMPANY_DOCUMENT_FILE_BYTES,
   normalizeGoogleDocsUrl,
   readFileAsDataUrl
 } from "@/lib/company-document-links";
+import {
+  defaultMarketLandscapePayload,
+  marketLandscapeCellKeys,
+  marketLandscapeGridRows,
+  marketLandscapeTemplateOptions,
+  normalizeMarketLandscapePayload,
+  type MarketLandscapeCellKey,
+  type MarketLandscapePayload
+} from "@/lib/market-landscape";
 
 type ScreeningStatus = "NOT_STARTED" | "PENDING" | "NEGOTIATING" | "SIGNED" | "DECLINED";
 type ScreeningAttendanceStatus = "INVITED" | "ATTENDED" | "DECLINED" | "NO_SHOW";
@@ -126,11 +135,14 @@ type PipelineOpportunityDetail = {
   atAGlanceKeyStrengths: string | null;
   atAGlanceKeyConsiderations: string | null;
   ventureStudioCriteria: PipelineVentureStudioCriteriaPayload[] | null;
+  marketLandscape: MarketLandscapePayload | null;
   location: string;
   phase: PipelinePhase;
   phaseLabel: string;
   column: PipelineBoardColumn | null;
   isScreeningStage: boolean;
+  ventureLikelihoodPercent: number | null;
+  ventureExpectedCloseDate: string | null;
   opportunities: Array<{
     id: string;
     title: string;
@@ -160,18 +172,30 @@ type PipelineOpportunityDetail = {
 
 type IntakeDetailTab =
   | "pipeline-status"
-  | "at-a-glance-status"
-  | "venture-studio-criteria"
-  | "market-landscape"
-  | "recommendations"
+  | "screening-materials"
+  | "intake-materials"
   | "notes"
   | "documents";
+
+type IntakeMaterialsSubTab =
+  | "at-a-glance"
+  | "venture-studio-criteria"
+  | "market-landscape"
+  | "market-landscape-option-1";
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "Not set";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "Not set";
   return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function toDateInputValue(value: string | null | undefined) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
 }
 
 function escapeHtml(value: string) {
@@ -251,8 +275,7 @@ const companyDocumentMaxSizeMb = Math.round(MAX_COMPANY_DOCUMENT_FILE_BYTES / (1
 const screeningDetailViewOptions: Array<{ key: ScreeningDetailView; label: string; icon: string }> = [
   { key: "status", label: "Status Matrix", icon: "SM" },
   { key: "quantitative", label: "Quantitative", icon: "Q" },
-  { key: "qualitative", label: "Qualitative", icon: "Ql" },
-  { key: "documents", label: "Company Docs", icon: "CD" }
+  { key: "qualitative", label: "Qualitative", icon: "Ql" }
 ];
 
 const quantitativeCategoryOptions = [
@@ -622,11 +645,46 @@ function normalizeVentureStudioCriteriaRows(rows?: PipelineOpportunityDetail["ve
   });
 }
 
-type ScreeningDetailView = "status" | "quantitative" | "qualitative" | "documents";
+const marketLandscapeBodyFieldGuide: Record<
+  MarketLandscapePayload["template"],
+  {
+    primaryLabel: string;
+    secondaryLabel: string;
+    primaryField: "overview" | "strengths";
+    secondaryField: "businessModel" | "gaps";
+  }
+> = {
+  CATEGORY_OVERVIEW: {
+    primaryLabel: "Category Overview",
+    secondaryLabel: "Business Model",
+    primaryField: "overview",
+    secondaryField: "businessModel"
+  },
+  STRENGTHS_GAPS: {
+    primaryLabel: "Strengths",
+    secondaryLabel: "Gaps",
+    primaryField: "strengths",
+    secondaryField: "gaps"
+  }
+};
+
+type ScreeningDetailView = "status" | "quantitative" | "qualitative";
 type AddAttendeeModalState = {
   healthSystemId: string;
   healthSystemName: string;
 };
+
+type MarketLandscapeOption1InfoResponse =
+  | { kind: "missing_intake_document" }
+  | { kind: "invalid_intake_document"; message: string }
+  | {
+      kind: "ok";
+      presentationId: string;
+      presentationUrl: string;
+      slideObjectId: string | null;
+      slideEditUrl: string | null;
+      thumbnailUrl: string | null;
+    };
 
 function screeningCellFieldLabel(field: ScreeningCellField) {
   return field === "RELEVANT_FEEDBACK" ? "Relevant Feedback + Next Steps" : "Status Update";
@@ -654,6 +712,8 @@ export function PipelineOpportunityDetailView({
   const [loading, setLoading] = React.useState(true);
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [activeIntakeDetailTab, setActiveIntakeDetailTab] = React.useState<IntakeDetailTab>("pipeline-status");
+  const [activeIntakeMaterialsTab, setActiveIntakeMaterialsTab] =
+    React.useState<IntakeMaterialsSubTab>("at-a-glance");
   const [savingPhase, setSavingPhase] = React.useState(false);
   const [savingStatusByHealthSystemId, setSavingStatusByHealthSystemId] = React.useState<Record<string, boolean>>({});
   const [savingFeedbackByHealthSystemId, setSavingFeedbackByHealthSystemId] = React.useState<Record<string, boolean>>({});
@@ -669,6 +729,15 @@ export function PipelineOpportunityDetailView({
   const [ventureStudioCriteriaDraft, setVentureStudioCriteriaDraft] = React.useState<VentureStudioCriteriaDraft[]>(
     cloneVentureStudioCriteriaRows()
   );
+  const [savingMarketLandscape, setSavingMarketLandscape] = React.useState(false);
+  const [marketLandscapeDraft, setMarketLandscapeDraft] = React.useState<MarketLandscapePayload>(() =>
+    defaultMarketLandscapePayload()
+  );
+  const [marketLandscapeOption1Info, setMarketLandscapeOption1Info] =
+    React.useState<MarketLandscapeOption1InfoResponse | null>(null);
+  const [loadingMarketLandscapeOption1, setLoadingMarketLandscapeOption1] = React.useState(false);
+  const [marketLandscapeOption1Error, setMarketLandscapeOption1Error] = React.useState<string | null>(null);
+  const [marketLandscapeOption1ThumbnailNonce, setMarketLandscapeOption1ThumbnailNonce] = React.useState(0);
   const [addAttendeeModal, setAddAttendeeModal] = React.useState<AddAttendeeModalState | null>(null);
   const [addAttendeeLookupValue, setAddAttendeeLookupValue] = React.useState("");
   const [editingScreeningCell, setEditingScreeningCell] = React.useState<{
@@ -684,6 +753,7 @@ export function PipelineOpportunityDetailView({
   const [savingQualitativeEntryById, setSavingQualitativeEntryById] = React.useState<Record<string, boolean>>({});
   const [deletingQualitativeEntryById, setDeletingQualitativeEntryById] = React.useState<Record<string, boolean>>({});
   const [showQualitativePreview, setShowQualitativePreview] = React.useState(false);
+  const [showAddQualitativeFeedbackModal, setShowAddQualitativeFeedbackModal] = React.useState(false);
   const [quantitativeQuestionCategories, setQuantitativeQuestionCategories] = React.useState<
     QuantitativeQuestionCategory[]
   >(() => cloneQuantitativeQuestionCategories(defaultQuantitativeQuestionCategories));
@@ -696,8 +766,57 @@ export function PipelineOpportunityDetailView({
   const [newCompanyDocumentTitle, setNewCompanyDocumentTitle] = React.useState("");
   const [newCompanyDocumentGoogleUrl, setNewCompanyDocumentGoogleUrl] = React.useState("");
   const [savingAtAGlanceFieldByKey, setSavingAtAGlanceFieldByKey] = React.useState<Record<string, boolean>>({});
+  const [isGeneratingIntakeReport, setIsGeneratingIntakeReport] = React.useState(false);
+  const [lastGenerateStatus, setLastGenerateStatus] = React.useState<string | null>(null);
   const [newNoteDraft, setNewNoteDraft] = React.useState("");
   const [addingNote, setAddingNote] = React.useState(false);
+  const [showAddNoteModal, setShowAddNoteModal] = React.useState(false);
+  const [showAddDocumentModal, setShowAddDocumentModal] = React.useState(false);
+
+  const currentIntakeDocument = (item?.documents || [])
+    .filter((document) => document.type === "INTAKE_REPORT")
+    .slice()
+    .sort((a, b) => {
+      const left = new Date(a.uploadedAt).getTime();
+      const right = new Date(b.uploadedAt).getTime();
+      if (Number.isNaN(left) && Number.isNaN(right)) return 0;
+      if (Number.isNaN(left)) return 1;
+      if (Number.isNaN(right)) return -1;
+      return right - left;
+    })[0] || null;
+
+  const loadMarketLandscapeOption1 = React.useCallback(async () => {
+    setLoadingMarketLandscapeOption1(true);
+    setMarketLandscapeOption1Error(null);
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${itemId}/market-landscape-option-1`, {
+        cache: "no-store"
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to load Market Landscape Option 1 slide.");
+      }
+      setMarketLandscapeOption1Info(payload as MarketLandscapeOption1InfoResponse);
+    } catch (error) {
+      setMarketLandscapeOption1Info(null);
+      setMarketLandscapeOption1Error(
+        error instanceof Error ? error.message : "Failed to load Market Landscape Option 1 slide."
+      );
+    } finally {
+      setLoadingMarketLandscapeOption1(false);
+    }
+  }, [itemId]);
+
+  const currentIntakeDocumentId = currentIntakeDocument?.id || null;
+  const shouldLoadMarketLandscapeOption1 =
+    activeIntakeDetailTab === "intake-materials" && activeIntakeMaterialsTab === "market-landscape-option-1";
+
+  React.useEffect(() => {
+    if (!shouldLoadMarketLandscapeOption1) return;
+    if (!currentIntakeDocumentId) return;
+    void loadMarketLandscapeOption1();
+  }, [shouldLoadMarketLandscapeOption1, currentIntakeDocumentId, loadMarketLandscapeOption1]);
 
   const loadItem = React.useCallback(async () => {
     setLoading(true);
@@ -707,7 +826,15 @@ export function PipelineOpportunityDetailView({
       const res = await fetch(`/api/pipeline/opportunities/${itemId}`, { cache: "no-store" });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || "Failed to load pipeline detail");
-      setItem(payload.item ? { ...payload.item, notes: Array.isArray(payload.item.notes) ? payload.item.notes : [] } : null);
+      setItem(
+        payload.item
+          ? {
+              ...payload.item,
+              notes: Array.isArray(payload.item.notes) ? payload.item.notes : [],
+              marketLandscape: normalizeMarketLandscapePayload(payload.item.marketLandscape, payload.item.name)
+            }
+          : null
+      );
     } catch (error) {
       setStatus({
         kind: "error",
@@ -732,7 +859,15 @@ export function PipelineOpportunityDetailView({
           const res = await fetch(`/api/pipeline/opportunities/${itemId}`, { cache: "no-store" });
           const payload = await res.json();
           if (!res.ok) return;
-          setItem(payload.item || null);
+          setItem(
+            payload.item
+              ? {
+                  ...payload.item,
+                  notes: Array.isArray(payload.item.notes) ? payload.item.notes : [],
+                  marketLandscape: normalizeMarketLandscapePayload(payload.item.marketLandscape, payload.item.name)
+                }
+              : null
+          );
         } catch {
           // Keep background refresh silent; foreground actions surface errors.
         }
@@ -762,6 +897,12 @@ export function PipelineOpportunityDetailView({
     if (currentStillExists && activeScreeningHealthSystemId) return;
     setActiveScreeningHealthSystemId(firstHealthSystemId);
   }, [item, activeScreeningHealthSystemId]);
+
+  React.useEffect(() => {
+    if (item?.isScreeningStage) return;
+    if (activeIntakeDetailTab !== "screening-materials") return;
+    setActiveIntakeDetailTab("pipeline-status");
+  }, [item?.isScreeningStage, activeIntakeDetailTab]);
 
   React.useEffect(() => {
     if (!item?.isScreeningStage) {
@@ -839,6 +980,39 @@ export function PipelineOpportunityDetailView({
       return next;
     });
   }, [item?.ventureStudioCriteria, item?.id]);
+
+  React.useEffect(() => {
+    setMarketLandscapeDraft((current) => {
+      const next = normalizeMarketLandscapePayload(item?.marketLandscape ?? null, item?.name);
+      const same =
+        current.sectionLabel === next.sectionLabel &&
+        current.headline === next.headline &&
+        current.subheadline === next.subheadline &&
+        current.template === next.template &&
+        current.xAxisLabel === next.xAxisLabel &&
+        current.yAxisLabel === next.yAxisLabel &&
+        current.columnLabels[0] === next.columnLabels[0] &&
+        current.columnLabels[1] === next.columnLabels[1] &&
+        current.rowLabels[0] === next.rowLabels[0] &&
+        current.rowLabels[1] === next.rowLabels[1] &&
+        current.primaryFocusCellKey === next.primaryFocusCellKey &&
+        current.cards.length === next.cards.length &&
+        current.cards.every((card, index) => {
+          const other = next.cards[index];
+          return (
+            card.key === other?.key &&
+            card.title === other?.title &&
+            card.overview === other?.overview &&
+            card.businessModel === other?.businessModel &&
+            card.strengths === other?.strengths &&
+            card.gaps === other?.gaps &&
+            card.vendors === other?.vendors
+          );
+        });
+      if (same) return current;
+      return next;
+    });
+  }, [item?.marketLandscape, item?.name]);
 
   React.useEffect(() => {
     if (!item?.isScreeningStage) {
@@ -1352,6 +1526,76 @@ export function PipelineOpportunityDetailView({
     previewWindow.document.close();
   }
 
+  function updateMarketLandscapeCardField(
+    cardKey: MarketLandscapeCellKey,
+    field: "title" | "overview" | "businessModel" | "strengths" | "gaps" | "vendors",
+    value: string
+  ) {
+    setMarketLandscapeDraft((current) => ({
+      ...current,
+      cards: current.cards.map((card) => (card.key === cardKey ? { ...card, [field]: value } : card))
+    }));
+  }
+
+  function updateMarketLandscapeColumnLabel(index: 0 | 1, value: string) {
+    setMarketLandscapeDraft((current) => {
+      const next: [string, string] = [...current.columnLabels];
+      next[index] = value;
+      return {
+        ...current,
+        columnLabels: next
+      };
+    });
+  }
+
+  function updateMarketLandscapeRowLabel(index: 0 | 1, value: string) {
+    setMarketLandscapeDraft((current) => {
+      const next: [string, string] = [...current.rowLabels];
+      next[index] = value;
+      return {
+        ...current,
+        rowLabels: next
+      };
+    });
+  }
+
+  async function saveMarketLandscape() {
+    if (!item) return;
+
+    setSavingMarketLandscape(true);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/card`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          marketLandscape: marketLandscapeDraft
+        })
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to save market landscape.");
+
+      const next = normalizeMarketLandscapePayload(payload.item?.marketLandscape ?? marketLandscapeDraft, item.name);
+      setItem((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          marketLandscape: next
+        };
+      });
+      setMarketLandscapeDraft(next);
+      setStatus({ kind: "ok", text: "Market Landscape updated." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to save market landscape."
+      });
+    } finally {
+      setSavingMarketLandscape(false);
+    }
+  }
+
   async function updateAtAGlanceField(field: AtAGlanceFieldKey, value: string) {
     if (!item) return;
     if ((item[field] || "") === value) return;
@@ -1390,6 +1634,84 @@ export function PipelineOpportunityDetailView({
     }
   }
 
+  async function updatePipelineCardMeta(input: {
+    ventureLikelihoodPercent?: number | null;
+    ventureExpectedCloseDate?: string | null;
+  }) {
+    if (!item) return;
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/card`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input)
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to update pipeline status.");
+
+      const updatedLikelihood =
+        payload.item?.ventureLikelihoodPercent === null || Number.isInteger(payload.item?.ventureLikelihoodPercent)
+          ? (payload.item?.ventureLikelihoodPercent ?? null)
+          : input.ventureLikelihoodPercent ?? item.ventureLikelihoodPercent;
+      const updatedCloseDate =
+        typeof payload.item?.ventureExpectedCloseDate === "string" || payload.item?.ventureExpectedCloseDate === null
+          ? (payload.item?.ventureExpectedCloseDate ?? null)
+          : input.ventureExpectedCloseDate ?? item.ventureExpectedCloseDate;
+
+      setItem((current) =>
+        current
+          ? {
+              ...current,
+              ventureLikelihoodPercent: updatedLikelihood,
+              ventureExpectedCloseDate: updatedCloseDate
+            }
+          : current
+      );
+      setStatus({ kind: "ok", text: "Pipeline status updated." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update pipeline status."
+      });
+    }
+  }
+
+  async function saveVentureLikelihood(nextValue: string) {
+    if (!item) return;
+    const trimmed = nextValue.trim();
+    if (!trimmed) {
+      if (item.ventureLikelihoodPercent === null) return;
+      await updatePipelineCardMeta({ ventureLikelihoodPercent: null });
+      return;
+    }
+
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) {
+      setStatus({ kind: "error", text: "Likelihood to Close must be a number from 0 to 100." });
+      return;
+    }
+    const rounded = Math.round(parsed);
+    if (rounded < 0 || rounded > 100) {
+      setStatus({ kind: "error", text: "Likelihood to Close must be between 0 and 100." });
+      return;
+    }
+    if (item.ventureLikelihoodPercent === rounded) return;
+    await updatePipelineCardMeta({ ventureLikelihoodPercent: rounded });
+  }
+
+  async function saveVentureExpectedCloseDate(nextValue: string) {
+    if (!item) return;
+    const trimmed = nextValue.trim();
+    if (!trimmed) {
+      if (!item.ventureExpectedCloseDate) return;
+      await updatePipelineCardMeta({ ventureExpectedCloseDate: null });
+      return;
+    }
+    if (item.ventureExpectedCloseDate && toDateInputValue(item.ventureExpectedCloseDate) === trimmed) return;
+    await updatePipelineCardMeta({ ventureExpectedCloseDate: trimmed });
+  }
+
   async function addPipelineNote() {
     if (!item || addingNote) return;
     const trimmed = newNoteDraft.trim();
@@ -1422,6 +1744,7 @@ export function PipelineOpportunityDetailView({
           : current
       );
       setNewNoteDraft("");
+      setShowAddNoteModal(false);
       setStatus({ kind: "ok", text: "Note added." });
     } catch (error) {
       setStatus({
@@ -1637,6 +1960,7 @@ export function PipelineOpportunityDetailView({
         };
       });
       setQualitativeDraft(emptyQualitativeFeedbackDraft(healthSystemId));
+      setShowAddQualitativeFeedbackModal(false);
       setStatus({ kind: "ok", text: "Qualitative feedback captured." });
     } catch (error) {
       setStatus({
@@ -1815,6 +2139,7 @@ export function PipelineOpportunityDetailView({
       });
       if (created) {
         setNewCompanyDocumentTitle("");
+        setShowAddDocumentModal(false);
       }
     } catch (error) {
       setStatus({
@@ -1843,6 +2168,77 @@ export function PipelineOpportunityDetailView({
     if (created) {
       setNewCompanyDocumentGoogleUrl("");
       setNewCompanyDocumentTitle("");
+      setShowAddDocumentModal(false);
+    }
+  }
+
+  async function generateIntakeReport(force: boolean) {
+    if (!item) return;
+    if (force && !window.confirm("Recreate the Intake Document and replace the existing one?")) {
+      return;
+    }
+
+    setIsGeneratingIntakeReport(true);
+    setStatus(null);
+    setLastGenerateStatus(force ? "Recreating intake report..." : "Generating intake report...");
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/intake-document`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force })
+      });
+      const payload = await res.json();
+
+      if (!res.ok) {
+        if (res.status === 409 && payload?.document) {
+          setStatus({
+            kind: "error",
+            text: payload.error || "An intake report already exists. Recreate it to replace the existing document."
+          });
+          return;
+        }
+        throw new Error(payload.error || "Failed to generate intake report.");
+      }
+
+      const created = payload.document as PipelineOpportunityDetail["documents"][number] | undefined;
+      const storageHint = typeof payload.storageHint === "string" ? payload.storageHint.trim() : "";
+      if (!created) {
+        throw new Error("Failed to generate intake report.");
+      }
+
+      setItem((current) => {
+        if (!current) return current;
+        const filteredDocuments = force
+          ? current.documents.filter((document) => document.type !== "INTAKE_REPORT")
+          : current.documents;
+        return {
+          ...current,
+          documents: [created, ...filteredDocuments]
+        };
+      });
+
+      setStatus({
+        kind: "ok",
+        text: [
+          force ? "Intake report recreated." : "Intake report generated.",
+          storageHint
+        ]
+          .filter(Boolean)
+          .join(" ")
+      });
+      const summary =
+        (force ? "Intake report recreated." : "Intake report generated.") +
+        (storageHint ? ` ${storageHint}` : "");
+      setLastGenerateStatus(summary);
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to generate intake report."
+      });
+      setLastGenerateStatus(null);
+    } finally {
+      setIsGeneratingIntakeReport(false);
     }
   }
 
@@ -1925,67 +2321,24 @@ export function PipelineOpportunityDetailView({
     return a.theme.localeCompare(b.theme);
   });
 
-  const companyDocumentComposer = (
-    <div className="detail-section">
-      <p className="detail-label">Add Company Document</p>
-      <div className="detail-grid">
-        <div>
-          <label>Document Type</label>
-          <select
-            value={newCompanyDocumentType}
-            onChange={(event) => setNewCompanyDocumentType(event.target.value as CompanyDocumentType)}
-          >
-            {companyDocumentTypeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label>Document Title (optional)</label>
-          <input
-            value={newCompanyDocumentTitle}
-            onChange={(event) => setNewCompanyDocumentTitle(event.target.value)}
-            placeholder="Screening memo"
-          />
-        </div>
-        <div>
-          <label>Google Docs Link</label>
-          <input
-            value={newCompanyDocumentGoogleUrl}
-            onChange={(event) => setNewCompanyDocumentGoogleUrl(event.target.value)}
-            placeholder="https://docs.google.com/..."
-          />
-        </div>
-        <div>
-          <label>Upload from Computer</label>
-          <input
-            type="file"
-            accept={companyDocumentUploadAccept}
-            disabled={addingCompanyDocument}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = "";
-              if (!file) return;
-              void addCompanyDocumentFromUpload(file);
-            }}
-          />
-        </div>
-      </div>
-      <div className="actions">
-        <button
-          className="secondary small"
-          type="button"
-          onClick={() => void addCompanyDocumentFromGoogleLink()}
-          disabled={addingCompanyDocument}
-        >
-          Add Google Doc Link
-        </button>
-      </div>
-      <p className="muted">{`Uploads are limited to ${companyDocumentMaxSizeMb} MB per file.`}</p>
-    </div>
-  );
+  const sortedNotes = [...item.notes].sort((a, b) => {
+    const left = new Date(a.createdAt).getTime();
+    const right = new Date(b.createdAt).getTime();
+    if (Number.isNaN(left) && Number.isNaN(right)) return b.id.localeCompare(a.id);
+    if (Number.isNaN(left)) return 1;
+    if (Number.isNaN(right)) return -1;
+    if (right !== left) return right - left;
+    return b.id.localeCompare(a.id);
+  });
+  const sortedDocuments = [...item.documents].sort((a, b) => {
+    const left = new Date(a.uploadedAt).getTime();
+    const right = new Date(b.uploadedAt).getTime();
+    if (Number.isNaN(left) && Number.isNaN(right)) return b.id.localeCompare(a.id);
+    if (Number.isNaN(left)) return 1;
+    if (Number.isNaN(right)) return -1;
+    if (right !== left) return right - left;
+    return b.id.localeCompare(a.id);
+  });
 
   const quantitativeSlideSectionsResult = (() => {
     type QuantitativeResponseAggregate = {
@@ -2166,6 +2519,10 @@ export function PipelineOpportunityDetailView({
       value: item.atAGlanceKeyConsiderations || ""
     }
   ];
+  const marketLandscapeGuide = marketLandscapeBodyFieldGuide[marketLandscapeDraft.template];
+  const marketLandscapeCardByKey = new Map(
+    marketLandscapeDraft.cards.map((card) => [card.key, card] as const)
+  );
 
   return (
     <ContentWrapper className={inModal ? "pipeline-detail-content" : undefined}>
@@ -2192,41 +2549,25 @@ export function PipelineOpportunityDetailView({
           >
             Pipeline Status
           </button>
+          {item.isScreeningStage ? (
+            <button
+              type="button"
+              role="tab"
+              className={`detail-tab ${activeIntakeDetailTab === "screening-materials" ? "active" : ""}`}
+              aria-selected={activeIntakeDetailTab === "screening-materials"}
+              onClick={() => setActiveIntakeDetailTab("screening-materials")}
+            >
+              Screening Materials
+            </button>
+          ) : null}
           <button
             type="button"
             role="tab"
-            className={`detail-tab ${activeIntakeDetailTab === "at-a-glance-status" ? "active" : ""}`}
-            aria-selected={activeIntakeDetailTab === "at-a-glance-status"}
-            onClick={() => setActiveIntakeDetailTab("at-a-glance-status")}
+            className={`detail-tab ${activeIntakeDetailTab === "intake-materials" ? "active" : ""}`}
+            aria-selected={activeIntakeDetailTab === "intake-materials"}
+            onClick={() => setActiveIntakeDetailTab("intake-materials")}
           >
-            At a Glance Status
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`detail-tab ${activeIntakeDetailTab === "venture-studio-criteria" ? "active" : ""}`}
-            aria-selected={activeIntakeDetailTab === "venture-studio-criteria"}
-            onClick={() => setActiveIntakeDetailTab("venture-studio-criteria")}
-          >
-            Venture Studio Criteria
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`detail-tab ${activeIntakeDetailTab === "market-landscape" ? "active" : ""}`}
-            aria-selected={activeIntakeDetailTab === "market-landscape"}
-            onClick={() => setActiveIntakeDetailTab("market-landscape")}
-          >
-            Market Landscape
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`detail-tab ${activeIntakeDetailTab === "recommendations" ? "active" : ""}`}
-            aria-selected={activeIntakeDetailTab === "recommendations"}
-            onClick={() => setActiveIntakeDetailTab("recommendations")}
-          >
-            Recommendations
+            Intake Materials
           </button>
           <button
             type="button"
@@ -2247,6 +2588,7 @@ export function PipelineOpportunityDetailView({
             Documents
           </button>
         </div>
+        <div className="pipeline-detail-tab-panel">
 
         {activeIntakeDetailTab === "pipeline-status" ? (
           <>
@@ -2286,9 +2628,26 @@ export function PipelineOpportunityDetailView({
                 <input value={item.website || ""} readOnly />
               </div>
               <div>
-                <label>Stage Type</label>
-                <input value={item.isScreeningStage ? "Screening" : "Non-screening"} readOnly />
+                <InlineTextField
+                  label="Likelihood to Close (%)"
+                  value={
+                    item.ventureLikelihoodPercent === null || item.ventureLikelihoodPercent === undefined
+                      ? ""
+                      : String(item.ventureLikelihoodPercent)
+                  }
+                  inputType="number"
+                  placeholder="0-100"
+                  onSave={(nextValue) => void saveVentureLikelihood(nextValue)}
+                />
               </div>
+            </div>
+            <div className="detail-section">
+              <InlineTextField
+                label="Estimated Close Date"
+                value={toDateInputValue(item.ventureExpectedCloseDate)}
+                inputType="date"
+                onSave={(nextValue) => void saveVentureExpectedCloseDate(nextValue)}
+              />
             </div>
 
             {item.description ? (
@@ -2300,9 +2659,50 @@ export function PipelineOpportunityDetailView({
           </>
         ) : null}
 
-        {activeIntakeDetailTab === "at-a-glance-status" ? (
+        {activeIntakeDetailTab === "intake-materials" ? (
+          <div className="detail-tabs detail-subtabs" role="tablist" aria-label="Intake materials sections">
+            <button
+              type="button"
+              role="tab"
+              className={`detail-tab ${activeIntakeMaterialsTab === "at-a-glance" ? "active" : ""}`}
+              aria-selected={activeIntakeMaterialsTab === "at-a-glance"}
+              onClick={() => setActiveIntakeMaterialsTab("at-a-glance")}
+            >
+              At-A-Glance
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={`detail-tab ${activeIntakeMaterialsTab === "venture-studio-criteria" ? "active" : ""}`}
+              aria-selected={activeIntakeMaterialsTab === "venture-studio-criteria"}
+              onClick={() => setActiveIntakeMaterialsTab("venture-studio-criteria")}
+            >
+              VS Criteria
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={`detail-tab ${activeIntakeMaterialsTab === "market-landscape" ? "active" : ""}`}
+              aria-selected={activeIntakeMaterialsTab === "market-landscape"}
+              onClick={() => setActiveIntakeMaterialsTab("market-landscape")}
+            >
+              Market Landscape
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={`detail-tab ${activeIntakeMaterialsTab === "market-landscape-option-1" ? "active" : ""}`}
+              aria-selected={activeIntakeMaterialsTab === "market-landscape-option-1"}
+              onClick={() => setActiveIntakeMaterialsTab("market-landscape-option-1")}
+            >
+              Market Landscape Option 1
+            </button>
+          </div>
+        ) : null}
+
+        {activeIntakeDetailTab === "intake-materials" && activeIntakeMaterialsTab === "at-a-glance" ? (
           <>
-            <h2>At a Glance Status</h2>
+            <h2>At-A-Glance</h2>
             <p className="muted">Capture concise intake framing using markdown-style formatting.</p>
             <div className="detail-section">
               {atAGlanceFields.map((field) => (
@@ -2313,6 +2713,7 @@ export function PipelineOpportunityDetailView({
                     value={field.value}
                     rows={12}
                     enableFormatting
+                    stripFormattingOnPaste
                     onSave={(nextValue) => void updateAtAGlanceField(field.key, nextValue)}
                   />
                   {savingAtAGlanceFieldByKey[field.key] ? (
@@ -2324,7 +2725,7 @@ export function PipelineOpportunityDetailView({
           </>
         ) : null}
 
-        {activeIntakeDetailTab === "venture-studio-criteria" ? (
+        {activeIntakeDetailTab === "intake-materials" && activeIntakeMaterialsTab === "venture-studio-criteria" ? (
           <>
             <h2>Venture Studio Criteria</h2>
             <p className="muted">Capture each fixed criterion with an assessment and rationale.</p>
@@ -2378,6 +2779,7 @@ export function PipelineOpportunityDetailView({
                         <RichTextArea
                           className="venture-studio-criteria-rationale-editor"
                           value={row.rationale}
+                          stripFormattingOnPaste
                           onChange={(nextValue) =>
                             setVentureStudioCriteriaDraft((current) =>
                               current.map((entry) =>
@@ -2420,42 +2822,387 @@ export function PipelineOpportunityDetailView({
           </>
         ) : null}
 
-        {activeIntakeDetailTab === "market-landscape" ? (
+        {activeIntakeDetailTab === "intake-materials" && activeIntakeMaterialsTab === "market-landscape" ? (
           <>
             <h2>Market Landscape</h2>
-            <p className="muted">Content for this section will be added later.</p>
+            <p className="muted">Use the structured editor to build a 2x2 market map and preview it live.</p>
+            <div className="market-landscape-layout">
+              <div className="market-landscape-form-panel">
+                <div className="market-landscape-meta-grid">
+                  <div>
+                    <label>Section Label</label>
+                    <input
+                      value={marketLandscapeDraft.sectionLabel}
+                      maxLength={80}
+                      onChange={(event) =>
+                        setMarketLandscapeDraft((current) => ({ ...current, sectionLabel: event.target.value }))
+                      }
+                      placeholder="Market Landscape"
+                    />
+                  </div>
+                  <div>
+                    <label>Template</label>
+                    <select
+                      value={marketLandscapeDraft.template}
+                      onChange={(event) =>
+                        setMarketLandscapeDraft((current) => ({
+                          ...current,
+                          template: event.target.value as MarketLandscapePayload["template"]
+                        }))
+                      }
+                    >
+                      {marketLandscapeTemplateOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="market-landscape-meta-grid-full">
+                    <label>Headline</label>
+                    <input
+                      value={marketLandscapeDraft.headline}
+                      maxLength={180}
+                      onChange={(event) =>
+                        setMarketLandscapeDraft((current) => ({ ...current, headline: event.target.value }))
+                      }
+                      placeholder="Headline shown at top of the slide"
+                    />
+                  </div>
+                  <div className="market-landscape-meta-grid-full">
+                    <label>Subheadline</label>
+                    <input
+                      value={marketLandscapeDraft.subheadline}
+                      maxLength={220}
+                      onChange={(event) =>
+                        setMarketLandscapeDraft((current) => ({ ...current, subheadline: event.target.value }))
+                      }
+                      placeholder="Optional framing line under the headline"
+                    />
+                  </div>
+                </div>
+
+                <div className="market-landscape-axis-grid">
+                  <div>
+                    <label>X Axis Label</label>
+                    <input
+                      value={marketLandscapeDraft.xAxisLabel}
+                      maxLength={80}
+                      onChange={(event) =>
+                        setMarketLandscapeDraft((current) => ({ ...current, xAxisLabel: event.target.value }))
+                      }
+                      placeholder="Product Category"
+                    />
+                  </div>
+                  <div>
+                    <label>Y Axis Label</label>
+                    <input
+                      value={marketLandscapeDraft.yAxisLabel}
+                      maxLength={80}
+                      onChange={(event) =>
+                        setMarketLandscapeDraft((current) => ({ ...current, yAxisLabel: event.target.value }))
+                      }
+                      placeholder="Differentiation"
+                    />
+                  </div>
+                  <div>
+                    <label>Column 1</label>
+                    <input
+                      value={marketLandscapeDraft.columnLabels[0]}
+                      maxLength={80}
+                      onChange={(event) => updateMarketLandscapeColumnLabel(0, event.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label>Column 2</label>
+                    <input
+                      value={marketLandscapeDraft.columnLabels[1]}
+                      maxLength={80}
+                      onChange={(event) => updateMarketLandscapeColumnLabel(1, event.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label>Row 1</label>
+                    <input
+                      value={marketLandscapeDraft.rowLabels[0]}
+                      maxLength={80}
+                      onChange={(event) => updateMarketLandscapeRowLabel(0, event.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label>Row 2</label>
+                    <input
+                      value={marketLandscapeDraft.rowLabels[1]}
+                      maxLength={80}
+                      onChange={(event) => updateMarketLandscapeRowLabel(1, event.target.value)}
+                    />
+                  </div>
+                  <div className="market-landscape-axis-grid-full">
+                    <label>Primary Focus Cell</label>
+                    <select
+                      value={marketLandscapeDraft.primaryFocusCellKey}
+                      onChange={(event) =>
+                        setMarketLandscapeDraft((current) => ({
+                          ...current,
+                          primaryFocusCellKey: event.target.value as MarketLandscapeCellKey | ""
+                        }))
+                      }
+                    >
+                      <option value="">None</option>
+                      {marketLandscapeCellKeys.map((cellKey, index) => {
+                        const rowIndex = index < 2 ? 0 : 1;
+                        const columnIndex = index % 2;
+                        return (
+                          <option key={cellKey} value={cellKey}>
+                            {`${marketLandscapeDraft.rowLabels[rowIndex]} / ${marketLandscapeDraft.columnLabels[columnIndex]}`}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                </div>
+
+                <p className="muted market-landscape-guidance">
+                  Keep each card concise to avoid overflow in the generated slide.
+                </p>
+
+                <div className="market-landscape-card-editor-list">
+                  {marketLandscapeCellKeys.map((cellKey, index) => {
+                    const card = marketLandscapeCardByKey.get(cellKey);
+                    if (!card) return null;
+                    const rowIndex = index < 2 ? 0 : 1;
+                    const columnIndex = index % 2;
+                    return (
+                      <article key={cellKey} className="market-landscape-card-editor">
+                        <h3>{`${marketLandscapeDraft.rowLabels[rowIndex]} / ${marketLandscapeDraft.columnLabels[columnIndex]}`}</h3>
+                        <label>Card Title</label>
+                        <input
+                          value={card.title}
+                          maxLength={120}
+                          onChange={(event) => updateMarketLandscapeCardField(card.key, "title", event.target.value)}
+                          placeholder="Category title"
+                        />
+                        <label>{marketLandscapeGuide.primaryLabel}</label>
+                        <RichTextArea
+                          className="market-landscape-card-rich-editor"
+                          value={card[marketLandscapeGuide.primaryField]}
+                          rows={4}
+                          stripFormattingOnPaste
+                          onChange={(nextValue) =>
+                            updateMarketLandscapeCardField(card.key, marketLandscapeGuide.primaryField, nextValue)
+                          }
+                          placeholder={marketLandscapeGuide.primaryLabel}
+                        />
+                        <label>{marketLandscapeGuide.secondaryLabel}</label>
+                        <RichTextArea
+                          className="market-landscape-card-rich-editor"
+                          value={card[marketLandscapeGuide.secondaryField]}
+                          rows={3}
+                          stripFormattingOnPaste
+                          onChange={(nextValue) =>
+                            updateMarketLandscapeCardField(card.key, marketLandscapeGuide.secondaryField, nextValue)
+                          }
+                          placeholder={marketLandscapeGuide.secondaryLabel}
+                        />
+                        <label>Illustrative Vendors</label>
+                        <input
+                          value={card.vendors}
+                          maxLength={220}
+                          onChange={(event) => updateMarketLandscapeCardField(card.key, "vendors", event.target.value)}
+                          placeholder="Vendor A, Vendor B, Vendor C"
+                        />
+                      </article>
+                    );
+                  })}
+                </div>
+
+                <div className="actions">
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={() => void saveMarketLandscape()}
+                    disabled={savingMarketLandscape}
+                  >
+                    {savingMarketLandscape ? "Saving..." : "Save Market Landscape"}
+                  </button>
+                  <button
+                    className="ghost"
+                    type="button"
+                    onClick={() =>
+                      setMarketLandscapeDraft(
+                        defaultMarketLandscapePayload(item.name || undefined)
+                      )
+                    }
+                  >
+                    Reset to Default Layout
+                  </button>
+                </div>
+              </div>
+
+              <aside className="market-landscape-preview-panel">
+                <p className="market-landscape-preview-eyebrow">{marketLandscapeDraft.sectionLabel || "Market Landscape"}</p>
+                <h3>{marketLandscapeDraft.headline || "Market landscape headline"}</h3>
+                <p className="muted">{marketLandscapeDraft.subheadline || "Add a short context sentence."}</p>
+                <div className="market-landscape-preview-matrix">
+                  <div className="market-landscape-preview-y-axis">{marketLandscapeDraft.yAxisLabel || "Y Axis"}</div>
+                  <div>
+                    <div className="market-landscape-preview-col-labels">
+                      <span>{marketLandscapeDraft.columnLabels[0] || "Column 1"}</span>
+                      <span>{marketLandscapeDraft.columnLabels[1] || "Column 2"}</span>
+                    </div>
+                    <div className="market-landscape-preview-board">
+                      <div className="market-landscape-preview-row-labels">
+                        <span>{marketLandscapeDraft.rowLabels[0] || "Row 1"}</span>
+                        <span>{marketLandscapeDraft.rowLabels[1] || "Row 2"}</span>
+                      </div>
+                      <div className="market-landscape-preview-grid">
+                        {marketLandscapeGridRows.flatMap((row, rowIndex) =>
+                          row.map((cellKey, columnIndex) => {
+                            const card = marketLandscapeCardByKey.get(cellKey);
+                            if (!card) return null;
+                            const primaryContent = card[marketLandscapeGuide.primaryField] || "Not provided";
+                            const secondaryContent = card[marketLandscapeGuide.secondaryField] || "Not provided";
+                            const label = `${marketLandscapeDraft.rowLabels[rowIndex]} / ${marketLandscapeDraft.columnLabels[columnIndex]}`;
+                            const isPrimary = marketLandscapeDraft.primaryFocusCellKey === cellKey;
+                            return (
+                              <article
+                                key={`preview-${cellKey}`}
+                                className={`market-landscape-preview-card ${isPrimary ? "primary" : ""}`}
+                              >
+                                <p className="market-landscape-preview-cell-label">{label}</p>
+                                <h4>{card.title || "Untitled category"}</h4>
+                                <p>
+                                  <strong>{marketLandscapeGuide.primaryLabel}:</strong>
+                                </p>
+                                <div
+                                  className="market-landscape-preview-rich-text"
+                                  dangerouslySetInnerHTML={{ __html: normalizeRichText(primaryContent) }}
+                                />
+                                <p>
+                                  <strong>{marketLandscapeGuide.secondaryLabel}:</strong>
+                                </p>
+                                <div
+                                  className="market-landscape-preview-rich-text"
+                                  dangerouslySetInnerHTML={{ __html: normalizeRichText(secondaryContent) }}
+                                />
+                                <p>
+                                  <strong>Illustrative Vendors:</strong> {card.vendors || "Not provided"}
+                                </p>
+                              </article>
+                            );
+                          })
+                        )}
+                      </div>
+                      <p className="market-landscape-preview-x-axis">{marketLandscapeDraft.xAxisLabel || "X Axis"}</p>
+                    </div>
+                  </div>
+                </div>
+              </aside>
+            </div>
           </>
         ) : null}
 
-        {activeIntakeDetailTab === "recommendations" ? (
+        {activeIntakeDetailTab === "intake-materials" && activeIntakeMaterialsTab === "market-landscape-option-1" ? (
           <>
-            <h2>Recommendations</h2>
-            <p className="muted">Content for this section will be added later.</p>
+            <h2>Market Landscape Option 1</h2>
+            <p className="muted">
+              Edit the Market Landscape slide directly in Google Slides (free-form). This tab provides a link + live
+              thumbnail. Changes won&apos;t sync back to the structured editor, and will be lost if you recreate the Intake
+              Document.
+            </p>
+
+            <div className="actions">
+              {currentIntakeDocument ? (
+                <>
+                  {marketLandscapeOption1Info?.kind === "ok" && marketLandscapeOption1Info.slideEditUrl ? (
+                    <a
+                      className="secondary small"
+                      href={marketLandscapeOption1Info.slideEditUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open Option 1 Slide
+                    </a>
+                  ) : null}
+                  <a className="ghost small" href={currentIntakeDocument.url} target="_blank" rel="noreferrer">
+                    Open Intake Document
+                  </a>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    onClick={() => {
+                      setMarketLandscapeOption1ThumbnailNonce((value) => value + 1);
+                      void loadMarketLandscapeOption1();
+                    }}
+                    disabled={loadingMarketLandscapeOption1}
+                  >
+                    {loadingMarketLandscapeOption1 ? "Refreshing..." : "Refresh Preview"}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="primary small"
+                  onClick={() => void generateIntakeReport(false)}
+                  disabled={isGeneratingIntakeReport}
+                >
+                  Generate Intake Document
+                </button>
+              )}
+            </div>
+
+            {marketLandscapeOption1Error ? <p className="muted">{marketLandscapeOption1Error}</p> : null}
+
+            {marketLandscapeOption1Info?.kind === "missing_intake_document" ? (
+              <p className="muted">Generate an Intake Document first to enable Option 1.</p>
+            ) : null}
+
+            {marketLandscapeOption1Info?.kind === "invalid_intake_document" ? (
+              <p className="muted">{marketLandscapeOption1Info.message || "Intake Document URL is invalid."}</p>
+            ) : null}
+
+            {marketLandscapeOption1Info?.kind === "ok" && marketLandscapeOption1Info.thumbnailUrl ? (
+              <div className="market-landscape-option1-preview">
+                <img
+                  src={`${marketLandscapeOption1Info.thumbnailUrl}?refresh=1&t=${marketLandscapeOption1ThumbnailNonce}`}
+                  alt="Market Landscape slide preview"
+                  loading="lazy"
+                />
+              </div>
+            ) : null}
+
+            {marketLandscapeOption1Info?.kind === "ok" && !marketLandscapeOption1Info.thumbnailUrl ? (
+              <p className="muted">
+                Could not find the Market Landscape slide marker in this Intake Document. Open the Intake Document to
+                confirm the Market Landscape slide exists.
+              </p>
+            ) : null}
           </>
         ) : null}
 
         {activeIntakeDetailTab === "notes" ? (
           <>
             <h2>Notes</h2>
-            <div className="detail-section">
-              <label>Add Note</label>
-              <textarea
-                value={newNoteDraft}
-                onChange={(event) => setNewNoteDraft(event.target.value)}
-                placeholder="Capture details from intake discussions"
-                rows={4}
-              />
-              <div className="actions">
-                <button type="button" className="secondary" onClick={() => void addPipelineNote()} disabled={addingNote}>
-                  {addingNote ? "Adding..." : "Add Note"}
-                </button>
-              </div>
+            <div className="detail-action-bar">
+              <a
+                href="#"
+                className="pipeline-action-link"
+                onClick={(event) => {
+                  event.preventDefault();
+                  setShowAddNoteModal(true);
+                }}
+              >
+                Add Note
+              </a>
             </div>
-            {item.notes.length === 0 ? <p className="muted">No notes yet.</p> : null}
+            {sortedNotes.length === 0 ? <p className="muted">No notes yet.</p> : null}
             <div className="pipeline-doc-list">
-              {item.notes.map((entry) => (
+              {sortedNotes.map((entry) => (
                 <div key={entry.id} className="detail-list-item">
-                  <p>{entry.note}</p>
+                  <div
+                    className="inline-rich-text"
+                    dangerouslySetInnerHTML={{ __html: normalizeRichText(entry.note || "") }}
+                  />
                   <p className="muted">Added {formatDate(entry.createdAt)} by {entry.createdByName}</p>
                 </div>
               ))}
@@ -2466,10 +3213,53 @@ export function PipelineOpportunityDetailView({
         {activeIntakeDetailTab === "documents" ? (
           <>
             <h2>Documents</h2>
-            {companyDocumentComposer}
-            {item.documents.length === 0 ? <p className="muted">No company-level documents.</p> : null}
+            <div className="detail-action-bar">
+              <a
+                href="#"
+                className="pipeline-action-link"
+                onClick={(event) => {
+                  event.preventDefault();
+                  setShowAddDocumentModal(true);
+                }}
+              >
+                Add Document
+              </a>
+            </div>
+            <div className="actions">
+              {currentIntakeDocument ? (
+                <>
+                  <a
+                    className="secondary small"
+                    href={currentIntakeDocument.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open Intake Document
+                  </a>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    onClick={() => void generateIntakeReport(true)}
+                    disabled={isGeneratingIntakeReport}
+                  >
+                    Recreate Intake Document
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="primary small"
+                  onClick={() => void generateIntakeReport(false)}
+                  disabled={isGeneratingIntakeReport}
+                >
+                  Generate Intake Document
+                </button>
+              )}
+            </div>
+            {lastGenerateStatus ? <p className="muted">{lastGenerateStatus}</p> : null}
+            {sortedDocuments.length === 0 ? <p className="muted">No company-level documents.</p> : null}
             <div className="pipeline-doc-list">
-              {item.documents.map((document) => (
+              {sortedDocuments.map((document) => (
                 <div key={document.id} className="detail-list-item">
                   <div className="pipeline-doc-head">
                     <strong>{document.title}</strong>
@@ -2492,11 +3282,9 @@ export function PipelineOpportunityDetailView({
             </div>
           </>
         ) : null}
-      </section>
 
-    {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
-      {item.isScreeningStage ? (
-        <section className="panel">
+        {activeIntakeDetailTab === "screening-materials" && item.isScreeningStage ? (
+          <>
           <h2>Alliance Screening Status</h2>
           <p className="muted">
             Overview mirrors screening operations: all alliance systems, tracked individuals, and each system LOI status.
@@ -2696,39 +3484,6 @@ export function PipelineOpportunityDetailView({
             </div>
           ) : null}
 
-          {screeningDetailView === "documents" ? (
-            <article className="screening-system-card">
-              <div className="pipeline-card-head">
-                <h3>Company Documents</h3>
-                <span className="status-pill queued">{`${item.documents.length} total`}</span>
-              </div>
-              {companyDocumentComposer}
-              {item.documents.length === 0 ? <p className="muted">No company-level documents.</p> : null}
-              <div className="pipeline-doc-list">
-                {item.documents.map((document) => (
-                  <div key={document.id} className="detail-list-item">
-                    <div className="pipeline-doc-head">
-                      <strong>{document.title}</strong>
-                      <span className="status-pill draft">{document.type}</span>
-                    </div>
-                    <p className="muted">
-                      <a
-                        href={document.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        download={isEmbeddedDocumentUrl(document.url) ? document.title : undefined}
-                      >
-                        {documentUrlLabel(document.url)}
-                      </a>
-                    </p>
-                    <p className="muted">Uploaded {formatDate(document.uploadedAt)}</p>
-                    {document.notes ? <p className="muted">{document.notes}</p> : null}
-                  </div>
-                ))}
-              </div>
-            </article>
-          ) : null}
-
           {screeningDetailView === "quantitative" || screeningDetailView === "qualitative" ? (
             selectedScreeningHealthSystem ? (
               <article className="screening-system-card">
@@ -2739,8 +3494,17 @@ export function PipelineOpportunityDetailView({
                   </div>
                 ) : (
                   <div className="pipeline-card-head">
-                    <h3>Qualitative Themes & Details</h3>
-                    <span className="status-pill queued">{`${allQualitativeFeedbackEntries.length} entries`}</span>
+                    <h3>Qualitative Data Entries</h3>
+                    <div className="actions" style={{ marginTop: 0 }}>
+                      <button
+                        className="secondary small"
+                        type="button"
+                        onClick={() => setShowQualitativePreview((current) => !current)}
+                      >
+                        {showQualitativePreview ? "Hide Preview" : "Preview"}
+                      </button>
+                      <span className="status-pill queued">{`${allQualitativeFeedbackEntries.length} entries`}</span>
+                    </div>
                   </div>
                 )}
 
@@ -2960,144 +3724,17 @@ export function PipelineOpportunityDetailView({
 
               {screeningDetailView === "qualitative" ? (
                 <>
-                  <div className="screening-qualitative-head">
-                    <p className="detail-label">Qualitative Data Entry</p>
-                    <div className="actions">
-                      <button
-                        className="secondary small"
-                        type="button"
-                        onClick={() => setShowQualitativePreview((current) => !current)}
-                      >
-                        {showQualitativePreview ? "Hide Preview" : "Preview"}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="detail-grid">
-                    <div>
-                      <label>Alliance Member</label>
-                      <select
-                        value={qualitativeDraft.healthSystemId}
-                        onChange={(event) =>
-                          setQualitativeDraft((current) => ({
-                            ...current,
-                            healthSystemId: event.target.value,
-                            contactId: ""
-                          }))
-                        }
-                      >
-                        {item.screening.healthSystems.map((entry) => (
-                          <option key={entry.healthSystemId} value={entry.healthSystemId}>
-                            {entry.healthSystemName}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label>Individual</label>
-                      <EntityLookupInput
-                        entityKind="CONTACT"
-                        value={qualitativeDraft.contactId}
-                        onChange={(nextValue) =>
-                          setQualitativeDraft((current) => ({
-                            ...current,
-                            contactId: nextValue
-                          }))
-                        }
-                        allowEmpty
-                        emptyLabel="Unlinked individual"
-                        initialOptions={qualitativeDraftContactOptions.map((option) => ({
-                          id: option.id,
-                          name: option.label
-                        }))}
-                        placeholder="Search contacts"
-                        contactCreateContext={
-                          qualitativeDraft.healthSystemId
-                            ? {
-                                parentType: "healthSystem",
-                                parentId: qualitativeDraft.healthSystemId,
-                                roleType: "EXECUTIVE"
-                              }
-                            : undefined
-                        }
-                        contactSearchHealthSystemId={qualitativeDraft.healthSystemId || undefined}
-                        disabled={!qualitativeDraft.healthSystemId}
-                      />
-                    </div>
-                    <div>
-                      <label>Category</label>
-                      <select
-                        value={qualitativeDraft.category}
-                        onChange={(event) =>
-                          setQualitativeDraft((current) => ({
-                            ...current,
-                            category: event.target.value
-                          }))
-                        }
-                      >
-                        {qualitativeCategoryOptions.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label>Theme</label>
-                      <input
-                        value={qualitativeDraft.theme}
-                        onChange={(event) =>
-                          setQualitativeDraft((current) => ({
-                            ...current,
-                            theme: event.target.value
-                          }))
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label>Sentiment</label>
-                      <select
-                        value={qualitativeDraft.sentiment}
-                        onChange={(event) =>
-                          setQualitativeDraft((current) => ({
-                            ...current,
-                            sentiment: event.target.value as ScreeningFeedbackSentiment
-                          }))
-                        }
-                      >
-                        <option value="POSITIVE">Positive</option>
-                        <option value="MIXED">Mixed</option>
-                        <option value="NEUTRAL">Neutral</option>
-                        <option value="NEGATIVE">Negative</option>
-                      </select>
-                    </div>
-                  </div>
-                  <label>Detail</label>
-                  <RichTextArea
-                    value={qualitativeDraft.feedback}
-                    onChange={(nextValue) =>
-                      setQualitativeDraft((current) => ({
-                        ...current,
-                        feedback: nextValue
-                      }))
-                    }
-                    rows={8}
-                    placeholder="Enter qualitative feedback detail"
-                  />
-                  <div className="actions">
-                    <button
-                      className="secondary"
-                      type="button"
-                      onClick={() => void addQualitativeFeedback()}
-                      disabled={
-                        !qualitativeDraft.healthSystemId ||
-                        Boolean(savingFeedbackByHealthSystemId[qualitativeDraft.healthSystemId])
-                      }
+                  <div className="detail-action-bar">
+                    <a
+                      href="#"
+                      className="pipeline-action-link"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        setShowAddQualitativeFeedbackModal(true);
+                      }}
                     >
-                      {qualitativeDraft.healthSystemId &&
-                      savingFeedbackByHealthSystemId[qualitativeDraft.healthSystemId]
-                        ? "Saving..."
-                        : "Add Entry"}
-                    </button>
+                      Add Qualitative Feedback
+                    </a>
                   </div>
 
                   {showQualitativePreview ? (
@@ -3130,7 +3767,6 @@ export function PipelineOpportunityDetailView({
                     </div>
                   ) : null}
 
-                  <p className="detail-label">All Captured Entries</p>
                   {allQualitativeFeedbackEntries.length === 0 ? (
                     <p className="muted">No qualitative feedback captured yet.</p>
                   ) : (
@@ -3336,10 +3972,290 @@ export function PipelineOpportunityDetailView({
               <p className="muted">No alliance health systems configured.</p>
             )
           ) : null}
-        </section>
-      ) : null}
+          </>
+        ) : null}
+        </div>
+      </section>
 
       {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
+
+      {showAddNoteModal ? (
+        <div className="pipeline-note-backdrop" onMouseDown={() => setShowAddNoteModal(false)}>
+          <div className="pipeline-note-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="pipeline-card-head">
+              <h3>Add Note</h3>
+              <button
+                className="modal-icon-close"
+                type="button"
+                onClick={() => setShowAddNoteModal(false)}
+                aria-label="Close add note dialog"
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+            <p className="muted">{item.name}</p>
+            <RichTextArea
+              className="pipeline-note-textarea"
+              value={newNoteDraft}
+              onChange={(nextValue) => setNewNoteDraft(nextValue)}
+              placeholder="Capture details from intake discussions"
+              rows={8}
+            />
+            <div className="actions">
+              <button type="button" className="ghost small" onClick={() => setShowAddNoteModal(false)} disabled={addingNote}>
+                Cancel
+              </button>
+              <button type="button" className="secondary small" onClick={() => void addPipelineNote()} disabled={addingNote}>
+                {addingNote ? "Adding..." : "Add Note"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showAddDocumentModal ? (
+        <div className="pipeline-note-backdrop" onMouseDown={() => setShowAddDocumentModal(false)}>
+          <div className="pipeline-note-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="pipeline-card-head">
+              <h3>Add Document</h3>
+              <button
+                className="modal-icon-close"
+                type="button"
+                onClick={() => setShowAddDocumentModal(false)}
+                aria-label="Close add document dialog"
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+            <p className="muted">{item.name}</p>
+            <div className="detail-grid">
+              <div>
+                <label>Document Type</label>
+                <select
+                  value={newCompanyDocumentType}
+                  onChange={(event) => setNewCompanyDocumentType(event.target.value as CompanyDocumentType)}
+                >
+                  {companyDocumentTypeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label>Document Title (optional)</label>
+                <input
+                  value={newCompanyDocumentTitle}
+                  onChange={(event) => setNewCompanyDocumentTitle(event.target.value)}
+                  placeholder="Screening memo"
+                />
+              </div>
+              <div>
+                <label>Google Docs Link</label>
+                <input
+                  value={newCompanyDocumentGoogleUrl}
+                  onChange={(event) => setNewCompanyDocumentGoogleUrl(event.target.value)}
+                  placeholder="https://docs.google.com/..."
+                />
+              </div>
+              <div>
+                <label>Upload from Computer</label>
+                <input
+                  type="file"
+                  accept={companyDocumentUploadAccept}
+                  disabled={addingCompanyDocument}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (!file) return;
+                    void addCompanyDocumentFromUpload(file);
+                  }}
+                />
+              </div>
+            </div>
+            <div className="actions">
+              <button
+                className="ghost small"
+                type="button"
+                onClick={() => setShowAddDocumentModal(false)}
+                disabled={addingCompanyDocument}
+              >
+                Cancel
+              </button>
+              <button
+                className="secondary small"
+                type="button"
+                onClick={() => void addCompanyDocumentFromGoogleLink()}
+                disabled={addingCompanyDocument}
+              >
+                {addingCompanyDocument ? "Adding..." : "Add Google Doc Link"}
+              </button>
+            </div>
+            <p className="muted">{`Uploads are limited to ${companyDocumentMaxSizeMb} MB per file.`}</p>
+          </div>
+        </div>
+      ) : null}
+
+      {showAddQualitativeFeedbackModal ? (
+        <div className="pipeline-note-backdrop" onMouseDown={() => setShowAddQualitativeFeedbackModal(false)}>
+          <div
+            className="pipeline-note-modal screening-qualitative-modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="pipeline-card-head">
+              <h3>Add Qualitative Feedback</h3>
+              <button
+                className="modal-icon-close"
+                type="button"
+                onClick={() => setShowAddQualitativeFeedbackModal(false)}
+                aria-label="Close add qualitative feedback dialog"
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+            <div className="detail-grid">
+              <div>
+                <label>Alliance Member</label>
+                <select
+                  value={qualitativeDraft.healthSystemId}
+                  onChange={(event) =>
+                    setQualitativeDraft((current) => ({
+                      ...current,
+                      healthSystemId: event.target.value,
+                      contactId: ""
+                    }))
+                  }
+                >
+                  {item.screening.healthSystems.map((entry) => (
+                    <option key={entry.healthSystemId} value={entry.healthSystemId}>
+                      {entry.healthSystemName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label>Individual</label>
+                <EntityLookupInput
+                  entityKind="CONTACT"
+                  value={qualitativeDraft.contactId}
+                  onChange={(nextValue) =>
+                    setQualitativeDraft((current) => ({
+                      ...current,
+                      contactId: nextValue
+                    }))
+                  }
+                  allowEmpty
+                  emptyLabel="Unlinked individual"
+                  initialOptions={qualitativeDraftContactOptions.map((option) => ({
+                    id: option.id,
+                    name: option.label
+                  }))}
+                  placeholder="Search contacts"
+                  contactCreateContext={
+                    qualitativeDraft.healthSystemId
+                      ? {
+                          parentType: "healthSystem",
+                          parentId: qualitativeDraft.healthSystemId,
+                          roleType: "EXECUTIVE"
+                        }
+                      : undefined
+                  }
+                  contactSearchHealthSystemId={qualitativeDraft.healthSystemId || undefined}
+                  disabled={!qualitativeDraft.healthSystemId}
+                />
+              </div>
+              <div>
+                <label>Category</label>
+                <select
+                  value={qualitativeDraft.category}
+                  onChange={(event) =>
+                    setQualitativeDraft((current) => ({
+                      ...current,
+                      category: event.target.value
+                    }))
+                  }
+                >
+                  {qualitativeCategoryOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label>Theme</label>
+                <input
+                  value={qualitativeDraft.theme}
+                  onChange={(event) =>
+                    setQualitativeDraft((current) => ({
+                      ...current,
+                      theme: event.target.value
+                    }))
+                  }
+                />
+              </div>
+              <div>
+                <label>Sentiment</label>
+                <select
+                  value={qualitativeDraft.sentiment}
+                  onChange={(event) =>
+                    setQualitativeDraft((current) => ({
+                      ...current,
+                      sentiment: event.target.value as ScreeningFeedbackSentiment
+                    }))
+                  }
+                >
+                  <option value="POSITIVE">Positive</option>
+                  <option value="MIXED">Mixed</option>
+                  <option value="NEUTRAL">Neutral</option>
+                  <option value="NEGATIVE">Negative</option>
+                </select>
+              </div>
+            </div>
+            <label>Detail</label>
+            <RichTextArea
+              value={qualitativeDraft.feedback}
+              onChange={(nextValue) =>
+                setQualitativeDraft((current) => ({
+                  ...current,
+                  feedback: nextValue
+                }))
+              }
+              rows={8}
+              placeholder="Enter qualitative feedback detail"
+            />
+            <div className="actions">
+              <button
+                className="ghost small"
+                type="button"
+                onClick={() => setShowAddQualitativeFeedbackModal(false)}
+                disabled={
+                  !qualitativeDraft.healthSystemId ||
+                  Boolean(savingFeedbackByHealthSystemId[qualitativeDraft.healthSystemId])
+                }
+              >
+                Cancel
+              </button>
+              <button
+                className="secondary small"
+                type="button"
+                onClick={() => void addQualitativeFeedback()}
+                disabled={
+                  !qualitativeDraft.healthSystemId ||
+                  Boolean(savingFeedbackByHealthSystemId[qualitativeDraft.healthSystemId])
+                }
+              >
+                {qualitativeDraft.healthSystemId &&
+                savingFeedbackByHealthSystemId[qualitativeDraft.healthSystemId]
+                  ? "Saving..."
+                  : "Add Feedback"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {addAttendeeModal ? (
         <div className="pipeline-note-backdrop" onMouseDown={() => setAddAttendeeModal(null)}>

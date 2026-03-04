@@ -3,6 +3,11 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import {
+  marketLandscapePayloadFromRecord,
+  normalizeMarketLandscapePayload,
+  type MarketLandscapePayload
+} from "@/lib/market-landscape";
+import {
   inferDefaultDecisionFromCompany,
   inferDefaultPhaseFromCompany,
   mapPhaseToBoardColumn,
@@ -27,6 +32,9 @@ const cardUpdateSchema = z.object({
         rationale: z.string()
       })
     )
+    .optional(),
+  marketLandscape: z
+    .unknown()
     .optional()
 });
 
@@ -41,6 +49,115 @@ function toNullableString(value?: string | null) {
   return trimmed ? trimmed : null;
 }
 
+async function upsertMarketLandscape(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  payload: MarketLandscapePayload
+) {
+  const landscape = await tx.companyMarketLandscape.upsert({
+    where: { companyId },
+    create: {
+      companyId,
+      sectionLabel: payload.sectionLabel,
+      headline: payload.headline,
+      subheadline: payload.subheadline,
+      template: payload.template,
+      xAxisLabel: payload.xAxisLabel,
+      yAxisLabel: payload.yAxisLabel,
+      columnLabel1: payload.columnLabels[0],
+      columnLabel2: payload.columnLabels[1],
+      rowLabel1: payload.rowLabels[0],
+      rowLabel2: payload.rowLabels[1],
+      primaryFocusCellKey: payload.primaryFocusCellKey || null
+    },
+    update: {
+      sectionLabel: payload.sectionLabel,
+      headline: payload.headline,
+      subheadline: payload.subheadline,
+      template: payload.template,
+      xAxisLabel: payload.xAxisLabel,
+      yAxisLabel: payload.yAxisLabel,
+      columnLabel1: payload.columnLabels[0],
+      columnLabel2: payload.columnLabels[1],
+      rowLabel1: payload.rowLabels[0],
+      rowLabel2: payload.rowLabels[1],
+      primaryFocusCellKey: payload.primaryFocusCellKey || null
+    },
+    include: {
+      cards: {
+        orderBy: [{ sortOrder: "asc" }, { cellKey: "asc" }]
+      }
+    }
+  });
+
+  const existingById = new Map(landscape.cards.map((card) => [card.id, card] as const));
+  const existingByCellKey = new Map(landscape.cards.map((card) => [card.cellKey, card] as const));
+  const keepIds = new Set<string>();
+
+  for (let index = 0; index < payload.cards.length; index += 1) {
+    const card = payload.cards[index];
+    const existing = (card.id ? existingById.get(card.id) : undefined) || existingByCellKey.get(card.key);
+    if (existing) {
+      keepIds.add(existing.id);
+      await tx.companyMarketLandscapeCard.update({
+        where: { id: existing.id },
+        data: {
+          cellKey: card.key,
+          sortOrder: index,
+          title: card.title,
+          overview: card.overview,
+          businessModel: card.businessModel,
+          strengths: card.strengths,
+          gaps: card.gaps,
+          vendors: card.vendors
+        }
+      });
+      continue;
+    }
+
+    const created = await tx.companyMarketLandscapeCard.create({
+      data: {
+        marketLandscapeId: landscape.id,
+        cellKey: card.key,
+        sortOrder: index,
+        title: card.title,
+        overview: card.overview,
+        businessModel: card.businessModel,
+        strengths: card.strengths,
+        gaps: card.gaps,
+        vendors: card.vendors
+      }
+    });
+    keepIds.add(created.id);
+  }
+
+  if (keepIds.size > 0) {
+    await tx.companyMarketLandscapeCard.deleteMany({
+      where: {
+        marketLandscapeId: landscape.id,
+        id: {
+          notIn: Array.from(keepIds)
+        }
+      }
+    });
+  } else {
+    await tx.companyMarketLandscapeCard.deleteMany({
+      where: {
+        marketLandscapeId: landscape.id
+      }
+    });
+  }
+
+  return tx.companyMarketLandscape.findUnique({
+    where: { companyId },
+    include: {
+      cards: {
+        orderBy: [{ sortOrder: "asc" }, { cellKey: "asc" }]
+      }
+    }
+  });
+}
+
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> }
@@ -53,7 +170,7 @@ export async function PATCH(
       nextStep?: string | null;
       ventureLikelihoodPercent?: number | null;
       ventureExpectedCloseDate?: Date | null;
-      ventureStudioCriteria?: Prisma.JsonValue;
+      ventureStudioCriteria?: Prisma.InputJsonValue;
     } = {};
     const companyUpdatePayload: {
       atAGlanceProblem?: string | null;
@@ -87,19 +204,23 @@ export async function PATCH(
       companyUpdatePayload.atAGlanceKeyConsiderations = toNullableString(input.atAGlanceKeyConsiderations);
     }
     if (Object.prototype.hasOwnProperty.call(body, "ventureStudioCriteria")) {
-      updatePayload.ventureStudioCriteria = input.ventureStudioCriteria
-        ? input.ventureStudioCriteria.map((entry) => ({
-            category: entry.category.trim(),
-            assessment: entry.assessment,
-            rationale: toNullableString(entry.rationale) || ""
-          }))
-        : null;
+      updatePayload.ventureStudioCriteria = (input.ventureStudioCriteria || []).map((entry) => ({
+        category: entry.category.trim(),
+        assessment: entry.assessment,
+        rationale: toNullableString(entry.rationale) || ""
+      }));
     }
-
     const company = await prisma.company.findUnique({
       where: { id },
       include: {
-        pipeline: true
+        pipeline: true,
+        marketLandscape: {
+          include: {
+            cards: {
+              orderBy: [{ sortOrder: "asc" }, { cellKey: "asc" }]
+            }
+          }
+        }
       }
     });
 
@@ -107,23 +228,39 @@ export async function PATCH(
       return NextResponse.json({ error: "Pipeline item not found" }, { status: 404 });
     }
 
-    const pipeline = await prisma.companyPipeline.upsert({
-      where: { companyId: id },
-      create: {
-        companyId: id,
-        phase: inferDefaultPhaseFromCompany(company),
-        intakeDecision: inferDefaultDecisionFromCompany(company),
-        ...updatePayload
-      },
-      update: updatePayload
-    });
+    const shouldUpdateMarketLandscape = Object.prototype.hasOwnProperty.call(body, "marketLandscape");
+    const marketLandscapePayload = shouldUpdateMarketLandscape
+      ? normalizeMarketLandscapePayload(input.marketLandscape, company.name)
+      : null;
 
-    if (Object.keys(companyUpdatePayload).length > 0) {
-      await prisma.company.update({
-        where: { id },
-        data: companyUpdatePayload
+    const { pipeline, savedMarketLandscape } = await prisma.$transaction(async (tx) => {
+      const nextPipeline = await tx.companyPipeline.upsert({
+        where: { companyId: id },
+        create: {
+          companyId: id,
+          phase: inferDefaultPhaseFromCompany(company),
+          intakeDecision: inferDefaultDecisionFromCompany(company),
+          ...updatePayload
+        },
+        update: updatePayload
       });
-    }
+
+      if (Object.keys(companyUpdatePayload).length > 0) {
+        await tx.company.update({
+          where: { id },
+          data: companyUpdatePayload
+        });
+      }
+
+      const nextMarketLandscape = marketLandscapePayload
+        ? await upsertMarketLandscape(tx, id, marketLandscapePayload)
+        : null;
+
+      return {
+        pipeline: nextPipeline,
+        savedMarketLandscape: nextMarketLandscape
+      };
+    });
 
     const phase = pipeline.phase as PipelinePhase;
     const nextAtAGlanceProblem = Object.prototype.hasOwnProperty.call(companyUpdatePayload, "atAGlanceProblem")
@@ -160,6 +297,10 @@ export async function PATCH(
         atAGlanceKeyStrengths: nextAtAGlanceKeyStrengths ?? "",
         atAGlanceKeyConsiderations: nextAtAGlanceKeyConsiderations ?? "",
         ventureStudioCriteria: pipeline.ventureStudioCriteria || [],
+        marketLandscape: marketLandscapePayloadFromRecord(
+          savedMarketLandscape || company.marketLandscape,
+          company.name
+        ),
         phase,
         phaseLabel: phaseLabel(phase),
         column: mapPhaseToBoardColumn(phase)

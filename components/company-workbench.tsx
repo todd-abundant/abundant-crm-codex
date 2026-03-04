@@ -10,6 +10,7 @@ import { SearchMatchModal } from "./search-match-modal";
 import { CompanyPipelineManager } from "./company-pipeline-manager";
 import { EntityLookupInput } from "./entity-lookup-input";
 import { AddContactModal } from "./add-contact-modal";
+import { AddRelationshipModal } from "./add-relationship-modal";
 import { EntityDocumentsPane } from "./entity-documents-pane";
 import { EntityNotesPane } from "./entity-notes-pane";
 import { RichTextArea } from "./rich-text-area";
@@ -289,6 +290,22 @@ function normalizeWebsiteForMatch(value?: string | null) {
   }
 }
 
+function contactNameParts(name: string) {
+  const nameParts = name.trim().split(/\s+/).filter(Boolean);
+  if (nameParts.length === 0) return { firstName: "", lastName: "", displayName: "" };
+  if (nameParts.length === 1) {
+    return { firstName: "", lastName: nameParts[0], displayName: nameParts[0] };
+  }
+
+  const lastName = nameParts[nameParts.length - 1];
+  const firstName = nameParts.slice(0, -1).join(" ");
+  return {
+    firstName,
+    lastName,
+    displayName: `${lastName}, ${firstName}`
+  };
+}
+
 function findDuplicateRecord(records: CompanyRecord[], candidate: SearchCandidate) {
   const candidateName = normalizeForMatch(candidate.name);
   if (!candidateName) return null;
@@ -473,7 +490,9 @@ export function CompanyWorkbench() {
   >("COMPANY_CONTACT");
   const [updatingContact, setUpdatingContact] = React.useState(false);
   const [deletingContactLinkId, setDeletingContactLinkId] = React.useState<string | null>(null);
+  const [editingLeadSourceHealthSystem, setEditingLeadSourceHealthSystem] = React.useState(false);
   const [addingHealthSystemLink, setAddingHealthSystemLink] = React.useState(false);
+  const [addHealthSystemRelationshipModalOpen, setAddHealthSystemRelationshipModalOpen] = React.useState(false);
   const [editingHealthSystemLinkId, setEditingHealthSystemLinkId] = React.useState<string | null>(null);
   const [editingHealthSystemRelationshipType, setEditingHealthSystemRelationshipType] = React.useState<
     "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
@@ -489,6 +508,7 @@ export function CompanyWorkbench() {
   const [newHealthSystemInvestmentAmountUsd, setNewHealthSystemInvestmentAmountUsd] = React.useState("");
   const [newHealthSystemOwnershipPercent, setNewHealthSystemOwnershipPercent] = React.useState("");
   const [addingCoInvestorLink, setAddingCoInvestorLink] = React.useState(false);
+  const [addCoInvestorRelationshipModalOpen, setAddCoInvestorRelationshipModalOpen] = React.useState(false);
   const [editingCoInvestorLinkId, setEditingCoInvestorLinkId] = React.useState<string | null>(null);
   const [editingCoInvestorRelationshipType, setEditingCoInvestorRelationshipType] = React.useState<
     "INVESTOR" | "PARTNER" | "OTHER"
@@ -548,6 +568,47 @@ export function CompanyWorkbench() {
     () => records.find((record) => record.id === selectedRecordId) || null,
     [records, selectedRecordId]
   );
+  const displayedHealthSystemLinks = React.useMemo(() => {
+    if (!selectedRecord) return [];
+    const linksByHealthSystem = new Map<string, CompanyHealthSystemLink>();
+    for (const link of selectedRecord.healthSystemLinks) {
+      if (linksByHealthSystem.has(link.healthSystemId)) continue;
+      linksByHealthSystem.set(link.healthSystemId, link);
+    }
+
+    return [...linksByHealthSystem.values()];
+  }, [selectedRecord]);
+
+  const leadSourceType = detailDraft?.leadSourceType;
+  const leadSourceSystemId = detailDraft?.leadSourceHealthSystemId || "";
+  const selectedRecordEntityId = selectedRecord?.id || "";
+  const selectedRecordHealthSystemId = selectedRecord?.leadSourceHealthSystem?.id || "";
+  const selectedRecordHealthSystemName = selectedRecord?.leadSourceHealthSystem?.name || "";
+
+  const leadSourceHealthSystemName = React.useMemo(() => {
+    if (!selectedRecordEntityId || !leadSourceType || leadSourceType !== "HEALTH_SYSTEM") return "";
+    const systemId = leadSourceSystemId;
+    if (!systemId) return "";
+
+    if (selectedRecordHealthSystemId === systemId) {
+      return selectedRecordHealthSystemName;
+    }
+    if (selectedRecordHealthSystemName) {
+      return selectedRecordHealthSystemName;
+    }
+
+    const healthSystem = healthSystems.find((system) => system.id === systemId);
+    if (healthSystem?.name) return healthSystem.name;
+
+    return selectedRecordHealthSystemName || "";
+  }, [
+    healthSystems,
+    leadSourceType,
+    leadSourceSystemId,
+    selectedRecordHealthSystemId,
+    selectedRecordHealthSystemName,
+    selectedRecordEntityId
+  ]);
 
   const shouldOfferCreate = query.trim().length >= 2 && filteredRecords.length === 0;
   const selectedCandidate =
@@ -1007,6 +1068,18 @@ export function CompanyWorkbench() {
     setNewHealthSystemOwnershipPercent("");
   }
 
+  function openHealthSystemRelationshipModal() {
+    setStatus(null);
+    resetHealthSystemLinkForm();
+    setAddHealthSystemRelationshipModalOpen(true);
+  }
+
+  function closeHealthSystemRelationshipModal() {
+    if (addingHealthSystemLink) return;
+    setAddHealthSystemRelationshipModalOpen(false);
+    resetHealthSystemLinkForm();
+  }
+
   function beginEditingHealthSystemLink(link: CompanyHealthSystemLink) {
     setEditingHealthSystemLinkId(link.id);
     setEditingHealthSystemRelationshipType(link.relationshipType);
@@ -1091,6 +1164,18 @@ export function CompanyWorkbench() {
     setEditingCoInvestorInvestmentAmountUsd("");
   }
 
+  function openCoInvestorRelationshipModal() {
+    setStatus(null);
+    resetCoInvestorLinkForm();
+    setAddCoInvestorRelationshipModalOpen(true);
+  }
+
+  function closeCoInvestorRelationshipModal() {
+    if (addingCoInvestorLink) return;
+    setAddCoInvestorRelationshipModalOpen(false);
+    resetCoInvestorLinkForm();
+  }
+
   function saveCoInvestorLinkForSelectedRecord(coInvestorId: string, coInvestorName: string) {
     if (!selectedRecord || !detailDraft) return;
 
@@ -1160,11 +1245,17 @@ export function CompanyWorkbench() {
           ownershipPercent: newHealthSystemOwnershipPercent
         }
       ];
-      updateDetailDraft({ healthSystemLinks: nextLinks });
+      const dedupedLinks = nextLinks.reduce((acc, link) => {
+        if (acc.some((value) => value.healthSystemId === link.healthSystemId)) return acc;
+        acc.push(link);
+        return acc;
+      }, [] as typeof nextLinks);
+      updateDetailDraft({ healthSystemLinks: dedupedLinks });
       const linkedName =
         healthSystems.find((system) => system.id === newHealthSystemLinkId)?.name || "Health system";
       setStatus({ kind: "ok", text: `${linkedName} linked.` });
       resetHealthSystemLinkForm();
+      closeHealthSystemRelationshipModal();
     } catch (error) {
       setStatus({
         kind: "error",
@@ -1204,6 +1295,7 @@ export function CompanyWorkbench() {
         coInvestors.find((coInvestor) => coInvestor.id === newCoInvestorId)?.name || "Co-investor";
       setStatus({ kind: "ok", text: `${linkedName} linked.` });
       resetCoInvestorLinkForm();
+      closeCoInvestorRelationshipModal();
     } catch (error) {
       setStatus({
         kind: "error",
@@ -1457,6 +1549,7 @@ export function CompanyWorkbench() {
       setDetailDraft(null);
       setDraftRecordId(null);
       setAddContactModalOpen(false);
+      setEditingLeadSourceHealthSystem(false);
       resetEditingContactForm();
       resetEditingHealthSystemLinkForm();
       resetEditingCoInvestorLinkForm();
@@ -1467,6 +1560,7 @@ export function CompanyWorkbench() {
     if (selectedRecord.id !== draftRecordId) {
       setDetailDraft(draftFromRecord(selectedRecord));
       setDraftRecordId(selectedRecord.id);
+      setEditingLeadSourceHealthSystem(false);
       setActiveDetailTab("overview");
       setAddContactModalOpen(false);
       resetEditingHealthSystemLinkForm();
@@ -1819,20 +1913,11 @@ export function CompanyWorkbench() {
                 <button
                   type="button"
                   role="tab"
-                  className={`detail-tab ${activeDetailTab === "documents" ? "active" : ""}`}
-                  aria-selected={activeDetailTab === "documents"}
-                  onClick={() => setActiveDetailTab("documents")}
+                  className={`detail-tab ${activeDetailTab === "pipeline" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "pipeline"}
+                  onClick={() => setActiveDetailTab("pipeline")}
                 >
-                  Documents
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  className={`detail-tab ${activeDetailTab === "notes" ? "active" : ""}`}
-                  aria-selected={activeDetailTab === "notes"}
-                  onClick={() => setActiveDetailTab("notes")}
-                >
-                  Notes
+                  Pipeline
                 </button>
                 <button
                   type="button"
@@ -1855,11 +1940,20 @@ export function CompanyWorkbench() {
                 <button
                   type="button"
                   role="tab"
-                  className={`detail-tab ${activeDetailTab === "pipeline" ? "active" : ""}`}
-                  aria-selected={activeDetailTab === "pipeline"}
-                  onClick={() => setActiveDetailTab("pipeline")}
+                  className={`detail-tab ${activeDetailTab === "notes" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "notes"}
+                  onClick={() => setActiveDetailTab("notes")}
                 >
-                  Pipeline
+                  Notes
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`detail-tab ${activeDetailTab === "documents" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "documents"}
+                  onClick={() => setActiveDetailTab("documents")}
+                >
+                  Documents
                 </button>
               </div>
 
@@ -1936,33 +2030,67 @@ export function CompanyWorkbench() {
                 <InlineSelectField
                   label="Lead Source"
                   value={detailDraft.leadSourceType}
-                  onSave={(value) =>
+                  onSave={(value) => {
+                    const nextLeadSourceType = value as LeadSourceType;
+                    if (nextLeadSourceType !== "HEALTH_SYSTEM") {
+                      setEditingLeadSourceHealthSystem(false);
+                    }
                     updateDetailDraft({
                       leadSourceType: value as LeadSourceType,
-                      leadSourceHealthSystemId: value === "HEALTH_SYSTEM" ? detailDraft.leadSourceHealthSystemId : "",
+                      leadSourceHealthSystemId: nextLeadSourceType === "HEALTH_SYSTEM" ? detailDraft.leadSourceHealthSystemId : "",
                       leadSourceOther: value === "OTHER" ? detailDraft.leadSourceOther : ""
-                    })
-                  }
+                    });
+                  }}
                   options={leadSourceOptions}
                 />
                 {detailDraft.leadSourceType === "HEALTH_SYSTEM" ? (
                   <div>
                     <label>Lead Source Health System</label>
-                    <EntityLookupInput
-                      entityKind="HEALTH_SYSTEM"
-                      value={detailDraft.leadSourceHealthSystemId}
-                      onChange={(nextValue) => updateDetailDraft({ leadSourceHealthSystemId: nextValue })}
-                      allowEmpty
-                      emptyLabel="No health system selected"
-                      initialOptions={healthSystems.map((system) => ({ id: system.id, name: system.name }))}
-                      placeholder="Search health systems"
-                      onEntityCreated={(option) => {
-                        setHealthSystems((current) => {
-                          if (current.some((entry) => entry.id === option.id)) return current;
-                          return [{ id: option.id, name: option.name }, ...current];
-                        });
-                      }}
-                    />
+                    {editingLeadSourceHealthSystem ? (
+                      <>
+                        <EntityLookupInput
+                          entityKind="HEALTH_SYSTEM"
+                          value={detailDraft.leadSourceHealthSystemId}
+                          onChange={(nextValue) => {
+                            updateDetailDraft({ leadSourceHealthSystemId: nextValue });
+                            setEditingLeadSourceHealthSystem(false);
+                          }}
+                          allowEmpty
+                          emptyLabel="No health system selected"
+                          initialOptions={healthSystems.map((system) => ({ id: system.id, name: system.name }))}
+                          placeholder="Search health systems"
+                          onEntityCreated={(option) => {
+                            setHealthSystems((current) => {
+                              if (current.some((entry) => entry.id === option.id)) return current;
+                              return [{ id: option.id, name: option.name }, ...current];
+                            });
+                          }}
+                        />
+                        <div className="actions">
+                          <button type="button" className="ghost small" onClick={() => setEditingLeadSourceHealthSystem(false)}>
+                            Cancel
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div>
+                        <p
+                          role="button"
+                          tabIndex={0}
+                          className={leadSourceHealthSystemName ? "" : "muted"}
+                          style={{ cursor: "pointer", display: "inline-block" }}
+                          onClick={() => setEditingLeadSourceHealthSystem(true)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setEditingLeadSourceHealthSystem(true);
+                            }
+                          }}
+                        >
+                          {leadSourceHealthSystemName || "No health system selected"}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <InlineTextField
@@ -2016,6 +2144,7 @@ export function CompanyWorkbench() {
                       value={detailDraft.atAGlanceProblem}
                       rows={12}
                       enableFormatting
+                      stripFormattingOnPaste
                       onSave={(value) => updateDetailDraft({ atAGlanceProblem: value })}
                     />
                     <InlineTextareaField
@@ -2024,6 +2153,7 @@ export function CompanyWorkbench() {
                       value={detailDraft.atAGlanceSolution}
                       rows={12}
                       enableFormatting
+                      stripFormattingOnPaste
                       onSave={(value) => updateDetailDraft({ atAGlanceSolution: value })}
                     />
                     <InlineTextareaField
@@ -2032,6 +2162,7 @@ export function CompanyWorkbench() {
                       value={detailDraft.atAGlanceImpact}
                       rows={12}
                       enableFormatting
+                      stripFormattingOnPaste
                       onSave={(value) => updateDetailDraft({ atAGlanceImpact: value })}
                     />
                     <InlineTextareaField
@@ -2040,6 +2171,7 @@ export function CompanyWorkbench() {
                       value={detailDraft.atAGlanceKeyStrengths}
                       rows={12}
                       enableFormatting
+                      stripFormattingOnPaste
                       onSave={(value) => updateDetailDraft({ atAGlanceKeyStrengths: value })}
                     />
                     <InlineTextareaField
@@ -2048,6 +2180,7 @@ export function CompanyWorkbench() {
                       value={detailDraft.atAGlanceKeyConsiderations}
                       rows={12}
                       enableFormatting
+                      stripFormattingOnPaste
                       onSave={(value) => updateDetailDraft({ atAGlanceKeyConsiderations: value })}
                     />
                   </div>
@@ -2066,25 +2199,6 @@ export function CompanyWorkbench() {
 
               {activeDetailTab === "notes" && (
                 <>
-              <div className="detail-section">
-                <InlineTextareaField
-                  multiline
-                  label="Notes"
-                  value={detailDraft.researchNotes}
-                  rows={12}
-                  enableFormatting
-                  onSave={(value) => updateDetailDraft({ researchNotes: value })}
-                />
-                <p className="muted">Use notes to capture interaction updates for this company.</p>
-              </div>
-
-              {selectedRecord.researchError && (
-                <div className="detail-section">
-                  <p className="detail-label">Research Error</p>
-                  <p>{selectedRecord.researchError}</p>
-                </div>
-              )}
-
               <EntityNotesPane
                 entityPath="companies"
                 entityId={selectedRecord.id}
@@ -2098,13 +2212,36 @@ export function CompanyWorkbench() {
                 <>
               <div className="detail-section">
                 <p className="detail-label">Contacts</p>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="ghost small contact-add-link"
+                    onClick={() => {
+                      setStatus(null);
+                      setAddContactModalOpen(true);
+                    }}
+                  >
+                    Add Contact
+                  </button>
+                </div>
                 {isResearchInProgress(selectedRecord.researchStatus) ? (
                   <p className="muted">Research is underway, contact discovery may appear shortly.</p>
                 ) : null}
                 {selectedRecord.contactLinks.length === 0 ? (
                   <p className="muted">No contacts linked yet.</p>
                 ) : (
-                  selectedRecord.contactLinks.map((link) => (
+                  selectedRecord.contactLinks
+                    .slice()
+                    .sort((left, right) => {
+                      const leftName = contactNameParts(left.contact.name);
+                      const rightName = contactNameParts(right.contact.name);
+                      const byLast = leftName.lastName.localeCompare(rightName.lastName);
+                      if (byLast !== 0) return byLast;
+                      const byFirst = leftName.firstName.localeCompare(rightName.firstName);
+                      if (byFirst !== 0) return byFirst;
+                      return left.contact.name.localeCompare(right.contact.name);
+                    })
+                    .map((link) => (
                     <div key={link.id} className="detail-list-item">
                       {editingContactLinkId === link.id ? (
                         <div className="detail-card">
@@ -2196,7 +2333,7 @@ export function CompanyWorkbench() {
                       ) : (
                         <div className="contact-row">
                           <div className="contact-row-details">
-                            <strong>{link.contact.name}</strong>
+                            <strong>{contactNameParts(link.contact.name).displayName}</strong>
                             {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
                             {` | ${link.roleType}`}
                             {link.contact.email ? ` | ${link.contact.email}` : ""}
@@ -2231,19 +2368,6 @@ export function CompanyWorkbench() {
                     </div>
                   ))
                 )}
-
-                <div className="actions">
-                  <button
-                    type="button"
-                    className="ghost small contact-add-link"
-                    onClick={() => {
-                      setStatus(null);
-                      setAddContactModalOpen(true);
-                    }}
-                  >
-                    Add Contact
-                  </button>
-                </div>
                 <AddContactModal
                   open={addContactModalOpen}
                   onClose={() => setAddContactModalOpen(false)}
@@ -2290,91 +2414,19 @@ export function CompanyWorkbench() {
                 <>
               <div className="detail-section">
                 <p className="detail-label">Linked Health Systems</p>
-                {selectedRecord.healthSystemLinks.length === 0 ? (
-                  <>
-                    <p className="muted">No linked health systems yet.</p>
-                    <div className="detail-grid">
-                      <div>
-                        <label>Existing Health System</label>
-                        <EntityLookupInput
-                          entityKind="HEALTH_SYSTEM"
-                          value={newHealthSystemLinkId}
-                          onChange={setNewHealthSystemLinkId}
-                          allowEmpty
-                          emptyLabel="No health system selected"
-                          initialOptions={healthSystems.map((system) => ({ id: system.id, name: system.name }))}
-                          placeholder="Search health systems"
-                          onEntityCreated={(option) => {
-                            setHealthSystems((current) => {
-                              if (current.some((entry) => entry.id === option.id)) return current;
-                              return [{ id: option.id, name: option.name }, ...current];
-                            });
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <label>Relationship Type</label>
-                        <select
-                          value={newHealthSystemRelationshipType}
-                          onChange={(event) =>
-                            setNewHealthSystemRelationshipType(
-                              event.target.value as "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
-                            )
-                          }
-                        >
-                          {companyHealthSystemRelationshipOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label>Investment Amount (USD)</label>
-                        <input
-                          value={newHealthSystemInvestmentAmountUsd}
-                          onChange={(event) => setNewHealthSystemInvestmentAmountUsd(event.target.value)}
-                          type="number"
-                          min="0"
-                          step="any"
-                          placeholder="0"
-                        />
-                      </div>
-                      <div>
-                        <label>Ownership %</label>
-                        <input
-                          value={newHealthSystemOwnershipPercent}
-                          onChange={(event) => setNewHealthSystemOwnershipPercent(event.target.value)}
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="any"
-                          placeholder="0"
-                        />
-                      </div>
-                      <div>
-                        <label>Notes</label>
-                        <input
-                          value={newHealthSystemNotes}
-                          onChange={(event) => setNewHealthSystemNotes(event.target.value)}
-                          placeholder="Notes"
-                        />
-                      </div>
-                    </div>
-                    <div className="actions">
-                      <button
-                        className="secondary"
-                        onClick={() => void addHealthSystemLinkToSelectedRecord()}
-                        disabled={
-                          addingHealthSystemLink || !newHealthSystemLinkId
-                        }
-                      >
-                        {addingHealthSystemLink ? "Adding..." : "Add Health System"}
-                      </button>
-                    </div>
-                  </>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="ghost small contact-add-link"
+                    onClick={() => void openHealthSystemRelationshipModal()}
+                  >
+                    Add Health System
+                  </button>
+                </div>
+                {displayedHealthSystemLinks.length === 0 ? (
+                  <p className="muted">No linked health systems yet.</p>
                 ) : (
-                  selectedRecord.healthSystemLinks.map((link) => (
+                  displayedHealthSystemLinks.map((link) => (
                     <div key={link.id} className="detail-list-item">
                       {editingHealthSystemLinkId === link.id ? (
                         <div className="detail-card">
@@ -2473,79 +2525,95 @@ export function CompanyWorkbench() {
                     </div>
                   ))
                 )}
+                <AddRelationshipModal
+                  open={addHealthSystemRelationshipModalOpen}
+                  onClose={closeHealthSystemRelationshipModal}
+                  onSubmit={() => void addHealthSystemLinkToSelectedRecord()}
+                  isSubmitting={addingHealthSystemLink}
+                  title="Add Health System Relationship"
+                  submitLabel="Add Health System"
+                  submitDisabled={!newHealthSystemLinkId}
+                >
+                  <div className="detail-grid">
+                    <div>
+                      <label>Existing Health System</label>
+                      <EntityLookupInput
+                        entityKind="HEALTH_SYSTEM"
+                        value={newHealthSystemLinkId}
+                        onChange={setNewHealthSystemLinkId}
+                        allowEmpty
+                        emptyLabel="No health system selected"
+                        initialOptions={healthSystems.map((system) => ({ id: system.id, name: system.name }))}
+                        placeholder="Search health systems"
+                        onEntityCreated={(option) => {
+                          setHealthSystems((current) => {
+                            if (current.some((entry) => entry.id === option.id)) return current;
+                            return [{ id: option.id, name: option.name }, ...current];
+                          });
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label>Relationship Type</label>
+                      <select
+                        value={newHealthSystemRelationshipType}
+                        onChange={(event) =>
+                          setNewHealthSystemRelationshipType(
+                            event.target.value as "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
+                          )
+                        }
+                      >
+                        {companyHealthSystemRelationshipOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label>Investment Amount (USD)</label>
+                      <input
+                        value={newHealthSystemInvestmentAmountUsd}
+                        onChange={(event) => setNewHealthSystemInvestmentAmountUsd(event.target.value)}
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <label>Ownership %</label>
+                      <input
+                        value={newHealthSystemOwnershipPercent}
+                        onChange={(event) => setNewHealthSystemOwnershipPercent(event.target.value)}
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="any"
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <label>Notes</label>
+                      <input value={newHealthSystemNotes} onChange={(event) => setNewHealthSystemNotes(event.target.value)} placeholder="Notes" />
+                    </div>
+                  </div>
+                </AddRelationshipModal>
               </div>
 
               <div className="detail-section">
                 <p className="detail-label">Linked Co-Investors</p>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="ghost small contact-add-link"
+                    onClick={() => void openCoInvestorRelationshipModal()}
+                  >
+                    Add Co-Investor
+                  </button>
+                </div>
                 {selectedRecord.coInvestorLinks.length === 0 ? (
-                  <>
-                    <p className="muted">No linked co-investors yet.</p>
-                    <div className="detail-grid">
-                      <div>
-                        <label>Existing Co-Investor</label>
-                        <EntityLookupInput
-                          entityKind="CO_INVESTOR"
-                          value={newCoInvestorId}
-                          onChange={setNewCoInvestorId}
-                          allowEmpty
-                          emptyLabel="No co-investor selected"
-                          initialOptions={coInvestors.map((coInvestor) => ({ id: coInvestor.id, name: coInvestor.name }))}
-                          placeholder="Search co-investors"
-                          onEntityCreated={(option) => {
-                            setCoInvestors((current) => {
-                              if (current.some((entry) => entry.id === option.id)) return current;
-                              return [{ id: option.id, name: option.name }, ...current];
-                            });
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <label>Relationship Type</label>
-                        <select
-                          value={newCoInvestorRelationshipType}
-                          onChange={(event) =>
-                            setNewCoInvestorRelationshipType(event.target.value as "INVESTOR" | "PARTNER" | "OTHER")
-                          }
-                        >
-                          {companyCoInvestorRelationshipOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label>Investment Amount (USD)</label>
-                        <input
-                          value={newCoInvestorInvestmentAmountUsd}
-                          onChange={(event) => setNewCoInvestorInvestmentAmountUsd(event.target.value)}
-                          type="number"
-                          min="0"
-                          step="any"
-                          placeholder="0"
-                        />
-                      </div>
-                      <div>
-                        <label>Notes</label>
-                        <input
-                          value={newCoInvestorNotes}
-                          onChange={(event) => setNewCoInvestorNotes(event.target.value)}
-                          placeholder="Notes"
-                        />
-                      </div>
-                    </div>
-                    <div className="actions">
-                      <button
-                        className="secondary"
-                        onClick={() => void addCoInvestorLinkToSelectedRecord()}
-                        disabled={
-                          addingCoInvestorLink || !newCoInvestorId
-                        }
-                      >
-                        {addingCoInvestorLink ? "Adding..." : "Add Co-Investor"}
-                      </button>
-                    </div>
-                  </>
+                  <p className="muted">No linked co-investors yet.</p>
                 ) : (
                   selectedRecord.coInvestorLinks.map((link) => (
                     <div key={link.id} className="detail-list-item">
@@ -2631,6 +2699,66 @@ export function CompanyWorkbench() {
                     </div>
                   ))
                 )}
+                <AddRelationshipModal
+                  open={addCoInvestorRelationshipModalOpen}
+                  onClose={closeCoInvestorRelationshipModal}
+                  onSubmit={() => void addCoInvestorLinkToSelectedRecord()}
+                  isSubmitting={addingCoInvestorLink}
+                  title="Add Co-Investor Relationship"
+                  submitLabel="Add Co-Investor"
+                  submitDisabled={!newCoInvestorId}
+                >
+                  <div className="detail-grid">
+                    <div>
+                      <label>Existing Co-Investor</label>
+                      <EntityLookupInput
+                        entityKind="CO_INVESTOR"
+                        value={newCoInvestorId}
+                        onChange={setNewCoInvestorId}
+                        allowEmpty
+                        emptyLabel="No co-investor selected"
+                        initialOptions={coInvestors.map((coInvestor) => ({ id: coInvestor.id, name: coInvestor.name }))}
+                        placeholder="Search co-investors"
+                        onEntityCreated={(option) => {
+                          setCoInvestors((current) => {
+                            if (current.some((entry) => entry.id === option.id)) return current;
+                            return [{ id: option.id, name: option.name }, ...current];
+                          });
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label>Relationship Type</label>
+                      <select
+                        value={newCoInvestorRelationshipType}
+                        onChange={(event) =>
+                          setNewCoInvestorRelationshipType(event.target.value as "INVESTOR" | "PARTNER" | "OTHER")
+                        }
+                      >
+                        {companyCoInvestorRelationshipOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label>Investment Amount (USD)</label>
+                      <input
+                        value={newCoInvestorInvestmentAmountUsd}
+                        onChange={(event) => setNewCoInvestorInvestmentAmountUsd(event.target.value)}
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <label>Notes</label>
+                      <input value={newCoInvestorNotes} onChange={(event) => setNewCoInvestorNotes(event.target.value)} placeholder="Notes" />
+                    </div>
+                  </div>
+                </AddRelationshipModal>
               </div>
 
                 </>

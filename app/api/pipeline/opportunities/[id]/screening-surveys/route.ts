@@ -5,15 +5,39 @@ import { getCurrentUser } from "@/lib/auth/server";
 import { canAccessAdmin } from "@/lib/auth/permissions";
 import {
   createScreeningSurveyAccessToken,
-  ensureDefaultScreeningSurveyQuestions,
+  ensureDefaultScreeningSurveyLibrary,
   screeningSurveyPathFromToken
 } from "@/lib/screening-survey";
 
-const createSessionSchema = z.object({
-  title: z.string().trim().min(1).max(140).optional(),
-  questionIds: z.array(z.string().min(1)).min(1),
-  openNow: z.boolean().default(true)
-});
+const createSessionSchema = z
+  .object({
+    title: z.string().trim().min(1).max(140).optional(),
+    questionIds: z.array(z.string().min(1)).optional(),
+    templateId: z.string().min(1).optional(),
+    sourceSessionId: z.string().min(1).optional(),
+    openNow: z.boolean().default(true)
+  })
+  .superRefine((value, ctx) => {
+    const hasQuestionIds = Array.isArray(value.questionIds) && value.questionIds.length > 0;
+    const hasTemplateId = Boolean(value.templateId);
+    const hasSourceSessionId = Boolean(value.sourceSessionId);
+    const sourceCount =
+      Number(hasQuestionIds) + Number(hasTemplateId) + Number(hasSourceSessionId);
+
+    if (sourceCount === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide questionIds, templateId, or sourceSessionId."
+      });
+      return;
+    }
+    if (sourceCount > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Use only one survey source: questionIds, templateId, or sourceSessionId."
+      });
+    }
+  });
 
 function toSessionResponse(
   session: {
@@ -25,9 +49,16 @@ function toSessionResponse(
     closedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
+    template: {
+      id: string;
+      key: string;
+      name: string;
+      isStandard: boolean;
+    } | null;
     questions: Array<{
       id: string;
       questionId: string;
+      templateQuestionId: string | null;
       displayOrder: number;
       categoryOverride: string | null;
       promptOverride: string | null;
@@ -48,6 +79,13 @@ function toSessionResponse(
     submissions: Array<{ submittedAt: Date }>;
   }
 ) {
+  const orderedQuestions = [...session.questions].sort((a, b) => {
+    if (a.displayOrder !== b.displayOrder) {
+      return a.displayOrder - b.displayOrder;
+    }
+    return a.id.localeCompare(b.id);
+  });
+
   return {
     id: session.id,
     title: session.title,
@@ -56,13 +94,18 @@ function toSessionResponse(
     closedAt: session.closedAt,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
+    templateId: session.template?.id || null,
+    templateKey: session.template?.key || null,
+    templateName: session.template?.name || null,
+    templateIsStandard: session.template?.isStandard || false,
     questionCount: session._count.questions,
     responseCount: session._count.submissions,
     lastResponseAt: session.submissions[0]?.submittedAt || null,
     sharePath: screeningSurveyPathFromToken(session.accessToken),
-    questions: session.questions.map((entry) => ({
+    questions: orderedQuestions.map((entry) => ({
       sessionQuestionId: entry.id,
       questionId: entry.questionId,
+      templateQuestionId: entry.templateQuestionId,
       displayOrder: entry.displayOrder,
       category: entry.categoryOverride || entry.question.category,
       prompt: entry.promptOverride || entry.question.prompt,
@@ -79,6 +122,8 @@ export async function GET(
 ) {
   try {
     const { id: companyId } = await context.params;
+    const user = await getCurrentUser();
+    const canViewCrossCompanySources = Boolean(user && canAccessAdmin(user.roles));
 
     const payload = await prisma.$transaction(async (tx) => {
       const company = await tx.company.findUnique({
@@ -92,9 +137,9 @@ export async function GET(
         };
       }
 
-      await ensureDefaultScreeningSurveyQuestions(tx);
+      await ensureDefaultScreeningSurveyLibrary(tx);
 
-      const [questionBank, sessions] = await Promise.all([
+      const [questionBank, surveyTemplates, sessions] = await Promise.all([
         tx.companyScreeningSurveyQuestion.findMany({
           orderBy: [{ category: "asc" }, { createdAt: "asc" }],
           select: {
@@ -105,17 +150,63 @@ export async function GET(
             scaleMin: true,
             scaleMax: true,
             isActive: true,
+            isStandard: true,
             createdAt: true,
             updatedAt: true
+          }
+        }),
+        tx.companyScreeningSurveyTemplate.findMany({
+          where: { isActive: true },
+          orderBy: [{ isStandard: "desc" }, { name: "asc" }],
+          include: {
+            questions: {
+              orderBy: [{ displayOrder: "asc" }],
+              include: {
+                question: {
+                  select: {
+                    id: true,
+                    category: true,
+                    prompt: true,
+                    instructions: true,
+                    scaleMin: true,
+                    scaleMax: true
+                  }
+                }
+              }
+            },
+            sessions: {
+              orderBy: [{ createdAt: "desc" }],
+              take: 1,
+              select: { createdAt: true }
+            },
+            _count: {
+              select: {
+                questions: true,
+                sessions: true
+              }
+            }
           }
         }),
         tx.companyScreeningSurveySession.findMany({
           where: { companyId },
           orderBy: [{ updatedAt: "desc" }],
           include: {
+            template: {
+              select: {
+                id: true,
+                key: true,
+                name: true,
+                isStandard: true
+              }
+            },
             questions: {
               orderBy: [{ displayOrder: "asc" }],
               include: {
+                templateQuestion: {
+                  select: {
+                    id: true
+                  }
+                },
                 question: {
                   select: {
                     id: true,
@@ -143,12 +234,71 @@ export async function GET(
         })
       ]);
 
+      const sourceSessions = canViewCrossCompanySources
+        ? await tx.companyScreeningSurveySession.findMany({
+            orderBy: [{ updatedAt: "desc" }],
+            include: {
+              company: {
+                select: {
+                  id: true,
+                  name: true
+                }
+              },
+              template: {
+                select: {
+                  id: true,
+                  name: true
+                }
+              },
+              _count: {
+                select: {
+                  questions: true,
+                  submissions: true
+                }
+              }
+            }
+          })
+        : [];
+
       return {
         status: 200 as const,
         data: {
           company,
           questionBank,
+          surveyTemplates: surveyTemplates.map((template) => ({
+            id: template.id,
+            key: template.key,
+            name: template.name,
+            description: template.description,
+            isActive: template.isActive,
+            isStandard: template.isStandard,
+            questionCount: template._count.questions,
+            usageCount: template._count.sessions,
+            lastUsedAt: template.sessions[0]?.createdAt || null,
+            questions: template.questions.map((entry) => ({
+              templateQuestionId: entry.id,
+              questionId: entry.questionId,
+              displayOrder: entry.displayOrder,
+              category: entry.categoryOverride || entry.question.category,
+              prompt: entry.promptOverride || entry.question.prompt,
+              instructions: entry.instructionsOverride || entry.question.instructions,
+              scaleMin: entry.question.scaleMin,
+              scaleMax: entry.question.scaleMax
+            }))
+          })),
           sessions: sessions.map(toSessionResponse),
+          sourceSessions: sourceSessions.map((session) => ({
+            id: session.id,
+            companyId: session.company.id,
+            companyName: session.company.name,
+            title: session.title,
+            status: session.status,
+            updatedAt: session.updatedAt,
+            questionCount: session._count.questions,
+            responseCount: session._count.submissions,
+            templateId: session.template?.id || null,
+            templateName: session.template?.name || null
+          })),
           activeSessionId: sessions.find((session) => session.status === "LIVE")?.id || null
         }
       };
@@ -178,6 +328,8 @@ export async function POST(
     const input = createSessionSchema.parse(await request.json());
 
     const session = await prisma.$transaction(async (tx) => {
+      await ensureDefaultScreeningSurveyLibrary(tx);
+
       const company = await tx.company.findUnique({
         where: { id: companyId },
         select: { id: true, name: true }
@@ -186,17 +338,137 @@ export async function POST(
         throw new Error("Pipeline item not found");
       }
 
-      const dedupedQuestionIds = Array.from(new Set(input.questionIds));
-      const questions = await tx.companyScreeningSurveyQuestion.findMany({
-        where: {
-          id: { in: dedupedQuestionIds },
-          isActive: true
-        },
-        select: { id: true }
-      });
+      let sessionTemplateId: string | null = null;
+      let resolvedTitle = input.title || `${company.name} Live Screening Survey`;
+      let sessionQuestions: Array<{
+        questionId: string;
+        templateQuestionId: string | null;
+        displayOrder: number;
+        categoryOverride: string | null;
+        promptOverride: string | null;
+        instructionsOverride: string | null;
+      }> = [];
 
-      if (questions.length !== dedupedQuestionIds.length) {
-        throw new Error("One or more selected questions are unavailable.");
+      if (input.templateId) {
+        const template = await tx.companyScreeningSurveyTemplate.findFirst({
+          where: {
+            id: input.templateId,
+            isActive: true
+          },
+          include: {
+            questions: {
+              orderBy: [{ displayOrder: "asc" }],
+              include: {
+                question: {
+                  select: {
+                    id: true,
+                    category: true,
+                    prompt: true,
+                    instructions: true,
+                    isActive: true
+                  }
+                }
+              }
+            }
+          }
+        });
+        if (!template) {
+          throw new Error("Survey template not found.");
+        }
+
+        const activeTemplateQuestions = template.questions.filter((entry) => entry.question.isActive);
+        if (activeTemplateQuestions.length === 0) {
+          throw new Error("Selected template has no active questions.");
+        }
+
+        sessionTemplateId = template.id;
+        if (!input.title) {
+          resolvedTitle = `${company.name} - ${template.name}`;
+        }
+
+        sessionQuestions = activeTemplateQuestions.map((entry, index) => ({
+          questionId: entry.questionId,
+          templateQuestionId: entry.id,
+          displayOrder: index,
+          categoryOverride: entry.categoryOverride || entry.question.category,
+          promptOverride: entry.promptOverride || entry.question.prompt,
+          instructionsOverride: entry.instructionsOverride || entry.question.instructions || null
+        }));
+      } else if (input.sourceSessionId) {
+        const sourceSession = await tx.companyScreeningSurveySession.findUnique({
+          where: {
+            id: input.sourceSessionId
+          },
+          include: {
+            company: {
+              select: {
+                id: true,
+                name: true
+              }
+            },
+            questions: {
+              orderBy: [{ displayOrder: "asc" }],
+              include: {
+                question: {
+                  select: {
+                    id: true,
+                    category: true,
+                    prompt: true,
+                    instructions: true,
+                    isActive: true
+                  }
+                }
+              }
+            }
+          }
+        });
+        if (!sourceSession) {
+          throw new Error("Source survey not found.");
+        }
+
+        const activeSourceQuestions = sourceSession.questions.filter((entry) => entry.question.isActive);
+        if (activeSourceQuestions.length === 0) {
+          throw new Error("Source survey has no active questions to copy.");
+        }
+
+        sessionTemplateId = sourceSession.templateId;
+        if (!input.title) {
+          resolvedTitle =
+            sourceSession.company.id === companyId
+              ? `${sourceSession.title} (Copy)`
+              : `${sourceSession.title} (${sourceSession.company.name} Copy)`;
+        }
+
+        sessionQuestions = activeSourceQuestions.map((entry, index) => ({
+          questionId: entry.questionId,
+          templateQuestionId: entry.templateQuestionId,
+          displayOrder: index,
+          categoryOverride: entry.categoryOverride || entry.question.category,
+          promptOverride: entry.promptOverride || entry.question.prompt,
+          instructionsOverride: entry.instructionsOverride || entry.question.instructions || null
+        }));
+      } else {
+        const dedupedQuestionIds = Array.from(new Set(input.questionIds || []));
+        const questions = await tx.companyScreeningSurveyQuestion.findMany({
+          where: {
+            id: { in: dedupedQuestionIds },
+            isActive: true
+          },
+          select: { id: true }
+        });
+
+        if (questions.length !== dedupedQuestionIds.length) {
+          throw new Error("One or more selected questions are unavailable.");
+        }
+
+        sessionQuestions = dedupedQuestionIds.map((questionId, index) => ({
+          questionId,
+          templateQuestionId: null,
+          displayOrder: index,
+          categoryOverride: null,
+          promptOverride: null,
+          instructionsOverride: null
+        }));
       }
 
       const now = new Date();
@@ -216,7 +488,8 @@ export async function POST(
       const created = await tx.companyScreeningSurveySession.create({
         data: {
           companyId,
-          title: input.title || `${company.name} Live Screening Survey`,
+          templateId: sessionTemplateId,
+          title: resolvedTitle,
           accessToken: createScreeningSurveyAccessToken(),
           status: input.openNow ? "LIVE" : "DRAFT",
           openedAt: input.openNow ? now : null,
@@ -225,19 +498,36 @@ export async function POST(
       });
 
       await tx.companyScreeningSurveySessionQuestion.createMany({
-        data: dedupedQuestionIds.map((questionId, index) => ({
+        data: sessionQuestions.map((entry) => ({
           sessionId: created.id,
-          questionId,
-          displayOrder: index
+          questionId: entry.questionId,
+          templateQuestionId: entry.templateQuestionId,
+          displayOrder: entry.displayOrder,
+          categoryOverride: entry.categoryOverride,
+          promptOverride: entry.promptOverride,
+          instructionsOverride: entry.instructionsOverride
         }))
       });
 
       return tx.companyScreeningSurveySession.findUniqueOrThrow({
         where: { id: created.id },
         include: {
+          template: {
+            select: {
+              id: true,
+              key: true,
+              name: true,
+              isStandard: true
+            }
+          },
           questions: {
             orderBy: [{ displayOrder: "asc" }],
             include: {
+              templateQuestion: {
+                select: {
+                  id: true
+                }
+              },
               question: {
                 select: {
                   id: true,

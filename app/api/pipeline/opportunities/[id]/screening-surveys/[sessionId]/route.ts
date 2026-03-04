@@ -41,9 +41,16 @@ function toSessionResponse(
     closedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
+    template: {
+      id: string;
+      key: string;
+      name: string;
+      isStandard: boolean;
+    } | null;
     questions: Array<{
       id: string;
       questionId: string;
+      templateQuestionId: string | null;
       displayOrder: number;
       categoryOverride: string | null;
       promptOverride: string | null;
@@ -64,6 +71,13 @@ function toSessionResponse(
     submissions: Array<{ submittedAt: Date }>;
   }
 ) {
+  const orderedQuestions = [...session.questions].sort((a, b) => {
+    if (a.displayOrder !== b.displayOrder) {
+      return a.displayOrder - b.displayOrder;
+    }
+    return a.id.localeCompare(b.id);
+  });
+
   return {
     id: session.id,
     title: session.title,
@@ -72,13 +86,18 @@ function toSessionResponse(
     closedAt: session.closedAt,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
+    templateId: session.template?.id || null,
+    templateKey: session.template?.key || null,
+    templateName: session.template?.name || null,
+    templateIsStandard: session.template?.isStandard || false,
     questionCount: session._count.questions,
     responseCount: session._count.submissions,
     lastResponseAt: session.submissions[0]?.submittedAt || null,
     sharePath: screeningSurveyPathFromToken(session.accessToken),
-    questions: session.questions.map((entry) => ({
+    questions: orderedQuestions.map((entry) => ({
       sessionQuestionId: entry.id,
       questionId: entry.questionId,
+      templateQuestionId: entry.templateQuestionId,
       displayOrder: entry.displayOrder,
       category: entry.categoryOverride || entry.question.category,
       prompt: entry.promptOverride || entry.question.prompt,
@@ -107,10 +126,12 @@ export async function PATCH(
         select: {
           id: true,
           companyId: true,
+          status: true,
           openedAt: true,
           questions: {
             orderBy: [{ displayOrder: "asc" }],
             select: {
+              id: true,
               questionId: true,
               categoryOverride: true,
               promptOverride: true,
@@ -182,11 +203,9 @@ export async function PATCH(
           JSON.stringify(normalizedExistingQuestions);
 
         if (questionSetChanged) {
-          const submissionCount = await tx.companyScreeningSurveySubmission.count({
-            where: { sessionId }
-          });
-          if (submissionCount > 0) {
-            throw new Error("Cannot modify question set after responses have been submitted.");
+          const nextStatus = input.status || existing.status;
+          if (nextStatus === "LIVE") {
+            throw new Error("Set survey status to Draft before editing questions.");
           }
           questionsToSave = normalizedIncomingQuestions;
         }
@@ -233,28 +252,68 @@ export async function PATCH(
       });
 
       if (questionsToSave) {
-        await tx.companyScreeningSurveySessionQuestion.deleteMany({
-          where: { sessionId }
-        });
+        const existingByQuestionId = new Map(existing.questions.map((entry) => [entry.questionId, entry] as const));
+        const incomingQuestionIds = new Set(questionsToSave.map((entry) => entry.questionId));
 
-        await tx.companyScreeningSurveySessionQuestion.createMany({
-          data: questionsToSave.map((entry) => ({
-            sessionId,
-            questionId: entry.questionId,
-            displayOrder: entry.displayOrder,
-            categoryOverride: entry.category,
-            promptOverride: entry.prompt,
-            instructionsOverride: entry.instructions
-          }))
-        });
+        const removedSessionQuestionIds = existing.questions
+          .filter((entry) => !incomingQuestionIds.has(entry.questionId))
+          .map((entry) => entry.id);
+
+        if (removedSessionQuestionIds.length > 0) {
+          await tx.companyScreeningSurveySessionQuestion.deleteMany({
+            where: {
+              id: { in: removedSessionQuestionIds }
+            }
+          });
+        }
+
+        for (const entry of questionsToSave) {
+          const existingQuestion = existingByQuestionId.get(entry.questionId);
+          if (existingQuestion) {
+            await tx.companyScreeningSurveySessionQuestion.update({
+              where: { id: existingQuestion.id },
+              data: {
+                displayOrder: entry.displayOrder,
+                categoryOverride: entry.category,
+                promptOverride: entry.prompt,
+                instructionsOverride: entry.instructions
+              }
+            });
+            continue;
+          }
+
+          await tx.companyScreeningSurveySessionQuestion.create({
+            data: {
+              sessionId,
+              questionId: entry.questionId,
+              displayOrder: entry.displayOrder,
+              categoryOverride: entry.category,
+              promptOverride: entry.prompt,
+              instructionsOverride: entry.instructions
+            }
+          });
+        }
       }
 
       return tx.companyScreeningSurveySession.findUniqueOrThrow({
         where: { id: updated.id },
         include: {
+          template: {
+            select: {
+              id: true,
+              key: true,
+              name: true,
+              isStandard: true
+            }
+          },
           questions: {
             orderBy: [{ displayOrder: "asc" }],
             include: {
+              templateQuestion: {
+                select: {
+                  id: true
+                }
+              },
               question: {
                 select: {
                   id: true,

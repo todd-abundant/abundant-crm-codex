@@ -38,6 +38,7 @@ type TextAreaFieldProps = {
   insight?: NoteInsightPayload;
   rows?: number;
   enableFormatting?: boolean;
+  stripFormattingOnPaste?: boolean;
   multiline: true;
 };
 
@@ -379,7 +380,8 @@ export function InlineTextareaField({
   emptyText = emptyDisplayDefault,
   insight,
   rows,
-  enableFormatting = false
+  enableFormatting = false,
+  stripFormattingOnPaste = false
 }: Omit<TextAreaFieldProps, "kind">) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(value);
@@ -438,6 +440,7 @@ export function InlineTextareaField({
               rows={rows}
               placeholder={placeholder}
               className="inline-formatting-textarea"
+              stripFormattingOnPaste={stripFormattingOnPaste}
               onBlurCapture={(event) => {
                 const nextFocus = event.relatedTarget as Node | null;
                 if (nextFocus && event.currentTarget.contains(nextFocus)) return;

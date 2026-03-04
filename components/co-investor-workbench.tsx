@@ -136,6 +136,22 @@ function normalizeWebsiteForMatch(value?: string | null) {
   }
 }
 
+function contactNameParts(name: string) {
+  const nameParts = name.trim().split(/\s+/).filter(Boolean);
+  if (nameParts.length === 0) return { firstName: "", lastName: "", displayName: "" };
+  if (nameParts.length === 1) {
+    return { firstName: "", lastName: nameParts[0], displayName: nameParts[0] };
+  }
+
+  const lastName = nameParts[nameParts.length - 1];
+  const firstName = nameParts.slice(0, -1).join(" ");
+  return {
+    firstName,
+    lastName,
+    displayName: `${lastName}, ${firstName}`
+  };
+}
+
 function findDuplicateRecord(records: CoInvestorRecord[], candidate: SearchCandidate) {
   const candidateName = normalizeForMatch(candidate.name);
   if (!candidateName) return null;
@@ -1415,10 +1431,10 @@ export function CoInvestorWorkbench() {
 
                 <div className="detail-tabs" role="tablist" aria-label="Co-investor detail sections">
                   <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "overview" ? "active" : ""}`} aria-selected={activeDetailTab === "overview"} onClick={() => setActiveDetailTab("overview")}>Overview</button>
-                  <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "documents" ? "active" : ""}`} aria-selected={activeDetailTab === "documents"} onClick={() => setActiveDetailTab("documents")}>Documents</button>
-                  <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "notes" ? "active" : ""}`} aria-selected={activeDetailTab === "notes"} onClick={() => setActiveDetailTab("notes")}>Notes</button>
                   <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "contacts" ? "active" : ""}`} aria-selected={activeDetailTab === "contacts"} onClick={() => setActiveDetailTab("contacts")}>Contacts</button>
                   <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "relationships" ? "active" : ""}`} aria-selected={activeDetailTab === "relationships"} onClick={() => setActiveDetailTab("relationships")}>Relationships</button>
+                  <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "notes" ? "active" : ""}`} aria-selected={activeDetailTab === "notes"} onClick={() => setActiveDetailTab("notes")}>Notes</button>
+                  <button type="button" role="tab" className={`detail-tab ${activeDetailTab === "documents" ? "active" : ""}`} aria-selected={activeDetailTab === "documents"} onClick={() => setActiveDetailTab("documents")}>Documents</button>
                 </div>
 
                 {activeDetailTab === "overview" && (
@@ -1527,10 +1543,33 @@ export function CoInvestorWorkbench() {
                   <>
               <div className="detail-section">
                 <p className="detail-label">Contacts</p>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="ghost small contact-add-link"
+                    onClick={() => {
+                      setStatus(null);
+                      setAddContactModalOpen(true);
+                    }}
+                  >
+                    Add Contact
+                  </button>
+                </div>
                 {selectedRecord.contactLinks.length === 0 ? (
                   <p className="muted">No contacts linked yet.</p>
                 ) : (
-                  selectedRecord.contactLinks.map((link) => (
+                  selectedRecord.contactLinks
+                    .slice()
+                    .sort((left, right) => {
+                      const leftName = contactNameParts(left.contact.name);
+                      const rightName = contactNameParts(right.contact.name);
+                      const byLast = leftName.lastName.localeCompare(rightName.lastName);
+                      if (byLast !== 0) return byLast;
+                      const byFirst = leftName.firstName.localeCompare(rightName.firstName);
+                      if (byFirst !== 0) return byFirst;
+                      return left.contact.name.localeCompare(right.contact.name);
+                    })
+                    .map((link) => (
                     <div key={link.id} className="detail-list-item">
                       {editingContactLinkId === link.id ? (
                         <div className="detail-card">
@@ -1614,7 +1653,7 @@ export function CoInvestorWorkbench() {
                       ) : (
                         <div className="contact-row">
                           <div className="contact-row-details">
-                            <strong>{link.contact.name}</strong>
+                            <strong>{contactNameParts(link.contact.name).displayName}</strong>
                             {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
                             {` | ${link.roleType}`}
                             {link.contact.email ? ` | ${link.contact.email}` : ""}
@@ -1649,19 +1688,6 @@ export function CoInvestorWorkbench() {
                     </div>
                   ))
                 )}
-
-                <div className="actions">
-                  <button
-                    type="button"
-                    className="ghost small contact-add-link"
-                    onClick={() => {
-                      setStatus(null);
-                      setAddContactModalOpen(true);
-                    }}
-                  >
-                    Add Contact
-                  </button>
-                </div>
                 <AddContactModal
                   open={addContactModalOpen}
                   onClose={() => setAddContactModalOpen(false)}
