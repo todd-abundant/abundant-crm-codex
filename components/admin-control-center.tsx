@@ -7,7 +7,7 @@ import { AdminSurveyManagement } from "./admin-survey-management";
 type AdminTab = "roles" | "surveys";
 
 export function AdminControlCenter({ currentUserId }: { currentUserId: string }) {
-  const [activeTab, setActiveTab] = React.useState<AdminTab>("roles");
+  const [activeTab, setActiveTab] = React.useState<AdminTab>("surveys");
 
   return (
     <main>
@@ -21,20 +21,20 @@ export function AdminControlCenter({ currentUserId }: { currentUserId: string })
           <button
             type="button"
             role="tab"
+            className={`detail-tab ${activeTab === "surveys" ? "active" : ""}`}
+            aria-selected={activeTab === "surveys"}
+            onClick={() => setActiveTab("surveys")}
+          >
+            Survey Administration
+          </button>
+          <button
+            type="button"
+            role="tab"
             className={`detail-tab ${activeTab === "roles" ? "active" : ""}`}
             aria-selected={activeTab === "roles"}
             onClick={() => setActiveTab("roles")}
           >
             Role Management
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`detail-tab ${activeTab === "surveys" ? "active" : ""}`}
-            aria-selected={activeTab === "surveys"}
-            onClick={() => setActiveTab("surveys")}
-          >
-            Survey Management
           </button>
         </div>
 

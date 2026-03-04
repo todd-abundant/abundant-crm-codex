@@ -139,6 +139,8 @@ export async function GET(
 
       await ensureDefaultScreeningSurveyLibrary(tx);
 
+      const surveyTemplateWhere = canViewCrossCompanySources ? undefined : { isActive: true };
+
       const [questionBank, surveyTemplates, sessions] = await Promise.all([
         tx.companyScreeningSurveyQuestion.findMany({
           orderBy: [{ category: "asc" }, { createdAt: "asc" }],
@@ -156,7 +158,7 @@ export async function GET(
           }
         }),
         tx.companyScreeningSurveyTemplate.findMany({
-          where: { isActive: true },
+          where: surveyTemplateWhere,
           orderBy: [{ isStandard: "desc" }, { name: "asc" }],
           include: {
             questions: {
@@ -260,32 +262,35 @@ export async function GET(
           })
         : [];
 
+      const serializedTemplates = surveyTemplates.map((template) => ({
+        id: template.id,
+        key: template.key,
+        name: template.name,
+        description: template.description,
+        isActive: template.isActive,
+        isStandard: template.isStandard,
+        questionCount: template._count.questions,
+        usageCount: template._count.sessions,
+        lastUsedAt: template.sessions[0]?.createdAt || null,
+        questions: template.questions.map((entry) => ({
+          templateQuestionId: entry.id,
+          questionId: entry.questionId,
+          displayOrder: entry.displayOrder,
+          category: entry.categoryOverride || entry.question.category,
+          prompt: entry.promptOverride || entry.question.prompt,
+          instructions: entry.instructionsOverride || entry.question.instructions,
+          scaleMin: entry.question.scaleMin,
+          scaleMax: entry.question.scaleMax
+        }))
+      }));
+
       return {
         status: 200 as const,
         data: {
           company,
           questionBank,
-          surveyTemplates: surveyTemplates.map((template) => ({
-            id: template.id,
-            key: template.key,
-            name: template.name,
-            description: template.description,
-            isActive: template.isActive,
-            isStandard: template.isStandard,
-            questionCount: template._count.questions,
-            usageCount: template._count.sessions,
-            lastUsedAt: template.sessions[0]?.createdAt || null,
-            questions: template.questions.map((entry) => ({
-              templateQuestionId: entry.id,
-              questionId: entry.questionId,
-              displayOrder: entry.displayOrder,
-              category: entry.categoryOverride || entry.question.category,
-              prompt: entry.promptOverride || entry.question.prompt,
-              instructions: entry.instructionsOverride || entry.question.instructions,
-              scaleMin: entry.question.scaleMin,
-              scaleMax: entry.question.scaleMax
-            }))
-          })),
+          surveyTemplates: serializedTemplates.filter((template) => template.isActive),
+          ...(canViewCrossCompanySources ? { surveyTemplatesAll: serializedTemplates } : {}),
           sessions: sessions.map(toSessionResponse),
           sourceSessions: sourceSessions.map((session) => ({
             id: session.id,

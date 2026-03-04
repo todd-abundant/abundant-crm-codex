@@ -1,3 +1,39 @@
+export type PipelineCompanyType = "STARTUP" | "SPIN_OUT" | "DENOVO";
+
+export const PIPELINE_COMPANY_TYPE_OPTIONS: Array<{
+  value: PipelineCompanyType;
+  label: string;
+  boardTitle: string;
+  boardDescription: string;
+}> = [
+  {
+    value: "STARTUP",
+    label: "Startup Companies",
+    boardTitle: "Startup Company Pipeline",
+    boardDescription:
+      "Active pipeline opportunities for investments in startup companies. Drag cards between columns to update phase."
+  },
+  {
+    value: "DENOVO",
+    label: "DeNovo",
+    boardTitle: "DeNovo Pipeline",
+    boardDescription:
+      "Active pipeline opportunities for DeNovo businesses started from scratch. Drag cards between columns to update phase."
+  },
+  {
+    value: "SPIN_OUT",
+    label: "Spin-Out",
+    boardTitle: "Spin-Out Pipeline",
+    boardDescription:
+      "Active pipeline opportunities for spin-out businesses built with health system partners. Drag cards between columns to update phase."
+  }
+];
+
+export function normalizePipelineCompanyType(value: string | null | undefined): PipelineCompanyType {
+  if (value === "SPIN_OUT" || value === "DENOVO") return value;
+  return "STARTUP";
+}
+
 export type PipelinePhase =
   | "INTAKE"
   | "DECLINED"

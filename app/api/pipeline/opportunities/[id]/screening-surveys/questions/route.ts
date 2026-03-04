@@ -8,7 +8,7 @@ const createQuestionSchema = z
   .object({
     category: z.string().trim().min(1).max(80),
     prompt: z.string().trim().min(1).max(360),
-    instructions: z.string().trim().max(600).optional().or(z.literal("")),
+    instructions: z.string().trim().max(600).optional().nullable().or(z.literal("")),
     scaleMin: z.number().int().min(0).max(10).default(1),
     scaleMax: z.number().int().min(1).max(10).default(10),
     isActive: z.boolean().default(true)

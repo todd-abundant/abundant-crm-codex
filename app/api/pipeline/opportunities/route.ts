@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import {
   inferDefaultPhaseFromCompany,
   mapPhaseToBoardColumn,
+  normalizePipelineCompanyType,
   phaseLabel,
   type PipelinePhase
 } from "@/lib/pipeline-opportunities";
@@ -17,10 +18,14 @@ function formatLocation(company: {
     .join(", ");
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const companyType = normalizePipelineCompanyType(new URL(request.url).searchParams.get("companyType"));
     const [companies, healthSystems] = await Promise.all([
       prisma.company.findMany({
+        where: {
+          companyType
+        },
         include: {
           leadSourceHealthSystem: {
             select: {
@@ -130,6 +135,7 @@ export async function GET() {
       .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 
     return NextResponse.json({
+      companyType,
       opportunities,
       healthSystems
     });

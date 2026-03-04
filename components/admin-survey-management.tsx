@@ -104,9 +104,36 @@ type SurveySessionDraft = {
   questions: SurveyDraftQuestion[];
 };
 
+type SurveyManagementTab = "SURVEYS" | "TEMPLATE_LIBRARY";
+
+type TemplateLibraryDraftQuestion = {
+  questionId: string;
+  category: string;
+  prompt: string;
+  instructions: string | null;
+  scaleMin: number;
+  scaleMax: number;
+};
+
+type TemplateLibraryDraft = {
+  id: string | null;
+  name: string;
+  description: string;
+  isActive: boolean;
+  isStandard: boolean;
+  usageCount: number;
+  questions: TemplateLibraryDraftQuestion[];
+};
+
+type AddQuestionModalState = {
+  context: "SURVEY" | "TEMPLATE";
+  category: string;
+};
+
 type SurveyDataPayload = {
   questionBank: SurveyQuestionBankItem[];
   surveyTemplates?: SurveyTemplate[];
+  surveyTemplatesAll?: SurveyTemplate[];
   sessions: SurveySession[];
   sourceSessions?: SurveyCopySourceSession[];
   error?: string;
@@ -196,7 +223,7 @@ function normalizeCategory(value: string) {
 
 function normalizeOptionalText(value: string | null | undefined) {
   const trimmed = (value || "").trim();
-  return trimmed ? trimmed : null;
+  return trimmed ? trimmed : "";
 }
 
 function orderedCategories(questions: SurveyDraftQuestion[]) {
@@ -260,6 +287,42 @@ function normalizeSessionPayload(session: SurveySession) {
   };
 }
 
+function toTemplateLibraryDraft(template: SurveyTemplate): TemplateLibraryDraft {
+  return {
+    id: template.id,
+    name: template.name,
+    description: template.description || "",
+    isActive: template.isActive,
+    isStandard: template.isStandard,
+    usageCount: template.usageCount,
+    questions: [...template.questions]
+      .sort((a, b) => a.displayOrder - b.displayOrder)
+      .map((entry) => ({
+        questionId: entry.questionId,
+        category: normalizeCategory(entry.category),
+        prompt: entry.prompt,
+        instructions: normalizeOptionalText(entry.instructions),
+        scaleMin: entry.scaleMin,
+        scaleMax: entry.scaleMax
+      }))
+  };
+}
+
+function normalizeTemplateDraftPayload(draft: TemplateLibraryDraft) {
+  return {
+    name: draft.name.trim(),
+    description: draft.description.trim() || undefined,
+    isActive: draft.isActive,
+    questions: draft.questions.map((entry, index) => ({
+      questionId: entry.questionId,
+      category: normalizeCategory(entry.category),
+      prompt: entry.prompt.trim() || "Untitled question",
+      instructions: normalizeOptionalText(entry.instructions),
+      displayOrder: index
+    }))
+  };
+}
+
 function questionIndexesForCategory(questions: SurveyDraftQuestion[], category: string) {
   const target = normalizeCategory(category);
   const indexes: number[] = [];
@@ -288,12 +351,14 @@ function insertQuestionIntoCategory(
 }
 
 export function AdminSurveyManagement() {
+  const [activeTab, setActiveTab] = React.useState<SurveyManagementTab>("SURVEYS");
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [companies, setCompanies] = React.useState<AdminSurveyCompany[]>([]);
   const [loadingCompanies, setLoadingCompanies] = React.useState(true);
   const [selectedCompanyId, setSelectedCompanyId] = React.useState("");
   const [questionBank, setQuestionBank] = React.useState<SurveyQuestionBankItem[]>([]);
   const [surveyTemplates, setSurveyTemplates] = React.useState<SurveyTemplate[]>([]);
+  const [libraryTemplates, setLibraryTemplates] = React.useState<SurveyTemplate[]>([]);
   const [sessions, setSessions] = React.useState<SurveySession[]>([]);
   const [sourceSessions, setSourceSessions] = React.useState<SurveyCopySourceSession[]>([]);
   const [loadingSessions, setLoadingSessions] = React.useState(false);
@@ -305,6 +370,7 @@ export function AdminSurveyManagement() {
   );
   const [newSurveyTemplateId, setNewSurveyTemplateId] = React.useState("");
   const [newSurveySourceSessionId, setNewSurveySourceSessionId] = React.useState("");
+  const [showAddSurveyModal, setShowAddSurveyModal] = React.useState(false);
   const [creatingSurvey, setCreatingSurvey] = React.useState(false);
   const [savingSurvey, setSavingSurvey] = React.useState(false);
   const [savingStatus, setSavingStatus] = React.useState(false);
@@ -312,26 +378,56 @@ export function AdminSurveyManagement() {
   const [libraryTemplateId, setLibraryTemplateId] = React.useState("");
   const [libraryTemplateName, setLibraryTemplateName] = React.useState("");
   const [libraryTemplateDescription, setLibraryTemplateDescription] = React.useState("");
+  const [showAddLibraryTemplateModal, setShowAddLibraryTemplateModal] = React.useState(false);
+  const [newLibraryTemplateName, setNewLibraryTemplateName] = React.useState("");
+  const [newLibraryTemplateDescription, setNewLibraryTemplateDescription] = React.useState("");
   const [savingTemplateMode, setSavingTemplateMode] = React.useState<"CREATE" | "UPDATE" | null>(null);
+  const [updatingLibraryTemplateId, setUpdatingLibraryTemplateId] = React.useState<string | null>(null);
+  const [deletingLibraryTemplateId, setDeletingLibraryTemplateId] = React.useState<string | null>(null);
+  const [selectedTemplateLibraryId, setSelectedTemplateLibraryId] = React.useState("");
+  const [templateLibraryDraft, setTemplateLibraryDraft] = React.useState<TemplateLibraryDraft | null>(null);
+  const [addQuestionModal, setAddQuestionModal] = React.useState<AddQuestionModalState | null>(null);
+  const [modalExistingQuestionId, setModalExistingQuestionId] = React.useState("");
+  const [modalNewQuestionPrompt, setModalNewQuestionPrompt] = React.useState("");
+  const [modalNewQuestionInstructions, setModalNewQuestionInstructions] = React.useState("");
+  const [submittingAddQuestionModal, setSubmittingAddQuestionModal] = React.useState(false);
+  const [templateNewCategoryName, setTemplateNewCategoryName] = React.useState("");
+  const [templateNewCategoryPrompt, setTemplateNewCategoryPrompt] = React.useState("");
+  const [templateNewCategoryInstructions, setTemplateNewCategoryInstructions] = React.useState("");
+  const [addingTemplateCategory, setAddingTemplateCategory] = React.useState(false);
+  const [savingTemplateLibraryDraft, setSavingTemplateLibraryDraft] = React.useState(false);
+  const [deletingTemplateLibraryDraftId, setDeletingTemplateLibraryDraftId] = React.useState<string | null>(null);
   const [origin, setOrigin] = React.useState("");
-  const [addExistingQuestionByCategory, setAddExistingQuestionByCategory] = React.useState<
-    Record<string, string>
-  >({});
-  const [newQuestionPromptByCategory, setNewQuestionPromptByCategory] = React.useState<
-    Record<string, string>
-  >({});
-  const [newQuestionInstructionsByCategory, setNewQuestionInstructionsByCategory] = React.useState<
-    Record<string, string>
-  >({});
-  const [addingQuestionByCategory, setAddingQuestionByCategory] = React.useState<Record<string, boolean>>({});
   const [loadingResults, setLoadingResults] = React.useState(false);
   const [results, setResults] = React.useState<SurveyResultsPayload | null>(null);
 
   const selectedCompany = companies.find((entry) => entry.id === selectedCompanyId) || null;
   const selectedSession = sessions.find((entry) => entry.id === selectedSessionId) || null;
-  const selectedLibraryTemplate = surveyTemplates.find((entry) => entry.id === libraryTemplateId) || null;
+  const selectedLibraryTemplate = libraryTemplates.find((entry) => entry.id === libraryTemplateId) || null;
+  const selectedTemplateLibrary =
+    libraryTemplates.find((entry) => entry.id === selectedTemplateLibraryId) || null;
   const hasResponses = (sessionDraft?.responseCount || 0) > 0;
   const questionEditingLocked = sessionDraft?.status === "LIVE";
+  const libraryTemplateActionLocked =
+    savingTemplateMode !== null || updatingLibraryTemplateId !== null || deletingLibraryTemplateId !== null;
+  const templateLibraryActionLocked =
+    savingTemplateLibraryDraft ||
+    deletingTemplateLibraryDraftId !== null ||
+    addingTemplateCategory ||
+    submittingAddQuestionModal ||
+    updatingLibraryTemplateId !== null ||
+    deletingLibraryTemplateId !== null;
+  const addQuestionModalLocked =
+    addQuestionModal?.context === "SURVEY" ? questionEditingLocked || !sessionDraft : !templateLibraryDraft;
+  const modalAvailableQuestions = React.useMemo(() => {
+    if (!addQuestionModal) return [];
+    const usedQuestionIds = new Set(
+      (addQuestionModal.context === "SURVEY"
+        ? sessionDraft?.questions.map((entry) => entry.questionId)
+        : templateLibraryDraft?.questions.map((entry) => entry.questionId)) || []
+    );
+    return questionBank.filter((entry) => entry.isActive && !usedQuestionIds.has(entry.id));
+  }, [addQuestionModal, questionBank, sessionDraft?.questions, templateLibraryDraft?.questions]);
 
   const removedQuestionCount = React.useMemo(() => {
     if (!selectedSession || !sessionDraft) return 0;
@@ -354,11 +450,28 @@ export function AdminSurveyManagement() {
     );
   }, [selectedSession, sessionDraft]);
 
+  React.useEffect(() => {
+    if (!addQuestionModal) {
+      setModalExistingQuestionId("");
+      return;
+    }
+    if (modalAvailableQuestions.length === 0) {
+      setModalExistingQuestionId("");
+      return;
+    }
+    setModalExistingQuestionId((current) =>
+      current && modalAvailableQuestions.some((entry) => entry.id === current)
+        ? current
+        : modalAvailableQuestions[0].id
+    );
+  }, [addQuestionModal, modalAvailableQuestions]);
+
   const loadSessions = React.useCallback(
     async (companyId: string, preferredSessionId?: string) => {
       if (!companyId) {
         setQuestionBank([]);
         setSurveyTemplates([]);
+        setLibraryTemplates([]);
         setSessions([]);
         setSourceSessions([]);
         setSelectedSessionId("");
@@ -378,10 +491,14 @@ export function AdminSurveyManagement() {
 
         const nextQuestionBank = Array.isArray(payload.questionBank) ? payload.questionBank : [];
         const nextTemplates = Array.isArray(payload.surveyTemplates) ? payload.surveyTemplates : [];
+        const nextLibraryTemplates = Array.isArray(payload.surveyTemplatesAll)
+          ? payload.surveyTemplatesAll
+          : nextTemplates;
         const nextSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
         const nextSourceSessions = Array.isArray(payload.sourceSessions) ? payload.sourceSessions : [];
         setQuestionBank(nextQuestionBank);
         setSurveyTemplates(nextTemplates);
+        setLibraryTemplates(nextLibraryTemplates);
         setSessions(nextSessions);
         setSourceSessions(nextSourceSessions);
         setSelectedSessionId((current) => {
@@ -400,6 +517,7 @@ export function AdminSurveyManagement() {
         });
         setQuestionBank([]);
         setSurveyTemplates([]);
+        setLibraryTemplates([]);
         setSessions([]);
         setSourceSessions([]);
         setSelectedSessionId("");
@@ -496,34 +614,71 @@ export function AdminSurveyManagement() {
   }, [sourceSessions]);
 
   React.useEffect(() => {
-    if (surveyTemplates.length === 0) {
+    if (libraryTemplates.length === 0) {
       setLibraryTemplateId("");
       setLibraryTemplateName("");
       setLibraryTemplateDescription("");
       return;
     }
     setLibraryTemplateId((current) => {
-      if (current && surveyTemplates.some((entry) => entry.id === current)) {
+      if (current && libraryTemplates.some((entry) => entry.id === current)) {
         return current;
       }
-      if (selectedSession?.templateId && surveyTemplates.some((entry) => entry.id === selectedSession.templateId)) {
+      if (
+        selectedSession?.templateId &&
+        libraryTemplates.some((entry) => entry.id === selectedSession.templateId)
+      ) {
         return selectedSession.templateId;
       }
-      return surveyTemplates.find((entry) => entry.isStandard)?.id || surveyTemplates[0].id;
+      return libraryTemplates.find((entry) => entry.isStandard)?.id || libraryTemplates[0].id;
     });
-  }, [selectedSession?.templateId, surveyTemplates]);
+  }, [libraryTemplates, selectedSession?.templateId]);
 
   React.useEffect(() => {
     if (!libraryTemplateId) {
       return;
     }
-    const template = surveyTemplates.find((entry) => entry.id === libraryTemplateId);
+    const template = libraryTemplates.find((entry) => entry.id === libraryTemplateId);
     if (!template) {
       return;
     }
     setLibraryTemplateName(template.name);
     setLibraryTemplateDescription(template.description || "");
-  }, [libraryTemplateId, surveyTemplates]);
+  }, [libraryTemplateId, libraryTemplates]);
+
+  React.useEffect(() => {
+    if (libraryTemplates.length === 0) {
+      setSelectedTemplateLibraryId("");
+      setTemplateLibraryDraft(null);
+      return;
+    }
+    setSelectedTemplateLibraryId((current) => {
+      if (current && libraryTemplates.some((entry) => entry.id === current)) {
+        return current;
+      }
+      return libraryTemplates.find((entry) => entry.isStandard)?.id || libraryTemplates[0].id;
+    });
+  }, [libraryTemplates]);
+
+  React.useEffect(() => {
+    if (!selectedTemplateLibraryId) {
+      setTemplateLibraryDraft((current) => {
+        if (current && current.id === null) {
+          return current;
+        }
+        return null;
+      });
+      return;
+    }
+    const template = libraryTemplates.find((entry) => entry.id === selectedTemplateLibraryId) || null;
+    setTemplateLibraryDraft(template ? toTemplateLibraryDraft(template) : null);
+  }, [selectedTemplateLibraryId, libraryTemplates]);
+
+  React.useEffect(() => {
+    setTemplateNewCategoryName("");
+    setTemplateNewCategoryPrompt("");
+    setTemplateNewCategoryInstructions("");
+  }, [selectedTemplateLibraryId]);
 
   React.useEffect(() => {
     if (!selectedCompanyId || !selectedSessionId) {
@@ -574,6 +729,19 @@ export function AdminSurveyManagement() {
     } catch {
       setStatus({ kind: "error", text: "Unable to copy survey link. Copy it manually." });
     }
+  }
+
+  function openAddSurveyModal() {
+    if (!selectedCompanyId) {
+      setStatus({ kind: "error", text: "Select a company first." });
+      return;
+    }
+    setShowAddSurveyModal(true);
+  }
+
+  function closeAddSurveyModal() {
+    if (creatingSurvey) return;
+    setShowAddSurveyModal(false);
   }
 
   async function createSurvey() {
@@ -629,6 +797,7 @@ export function AdminSurveyManagement() {
         throw new Error(responsePayload.error || "Failed to create survey");
       }
       setNewSurveyTitle("");
+      setShowAddSurveyModal(false);
       setStatus({ kind: "ok", text: "Survey created." });
       await loadSessions(selectedCompanyId, responsePayload.session?.id);
     } catch (error) {
@@ -733,22 +902,48 @@ export function AdminSurveyManagement() {
     }
   }
 
-  async function saveTemplateFromCurrentSurvey(mode: "CREATE" | "UPDATE") {
-    if (!selectedCompanyId || !sessionDraft) return;
+  function openAddLibraryTemplateModal() {
+    if (!sessionDraft) {
+      setStatus({ kind: "error", text: "Select a survey first." });
+      return;
+    }
     if (sessionDraft.questions.length === 0) {
       setStatus({ kind: "error", text: "A template requires at least one question." });
       return;
     }
+    setNewLibraryTemplateName(sessionDraft.title.trim());
+    setNewLibraryTemplateDescription("");
+    setShowAddLibraryTemplateModal(true);
+  }
 
-    const trimmedName = libraryTemplateName.trim();
+  function closeAddLibraryTemplateModal() {
+    if (savingTemplateMode === "CREATE") return;
+    setShowAddLibraryTemplateModal(false);
+    setNewLibraryTemplateName("");
+    setNewLibraryTemplateDescription("");
+  }
+
+  async function saveTemplateFromCurrentSurvey(
+    mode: "CREATE" | "UPDATE",
+    overrides?: { name?: string; description?: string }
+  ) {
+    if (!selectedCompanyId || !sessionDraft) return;
+    if (sessionDraft.questions.length === 0) {
+      setStatus({ kind: "error", text: "A template requires at least one question." });
+      return false;
+    }
+
+    const nameValue = overrides?.name ?? libraryTemplateName;
+    const descriptionValue = overrides?.description ?? libraryTemplateDescription;
+    const trimmedName = nameValue.trim();
     if (!trimmedName) {
       setStatus({ kind: "error", text: "Template name is required." });
-      return;
+      return false;
     }
 
     if (mode === "UPDATE" && !libraryTemplateId) {
       setStatus({ kind: "error", text: "Select a template to update." });
-      return;
+      return false;
     }
 
     if (mode === "UPDATE" && selectedLibraryTemplate?.isStandard) {
@@ -756,7 +951,7 @@ export function AdminSurveyManagement() {
         "Update this standard template for all future surveys created from it?"
       );
       if (!confirmed) {
-        return;
+        return false;
       }
     }
 
@@ -781,7 +976,7 @@ export function AdminSurveyManagement() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: trimmedName,
-          description: libraryTemplateDescription.trim() || undefined,
+          description: descriptionValue.trim() || undefined,
           isActive: true,
           questions
         })
@@ -794,19 +989,496 @@ export function AdminSurveyManagement() {
       setLibraryTemplateId(payload.template.id);
       setLibraryTemplateName(payload.template.name);
       setLibraryTemplateDescription(payload.template.description || "");
-      setNewSurveyTemplateId(payload.template.id);
+      if (payload.template.isActive) {
+        setNewSurveyTemplateId(payload.template.id);
+      }
       setStatus({
         kind: "ok",
         text: mode === "CREATE" ? "Template added to the library." : "Template updated in the library."
       });
       await loadSessions(selectedCompanyId, sessionDraft.id);
+      return true;
     } catch (error) {
       setStatus({
         kind: "error",
         text: error instanceof Error ? error.message : "Failed to save survey template"
       });
+      return false;
     } finally {
       setSavingTemplateMode(null);
+    }
+  }
+
+  async function saveNewLibraryTemplateFromModal() {
+    const created = await saveTemplateFromCurrentSurvey("CREATE", {
+      name: newLibraryTemplateName,
+      description: newLibraryTemplateDescription
+    });
+    if (!created) {
+      return;
+    }
+    closeAddLibraryTemplateModal();
+  }
+
+  async function toggleLibraryTemplateActive(nextIsActive: boolean) {
+    if (!selectedCompanyId || !selectedLibraryTemplate) return;
+    if (selectedLibraryTemplate.isStandard && !nextIsActive) {
+      setStatus({ kind: "error", text: "Standard templates cannot be deactivated." });
+      return;
+    }
+
+    if (!nextIsActive && selectedLibraryTemplate.usageCount > 0) {
+      const confirmed = window.confirm(
+        "Deactivate this template? Existing surveys keep their questions, but new surveys cannot be created from this template."
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setUpdatingLibraryTemplateId(selectedLibraryTemplate.id);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/admin/screening-survey-library/${selectedLibraryTemplate.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: nextIsActive })
+      });
+      const payload = (await res.json()) as { template?: SurveyTemplate; error?: string };
+      if (!res.ok || !payload.template) {
+        throw new Error(payload.error || "Failed to update template status");
+      }
+
+      setStatus({
+        kind: "ok",
+        text: nextIsActive ? "Template activated." : "Template deactivated."
+      });
+      await loadSessions(selectedCompanyId, selectedSessionId || undefined);
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update template status"
+      });
+    } finally {
+      setUpdatingLibraryTemplateId(null);
+    }
+  }
+
+  async function deleteLibraryTemplate() {
+    if (!selectedCompanyId || !selectedLibraryTemplate) return;
+    if (selectedLibraryTemplate.isStandard) {
+      setStatus({ kind: "error", text: "Standard templates cannot be deleted." });
+      return;
+    }
+
+    const warning =
+      selectedLibraryTemplate.usageCount > 0
+        ? `Delete "${selectedLibraryTemplate.name}" from the library? Existing survey sessions keep their questions, but the template reference is removed.`
+        : `Delete "${selectedLibraryTemplate.name}" from the library?`;
+    if (!window.confirm(warning)) {
+      return;
+    }
+
+    setDeletingLibraryTemplateId(selectedLibraryTemplate.id);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/admin/screening-survey-library/${selectedLibraryTemplate.id}`, {
+        method: "DELETE"
+      });
+      const payload = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to delete template");
+      }
+      setStatus({ kind: "ok", text: "Template deleted from the library." });
+      await loadSessions(selectedCompanyId, selectedSessionId || undefined);
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to delete template"
+      });
+    } finally {
+      setDeletingLibraryTemplateId(null);
+    }
+  }
+
+  function beginNewTemplateLibraryDraft() {
+    setSelectedTemplateLibraryId("");
+    setTemplateNewCategoryName("");
+    setTemplateNewCategoryPrompt("");
+    setTemplateNewCategoryInstructions("");
+    setTemplateLibraryDraft({
+      id: null,
+      name: "",
+      description: "",
+      isActive: true,
+      isStandard: false,
+      usageCount: 0,
+      questions: []
+    });
+  }
+
+  function resetTemplateLibraryDraft() {
+    setTemplateNewCategoryName("");
+    setTemplateNewCategoryPrompt("");
+    setTemplateNewCategoryInstructions("");
+    if (!selectedTemplateLibrary) {
+      beginNewTemplateLibraryDraft();
+      return;
+    }
+    setTemplateLibraryDraft(toTemplateLibraryDraft(selectedTemplateLibrary));
+  }
+
+  function updateTemplateLibraryQuestion(
+    index: number,
+    next: Partial<TemplateLibraryDraftQuestion>
+  ) {
+    setTemplateLibraryDraft((current) => {
+      if (!current) return current;
+      const questions = current.questions.map((question, questionIndex) =>
+        questionIndex === index ? { ...question, ...next } : question
+      );
+      return {
+        ...current,
+        questions
+      };
+    });
+  }
+
+  function moveTemplateLibraryQuestionWithinCategory(
+    category: string,
+    categoryIndex: number,
+    direction: -1 | 1
+  ) {
+    setTemplateLibraryDraft((current) => {
+      if (!current) return current;
+      const indexes = questionIndexesForCategory(current.questions, category);
+      const targetCategoryIndex = categoryIndex + direction;
+      if (targetCategoryIndex < 0 || targetCategoryIndex >= indexes.length) {
+        return current;
+      }
+
+      const sourceIndex = indexes[categoryIndex];
+      const targetIndex = indexes[targetCategoryIndex];
+      const questions = [...current.questions];
+      const tmp = questions[sourceIndex];
+      questions[sourceIndex] = questions[targetIndex];
+      questions[targetIndex] = tmp;
+      return {
+        ...current,
+        questions
+      };
+    });
+  }
+
+  function moveTemplateLibraryCategory(category: string, direction: -1 | 1) {
+    setTemplateLibraryDraft((current) => {
+      if (!current) return current;
+      const currentOrder = orderedCategories(current.questions);
+      const currentIndex = currentOrder.indexOf(category);
+      const targetIndex = currentIndex + direction;
+      if (currentIndex < 0 || targetIndex < 0 || targetIndex >= currentOrder.length) return current;
+
+      const nextOrder = [...currentOrder];
+      const tmp = nextOrder[currentIndex];
+      nextOrder[currentIndex] = nextOrder[targetIndex];
+      nextOrder[targetIndex] = tmp;
+
+      const grouped = new Map<string, TemplateLibraryDraftQuestion[]>();
+      for (const question of current.questions) {
+        const key = normalizeCategory(question.category);
+        const existing = grouped.get(key) || [];
+        existing.push({ ...question, category: key });
+        grouped.set(key, existing);
+      }
+
+      return {
+        ...current,
+        questions: nextOrder.flatMap((entry) => grouped.get(entry) || [])
+      };
+    });
+  }
+
+  function removeTemplateLibraryQuestion(index: number) {
+    setTemplateLibraryDraft((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        questions: current.questions.filter((_, questionIndex) => questionIndex !== index)
+      };
+    });
+  }
+
+  function addExistingQuestionToTemplateCategory(category: string, questionId: string) {
+    if (!templateLibraryDraft) return false;
+    if (!questionId) return false;
+    if (templateLibraryDraft.questions.some((entry) => entry.questionId === questionId)) {
+      setStatus({ kind: "error", text: "Question already exists in this template." });
+      return false;
+    }
+    const question = questionBank.find((entry) => entry.id === questionId);
+    if (!question) {
+      setStatus({ kind: "error", text: "Selected question is no longer available." });
+      return false;
+    }
+    setTemplateLibraryDraft((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        questions: insertQuestionIntoCategory(current.questions, category, {
+          questionId: question.id,
+          category: normalizeCategory(category),
+          prompt: question.prompt,
+          instructions: normalizeOptionalText(question.instructions),
+          scaleMin: question.scaleMin,
+          scaleMax: question.scaleMax
+        })
+      };
+    });
+    return true;
+  }
+
+  async function createAndAddQuestionToTemplateCategory(
+    category: string,
+    promptValue: string,
+    instructionsValue: string
+  ) {
+    if (!selectedCompanyId || !templateLibraryDraft) return false;
+
+    const prompt = promptValue.trim();
+    const instructions = instructionsValue.trim();
+
+    if (!prompt) {
+      setStatus({ kind: "error", text: "Provide question text before creating it." });
+      return false;
+    }
+
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${selectedCompanyId}/screening-surveys/questions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: normalizeCategory(category),
+          prompt,
+          instructions: instructions || undefined,
+          scaleMin: 1,
+          scaleMax: 10
+        })
+      });
+      const payload = (await res.json()) as { question?: SurveyQuestionBankItem; error?: string };
+      if (!res.ok || !payload.question) {
+        throw new Error(payload.error || "Failed to create question");
+      }
+      const createdQuestion = payload.question;
+
+      setQuestionBank((current) => {
+        const exists = current.some((entry) => entry.id === createdQuestion.id);
+        if (exists) return current;
+        return [...current, createdQuestion];
+      });
+
+      setTemplateLibraryDraft((current) => {
+        if (!current) return current;
+        if (current.questions.some((entry) => entry.questionId === createdQuestion.id)) {
+          return current;
+        }
+        return {
+          ...current,
+          questions: insertQuestionIntoCategory(current.questions, category, {
+            questionId: createdQuestion.id,
+            category: normalizeCategory(category),
+            prompt: createdQuestion.prompt,
+            instructions: normalizeOptionalText(createdQuestion.instructions),
+            scaleMin: createdQuestion.scaleMin,
+            scaleMax: createdQuestion.scaleMax
+          })
+        };
+      });
+
+      setStatus({ kind: "ok", text: "Question created and added to the template." });
+      return true;
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to create question"
+      });
+      return false;
+    }
+  }
+
+  async function createAndAddNewTemplateCategory() {
+    if (!selectedCompanyId || !templateLibraryDraft) return;
+
+    const category = normalizeCategory(templateNewCategoryName);
+    const prompt = templateNewCategoryPrompt.trim();
+    const instructions = templateNewCategoryInstructions.trim();
+    if (!templateNewCategoryName.trim()) {
+      setStatus({ kind: "error", text: "Category name is required." });
+      return;
+    }
+    if (!prompt) {
+      setStatus({ kind: "error", text: "Provide a first question for the new category." });
+      return;
+    }
+    if (orderedCategories(templateLibraryDraft.questions).includes(category)) {
+      setStatus({ kind: "error", text: "Category already exists. Add a question within that category." });
+      return;
+    }
+
+    setAddingTemplateCategory(true);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${selectedCompanyId}/screening-surveys/questions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category,
+          prompt,
+          instructions: instructions || undefined,
+          scaleMin: 1,
+          scaleMax: 10
+        })
+      });
+      const payload = (await res.json()) as { question?: SurveyQuestionBankItem; error?: string };
+      if (!res.ok || !payload.question) {
+        throw new Error(payload.error || "Failed to create question");
+      }
+      const createdQuestion = payload.question;
+
+      setQuestionBank((current) => {
+        const exists = current.some((entry) => entry.id === createdQuestion.id);
+        if (exists) return current;
+        return [...current, createdQuestion];
+      });
+
+      setTemplateLibraryDraft((current) => {
+        if (!current) return current;
+        if (current.questions.some((entry) => entry.questionId === createdQuestion.id)) {
+          return current;
+        }
+        return {
+          ...current,
+          questions: insertQuestionIntoCategory(current.questions, category, {
+            questionId: createdQuestion.id,
+            category,
+            prompt: createdQuestion.prompt,
+            instructions: normalizeOptionalText(createdQuestion.instructions),
+            scaleMin: createdQuestion.scaleMin,
+            scaleMax: createdQuestion.scaleMax
+          })
+        };
+      });
+
+      setTemplateNewCategoryName("");
+      setTemplateNewCategoryPrompt("");
+      setTemplateNewCategoryInstructions("");
+      setStatus({ kind: "ok", text: `Category ${category} added with its first question.` });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add category"
+      });
+    } finally {
+      setAddingTemplateCategory(false);
+    }
+  }
+
+  async function saveTemplateLibraryDraft() {
+    if (!selectedCompanyId || !templateLibraryDraft) return;
+    const trimmedName = templateLibraryDraft.name.trim();
+    if (!trimmedName) {
+      setStatus({ kind: "error", text: "Template name is required." });
+      return;
+    }
+    if (templateLibraryDraft.questions.length === 0) {
+      setStatus({ kind: "error", text: "Add at least one question to the template." });
+      return;
+    }
+    if (templateLibraryDraft.isStandard && !templateLibraryDraft.isActive) {
+      setStatus({ kind: "error", text: "Standard templates must remain active." });
+      return;
+    }
+    if (templateLibraryDraft.isStandard) {
+      const confirmed = window.confirm(
+        "Update this standard template for all future surveys created from it?"
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setSavingTemplateLibraryDraft(true);
+    setStatus(null);
+    try {
+      const payload = normalizeTemplateDraftPayload({
+        ...templateLibraryDraft,
+        name: trimmedName,
+        isActive: templateLibraryDraft.isStandard ? true : templateLibraryDraft.isActive
+      });
+      const isCreate = !templateLibraryDraft.id;
+      const endpoint = isCreate
+        ? "/api/admin/screening-survey-library"
+        : `/api/admin/screening-survey-library/${templateLibraryDraft.id}`;
+      const method = isCreate ? "POST" : "PATCH";
+      const res = await fetch(endpoint, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const responsePayload = (await res.json()) as { template?: SurveyTemplate; error?: string };
+      if (!res.ok || !responsePayload.template) {
+        throw new Error(responsePayload.error || "Failed to save template");
+      }
+
+      setStatus({ kind: "ok", text: isCreate ? "Template created." : "Template updated." });
+      await loadSessions(selectedCompanyId, selectedSessionId || undefined);
+      setSelectedTemplateLibraryId(responsePayload.template.id);
+      setTemplateLibraryDraft(toTemplateLibraryDraft(responsePayload.template));
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to save template"
+      });
+    } finally {
+      setSavingTemplateLibraryDraft(false);
+    }
+  }
+
+  async function deleteTemplateLibraryDraft() {
+    if (!selectedCompanyId || !templateLibraryDraft?.id) return;
+    if (templateLibraryDraft.isStandard) {
+      setStatus({ kind: "error", text: "Standard templates cannot be deleted." });
+      return;
+    }
+    const warning =
+      templateLibraryDraft.usageCount > 0
+        ? `Delete "${templateLibraryDraft.name}"? Existing survey sessions keep their questions, but the template reference is removed.`
+        : `Delete "${templateLibraryDraft.name}"?`;
+    if (!window.confirm(warning)) {
+      return;
+    }
+
+    setDeletingTemplateLibraryDraftId(templateLibraryDraft.id);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/admin/screening-survey-library/${templateLibraryDraft.id}`, {
+        method: "DELETE"
+      });
+      const payload = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to delete template");
+      }
+      setStatus({ kind: "ok", text: "Template deleted." });
+      await loadSessions(selectedCompanyId, selectedSessionId || undefined);
+      setSelectedTemplateLibraryId("");
+      setTemplateLibraryDraft(null);
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to delete template"
+      });
+    } finally {
+      setDeletingTemplateLibraryDraftId(null);
     }
   }
 
@@ -958,17 +1630,17 @@ export function AdminSurveyManagement() {
     });
   }
 
-  function addExistingQuestionToCategory(category: string) {
-    if (!sessionDraft) return;
-    const selectedQuestionId = addExistingQuestionByCategory[category] || "";
-    if (!selectedQuestionId) return;
-
-    const question = questionBank.find((entry) => entry.id === selectedQuestionId);
-    if (!question) return;
-
+  function addExistingQuestionToSurveyCategory(category: string, questionId: string) {
+    if (!sessionDraft) return false;
+    if (!questionId) return false;
+    const question = questionBank.find((entry) => entry.id === questionId);
+    if (!question) {
+      setStatus({ kind: "error", text: "Selected question is no longer available." });
+      return false;
+    }
     if (sessionDraft.questions.some((entry) => entry.questionId === question.id)) {
       setStatus({ kind: "error", text: "Question already exists in this survey." });
-      return;
+      return false;
     }
 
     setSessionDraft((current) => {
@@ -985,25 +1657,24 @@ export function AdminSurveyManagement() {
         })
       };
     });
-
-    setAddExistingQuestionByCategory((current) => ({
-      ...current,
-      [category]: ""
-    }));
+    return true;
   }
 
-  async function createAndAddQuestionInCategory(category: string) {
-    if (!selectedCompanyId || !sessionDraft) return;
+  async function createAndAddQuestionToSurveyCategory(
+    category: string,
+    promptValue: string,
+    instructionsValue: string
+  ) {
+    if (!selectedCompanyId || !sessionDraft) return false;
 
-    const prompt = (newQuestionPromptByCategory[category] || "").trim();
-    const instructions = (newQuestionInstructionsByCategory[category] || "").trim();
+    const prompt = promptValue.trim();
+    const instructions = instructionsValue.trim();
 
     if (!prompt) {
       setStatus({ kind: "error", text: "Provide question text before creating it." });
-      return;
+      return false;
     }
 
-    setAddingQuestionByCategory((current) => ({ ...current, [category]: true }));
     setStatus(null);
     try {
       const res = await fetch(`/api/pipeline/opportunities/${selectedCompanyId}/screening-surveys/questions`, {
@@ -1048,21 +1719,113 @@ export function AdminSurveyManagement() {
         };
       });
 
-      setNewQuestionPromptByCategory((current) => ({ ...current, [category]: "" }));
-      setNewQuestionInstructionsByCategory((current) => ({ ...current, [category]: "" }));
       setStatus({ kind: "ok", text: "Question created and added to this category." });
+      return true;
     } catch (error) {
       setStatus({
         kind: "error",
         text: error instanceof Error ? error.message : "Failed to create question"
       });
+      return false;
+    }
+  }
+
+  function openAddQuestionModal(context: "SURVEY" | "TEMPLATE", category: string) {
+    setAddQuestionModal({ context, category: normalizeCategory(category) });
+    setModalNewQuestionPrompt("");
+    setModalNewQuestionInstructions("");
+  }
+
+  function closeAddQuestionModal() {
+    if (submittingAddQuestionModal) return;
+    setAddQuestionModal(null);
+    setModalExistingQuestionId("");
+    setModalNewQuestionPrompt("");
+    setModalNewQuestionInstructions("");
+  }
+
+  function addExistingQuestionFromModal() {
+    if (!addQuestionModal) return;
+    if (addQuestionModalLocked) {
+      const message =
+        addQuestionModal.context === "SURVEY"
+          ? "Set this survey to Draft before adding questions."
+          : "Select a template before adding questions.";
+      setStatus({ kind: "error", text: message });
+      return;
+    }
+    const questionId = modalExistingQuestionId || "";
+    if (!questionId) {
+      setStatus({ kind: "error", text: "Select an existing question to add." });
+      return;
+    }
+    const added =
+      addQuestionModal.context === "SURVEY"
+        ? addExistingQuestionToSurveyCategory(addQuestionModal.category, questionId)
+        : addExistingQuestionToTemplateCategory(addQuestionModal.category, questionId);
+    if (!added) return;
+    setStatus({ kind: "ok", text: `Question added to ${addQuestionModal.category}.` });
+    closeAddQuestionModal();
+  }
+
+  async function createQuestionFromModal() {
+    if (!addQuestionModal) return;
+    if (addQuestionModalLocked) {
+      const message =
+        addQuestionModal.context === "SURVEY"
+          ? "Set this survey to Draft before adding questions."
+          : "Select a template before adding questions.";
+      setStatus({ kind: "error", text: message });
+      return;
+    }
+    const prompt = modalNewQuestionPrompt.trim();
+    if (!prompt) {
+      setStatus({ kind: "error", text: "Provide question text before creating it." });
+      return;
+    }
+
+    setSubmittingAddQuestionModal(true);
+    try {
+      const created =
+        addQuestionModal.context === "SURVEY"
+          ? await createAndAddQuestionToSurveyCategory(
+              addQuestionModal.category,
+              modalNewQuestionPrompt,
+              modalNewQuestionInstructions
+            )
+          : await createAndAddQuestionToTemplateCategory(
+              addQuestionModal.category,
+              modalNewQuestionPrompt,
+              modalNewQuestionInstructions
+            );
+      if (!created) {
+        return;
+      }
+      closeAddQuestionModal();
     } finally {
-      setAddingQuestionByCategory((current) => ({ ...current, [category]: false }));
+      setSubmittingAddQuestionModal(false);
     }
   }
 
   const categoryOrder = sessionDraft ? orderedCategories(sessionDraft.questions) : [];
   const resultsSubmissionCount = results?.submissions.length || 0;
+  const templateCategoryOrder = templateLibraryDraft ? orderedCategories(templateLibraryDraft.questions) : [];
+  const templateLibraryDirty = React.useMemo(() => {
+    if (!templateLibraryDraft) return false;
+    if (!templateLibraryDraft.id) {
+      return (
+        templateLibraryDraft.name.trim().length > 0 ||
+        templateLibraryDraft.description.trim().length > 0 ||
+        templateLibraryDraft.questions.length > 0
+      );
+    }
+    const sourceTemplate = libraryTemplates.find((entry) => entry.id === templateLibraryDraft.id);
+    if (!sourceTemplate) return true;
+    return (
+      JSON.stringify(normalizeTemplateDraftPayload(templateLibraryDraft)) !==
+      JSON.stringify(normalizeTemplateDraftPayload(toTemplateLibraryDraft(sourceTemplate)))
+    );
+  }, [libraryTemplates, templateLibraryDraft]);
 
   return (
     <>
@@ -1073,6 +1836,28 @@ export function AdminSurveyManagement() {
       </p>
       {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
 
+      <div className="detail-tabs" role="tablist" aria-label="Survey management sections">
+        <button
+          type="button"
+          role="tab"
+          className={`detail-tab ${activeTab === "SURVEYS" ? "active" : ""}`}
+          aria-selected={activeTab === "SURVEYS"}
+          onClick={() => setActiveTab("SURVEYS")}
+        >
+          Company Surveys
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className={`detail-tab ${activeTab === "TEMPLATE_LIBRARY" ? "active" : ""}`}
+          aria-selected={activeTab === "TEMPLATE_LIBRARY"}
+          onClick={() => setActiveTab("TEMPLATE_LIBRARY")}
+        >
+          Survey Template Library
+        </button>
+      </div>
+
+      {activeTab === "SURVEYS" ? (
       <div className="grid admin-survey-layout">
         <section className="panel" aria-label="Survey list panel">
           <div className="pipeline-card-head">
@@ -1107,92 +1892,14 @@ export function AdminSurveyManagement() {
           </select>
           <p className="muted">{selectedCompany?.phaseLabel || "No company selected"}</p>
 
-          <label htmlFor="admin-new-survey-title">New survey title</label>
-          <input
-            id="admin-new-survey-title"
-            value={newSurveyTitle}
-            onChange={(event) => setNewSurveyTitle(event.target.value)}
-            placeholder="e.g. Screening Webinar Survey (March)"
-            disabled={!selectedCompanyId}
-          />
-          <label htmlFor="admin-new-survey-source-mode">Source</label>
-          <select
-            id="admin-new-survey-source-mode"
-            value={newSurveySourceMode}
-            onChange={(event) =>
-              setNewSurveySourceMode(event.target.value as "TEMPLATE" | "SESSION" | "QUESTIONS")
-            }
-            disabled={!selectedCompanyId || creatingSurvey}
-          >
-            <option value="TEMPLATE">Survey Template Library</option>
-            <option value="SESSION">Existing Survey</option>
-            <option value="QUESTIONS">Active Question Bank</option>
-          </select>
-
-          {newSurveySourceMode === "TEMPLATE" ? (
-            <>
-              <label htmlFor="admin-new-survey-template">Template</label>
-              <select
-                id="admin-new-survey-template"
-                value={newSurveyTemplateId}
-                onChange={(event) => setNewSurveyTemplateId(event.target.value)}
-                disabled={!selectedCompanyId || creatingSurvey || surveyTemplates.length === 0}
-              >
-                {surveyTemplates.length === 0 ? (
-                  <option value="">No templates available</option>
-                ) : null}
-                {surveyTemplates.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {`${template.name} (${template.questionCount} questions${
-                      template.isStandard ? ", Standard" : ""
-                    })`}
-                  </option>
-                ))}
-              </select>
-            </>
-          ) : null}
-
-          {newSurveySourceMode === "SESSION" ? (
-            <>
-              <label htmlFor="admin-new-survey-source-session">Existing survey</label>
-              <select
-                id="admin-new-survey-source-session"
-                value={newSurveySourceSessionId}
-                onChange={(event) => setNewSurveySourceSessionId(event.target.value)}
-                disabled={!selectedCompanyId || creatingSurvey || sourceSessions.length === 0}
-              >
-                {sourceSessions.length === 0 ? <option value="">No surveys available</option> : null}
-                {sourceSessions.map((session) => (
-                  <option key={session.id} value={session.id}>
-                    {`${session.title} — ${session.companyName}${
-                      session.templateName ? ` (${session.templateName})` : ""
-                    }`}
-                  </option>
-                ))}
-              </select>
-              <p className="muted">Includes surveys created for any company.</p>
-            </>
-          ) : null}
-
-          {newSurveySourceMode === "QUESTIONS" ? (
-            <p className="muted">
-              Creates a survey from the currently active question library.
-            </p>
-          ) : null}
           <div className="actions">
             <button
               className="secondary"
               type="button"
-              onClick={() => void createSurvey()}
-              disabled={
-                creatingSurvey ||
-                !selectedCompanyId ||
-                (newSurveySourceMode === "TEMPLATE" && !newSurveyTemplateId && surveyTemplates.length > 0) ||
-                (newSurveySourceMode === "SESSION" && !newSurveySourceSessionId && sourceSessions.length > 0) ||
-                (newSurveySourceMode === "SESSION" && sourceSessions.length === 0)
-              }
+              onClick={() => openAddSurveyModal()}
+              disabled={!selectedCompanyId}
             >
-              {creatingSurvey ? "Creating..." : "Add Survey"}
+              Add Survey
             </button>
           </div>
 
@@ -1354,10 +2061,6 @@ export function AdminSurveyManagement() {
               <div className="admin-survey-category-stack">
                 {categoryOrder.map((category, categoryOrderIndex) => {
                   const questionIndexes = questionIndexesForCategory(sessionDraft.questions, category);
-                  const existingQuestionValue = addExistingQuestionByCategory[category] || "";
-                  const newQuestionPrompt = newQuestionPromptByCategory[category] || "";
-                  const newQuestionInstructions = newQuestionInstructionsByCategory[category] || "";
-                  const addingQuestion = addingQuestionByCategory[category] || false;
                   return (
                     <section key={category} className="admin-survey-category-panel">
                       <div className="pipeline-card-head">
@@ -1454,84 +2157,14 @@ export function AdminSurveyManagement() {
                         })}
                       </div>
 
-                      <div className="detail-grid admin-survey-category-builder">
-                        <div>
-                          <label htmlFor={`admin-category-existing-${category}`}>Add existing question</label>
-                          <select
-                            id={`admin-category-existing-${category}`}
-                            value={existingQuestionValue}
-                            onChange={(event) =>
-                              setAddExistingQuestionByCategory((current) => ({
-                                ...current,
-                                [category]: event.target.value
-                              }))
-                            }
-                            disabled={questionEditingLocked}
-                          >
-                            <option value="">Select question</option>
-                            {questionBank
-                              .filter((entry) => entry.isActive)
-                              .map((entry) => (
-                                <option key={entry.id} value={entry.id}>
-                                  {`${entry.category}: ${entry.prompt}`}
-                                </option>
-                              ))}
-                          </select>
-                        </div>
-                        <div className="actions">
-                          <button
-                            className="secondary"
-                            type="button"
-                            onClick={() => addExistingQuestionToCategory(category)}
-                            disabled={questionEditingLocked || !existingQuestionValue}
-                          >
-                            Add to {category}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="detail-grid admin-survey-category-builder">
-                        <div>
-                          <label htmlFor={`admin-category-new-prompt-${category}`}>Create new question</label>
-                          <input
-                            id={`admin-category-new-prompt-${category}`}
-                            value={newQuestionPrompt}
-                            onChange={(event) =>
-                              setNewQuestionPromptByCategory((current) => ({
-                                ...current,
-                                [category]: event.target.value
-                              }))
-                            }
-                            placeholder="Question prompt"
-                            disabled={questionEditingLocked}
-                          />
-                        </div>
-                        <div>
-                          <label htmlFor={`admin-category-new-instructions-${category}`}>Instructions</label>
-                          <textarea
-                            id={`admin-category-new-instructions-${category}`}
-                            value={newQuestionInstructions}
-                            onChange={(event) =>
-                              setNewQuestionInstructionsByCategory((current) => ({
-                                ...current,
-                                [category]: event.target.value
-                              }))
-                            }
-                            rows={2}
-                            placeholder="Optional instructions shown below the question"
-                            disabled={questionEditingLocked}
-                          />
-                        </div>
-                        <div className="actions">
-                          <button
-                            className="secondary"
-                            type="button"
-                            onClick={() => void createAndAddQuestionInCategory(category)}
-                            disabled={questionEditingLocked || addingQuestion}
-                          >
-                            {addingQuestion ? "Adding..." : `Create in ${category}`}
-                          </button>
-                        </div>
+                      <div className="admin-survey-category-link-row">
+                        <button
+                          className="admin-survey-add-question-link"
+                          type="button"
+                          onClick={() => openAddQuestionModal("SURVEY", category)}
+                        >
+                          Add Question
+                        </button>
                       </div>
                     </section>
                   );
@@ -1555,8 +2188,8 @@ export function AdminSurveyManagement() {
                   <strong>Template Library</strong>
                 </div>
                 <p className="muted">
-                  Add this survey to the shared library, or update an existing library template with this survey's
-                  current question sequence.
+                  Manage templates in the shared library, then add this survey as a new template or use it to update
+                  an existing template's question sequence.
                 </p>
                 <div className="detail-grid">
                   <div>
@@ -1565,21 +2198,25 @@ export function AdminSurveyManagement() {
                       id="admin-library-template-target"
                       value={libraryTemplateId}
                       onChange={(event) => setLibraryTemplateId(event.target.value)}
-                      disabled={savingTemplateMode !== null || surveyTemplates.length === 0}
+                      disabled={libraryTemplateActionLocked || libraryTemplates.length === 0}
                     >
-                      {surveyTemplates.length === 0 ? <option value="">No templates available</option> : null}
-                      {surveyTemplates.map((template) => (
+                      {libraryTemplates.length === 0 ? <option value="">No templates available</option> : null}
+                      {libraryTemplates.map((template) => (
                         <option key={template.id} value={template.id}>
-                          {`${template.name}${template.isStandard ? " (Standard)" : ""}`}
+                          {`${template.name}${template.isStandard ? " (Standard)" : ""}${
+                            template.isActive ? "" : " (Inactive)"
+                          }`}
                         </option>
                       ))}
                     </select>
                     {selectedLibraryTemplate ? (
                       <p className="muted">
+                        {selectedLibraryTemplate.isActive ? "Active" : "Inactive"} •{" "}
                         Used {selectedLibraryTemplate.usageCount} time
                         {selectedLibraryTemplate.usageCount === 1 ? "" : "s"} •{" "}
                         {selectedLibraryTemplate.questionCount} question
-                        {selectedLibraryTemplate.questionCount === 1 ? "" : "s"}
+                        {selectedLibraryTemplate.questionCount === 1 ? "" : "s"} • Last used{" "}
+                        {formatDate(selectedLibraryTemplate.lastUsedAt)}
                       </p>
                     ) : null}
                   </div>
@@ -1589,7 +2226,7 @@ export function AdminSurveyManagement() {
                       id="admin-library-template-name"
                       value={libraryTemplateName}
                       onChange={(event) => setLibraryTemplateName(event.target.value)}
-                      disabled={savingTemplateMode !== null}
+                      disabled={libraryTemplateActionLocked}
                     />
                   </div>
                   <div>
@@ -1599,25 +2236,60 @@ export function AdminSurveyManagement() {
                       value={libraryTemplateDescription}
                       onChange={(event) => setLibraryTemplateDescription(event.target.value)}
                       rows={2}
-                      disabled={savingTemplateMode !== null}
+                      disabled={libraryTemplateActionLocked}
                     />
                   </div>
                 </div>
                 <div className="actions">
                   <button
+                    className="ghost small"
+                    type="button"
+                    onClick={() =>
+                      void toggleLibraryTemplateActive(!(selectedLibraryTemplate?.isActive ?? false))
+                    }
+                    disabled={
+                      libraryTemplateActionLocked ||
+                      !selectedLibraryTemplate ||
+                      (selectedLibraryTemplate.isStandard && selectedLibraryTemplate.isActive)
+                    }
+                  >
+                    {updatingLibraryTemplateId === selectedLibraryTemplate?.id
+                      ? "Saving..."
+                      : selectedLibraryTemplate?.isActive
+                        ? "Deactivate Template"
+                        : "Activate Template"}
+                  </button>
+                  <button
+                    className="ghost small"
+                    type="button"
+                    onClick={() => void deleteLibraryTemplate()}
+                    disabled={
+                      libraryTemplateActionLocked || !selectedLibraryTemplate || selectedLibraryTemplate.isStandard
+                    }
+                  >
+                    {deletingLibraryTemplateId === selectedLibraryTemplate?.id
+                      ? "Deleting..."
+                      : "Delete Template"}
+                  </button>
+                </div>
+                {selectedLibraryTemplate?.isStandard ? (
+                  <p className="muted">Standard templates can be updated, but not deactivated or deleted.</p>
+                ) : null}
+                <div className="actions">
+                  <button
                     className="secondary"
                     type="button"
-                    onClick={() => void saveTemplateFromCurrentSurvey("CREATE")}
-                    disabled={savingTemplateMode !== null || !sessionDraft || sessionDraft.questions.length === 0}
+                    onClick={() => openAddLibraryTemplateModal()}
+                    disabled={libraryTemplateActionLocked || !sessionDraft || sessionDraft.questions.length === 0}
                   >
-                    {savingTemplateMode === "CREATE" ? "Saving..." : "Add as New Library Template"}
+                    Add Template
                   </button>
                   <button
                     className="secondary"
                     type="button"
                     onClick={() => void saveTemplateFromCurrentSurvey("UPDATE")}
                     disabled={
-                      savingTemplateMode !== null ||
+                      libraryTemplateActionLocked ||
                       !libraryTemplateId ||
                       !sessionDraft ||
                       sessionDraft.questions.length === 0
@@ -1739,6 +2411,667 @@ export function AdminSurveyManagement() {
           )}
         </section>
       </div>
+      ) : (
+      <div className="grid admin-survey-layout">
+        <section className="panel" aria-label="Template library list panel">
+          <div className="pipeline-card-head">
+            <strong>Survey Template Library</strong>
+            <button
+              className="ghost small"
+              type="button"
+              onClick={() => {
+                if (selectedCompanyId) void loadSessions(selectedCompanyId);
+              }}
+              disabled={loadingSessions || !selectedCompanyId}
+            >
+              Refresh
+            </button>
+          </div>
+
+          <p className="muted">Templates are shared across companies.</p>
+
+          <div className="actions">
+            <button className="secondary" type="button" onClick={() => beginNewTemplateLibraryDraft()}>
+              Add Template
+            </button>
+          </div>
+
+          {loadingSessions ? <p className="muted">Loading templates...</p> : null}
+          {!loadingSessions && libraryTemplates.length === 0 ? <p className="muted">No templates found.</p> : null}
+
+          <div className="list-container">
+            {libraryTemplates.map((template) => {
+              const active = selectedTemplateLibraryId === template.id;
+              return (
+                <div
+                  key={template.id}
+                  role="button"
+                  tabIndex={0}
+                  className={`list-row ${active ? "active" : ""}`}
+                  onClick={() => setSelectedTemplateLibraryId(template.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedTemplateLibraryId(template.id);
+                    }
+                  }}
+                >
+                  <div className="list-row-main">
+                    <strong>{template.name}</strong>
+                    <span className="muted">
+                      {template.questionCount} question{template.questionCount === 1 ? "" : "s"} • Used{" "}
+                      {template.usageCount} time{template.usageCount === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <div className="list-row-meta">
+                    <span className={`status-pill ${template.isActive ? "running" : "draft"}`}>
+                      {template.isActive ? "Active" : "Inactive"}
+                    </span>
+                    {template.isStandard ? <span className="status-pill queued">Standard</span> : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="panel" aria-label="Template library editor panel">
+          {!templateLibraryDraft ? (
+            <p className="muted">Select a template to edit, or click Add Template.</p>
+          ) : (
+            <div className="detail-card">
+              <div className="detail-head">
+                <h3>{templateLibraryDraft.id ? templateLibraryDraft.name : "New Survey Template"}</h3>
+              </div>
+
+              <div className="detail-grid">
+                <div>
+                  <label htmlFor="admin-template-library-name">Template name</label>
+                  <input
+                    id="admin-template-library-name"
+                    value={templateLibraryDraft.name}
+                    onChange={(event) =>
+                      setTemplateLibraryDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              name: event.target.value
+                            }
+                          : current
+                      )
+                    }
+                    disabled={templateLibraryActionLocked}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="admin-template-library-status">Status</label>
+                  <select
+                    id="admin-template-library-status"
+                    value={templateLibraryDraft.isActive ? "ACTIVE" : "INACTIVE"}
+                    onChange={(event) =>
+                      setTemplateLibraryDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              isActive: event.target.value === "ACTIVE"
+                            }
+                          : current
+                      )
+                    }
+                    disabled={templateLibraryActionLocked || templateLibraryDraft.isStandard}
+                  >
+                    <option value="ACTIVE">Active</option>
+                    <option value="INACTIVE">Inactive</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="admin-template-library-description">Template description</label>
+                  <textarea
+                    id="admin-template-library-description"
+                    value={templateLibraryDraft.description}
+                    onChange={(event) =>
+                      setTemplateLibraryDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              description: event.target.value
+                            }
+                          : current
+                      )
+                    }
+                    rows={2}
+                    disabled={templateLibraryActionLocked}
+                  />
+                </div>
+              </div>
+
+              <p className="muted">
+                Usage: {templateLibraryDraft.usageCount} survey session
+                {templateLibraryDraft.usageCount === 1 ? "" : "s"}.
+              </p>
+              {templateLibraryDraft.isStandard ? (
+                <p className="muted">Standard templates can be updated, but not deactivated or deleted.</p>
+              ) : null}
+
+              <p className="detail-label">Template Categories</p>
+              {templateCategoryOrder.length === 0 ? (
+                <p className="muted">No categories yet. Add a new category below.</p>
+              ) : null}
+              <div className="admin-survey-category-stack">
+                {templateCategoryOrder.map((category, categoryOrderIndex) => {
+                  const questionIndexes = questionIndexesForCategory(templateLibraryDraft.questions, category);
+
+                  return (
+                    <section key={category} className="admin-survey-category-panel">
+                      <div className="pipeline-card-head">
+                        <strong>{category}</strong>
+                        <div className="actions" style={{ marginTop: 0 }}>
+                          <button
+                            className="ghost small"
+                            type="button"
+                            onClick={() => moveTemplateLibraryCategory(category, -1)}
+                            disabled={templateLibraryActionLocked || categoryOrderIndex === 0}
+                          >
+                            Move up
+                          </button>
+                          <button
+                            className="ghost small"
+                            type="button"
+                            onClick={() => moveTemplateLibraryCategory(category, 1)}
+                            disabled={templateLibraryActionLocked || categoryOrderIndex === templateCategoryOrder.length - 1}
+                          >
+                            Move down
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="admin-survey-question-list">
+                        {questionIndexes.map((globalQuestionIndex, questionIndexWithinCategory) => {
+                          const question = templateLibraryDraft.questions[globalQuestionIndex];
+                          return (
+                            <div key={`${question.questionId}-${globalQuestionIndex}`} className="admin-survey-question-row">
+                              <p className="admin-survey-question-order">{questionIndexWithinCategory + 1}</p>
+                              <div className="admin-survey-question-fields">
+                                <label>Question ({question.scaleMin}-{question.scaleMax})</label>
+                                <input
+                                  value={question.prompt}
+                                  onChange={(event) =>
+                                    updateTemplateLibraryQuestion(globalQuestionIndex, { prompt: event.target.value })
+                                  }
+                                  disabled={templateLibraryActionLocked}
+                                />
+                                <label>Instructions</label>
+                                <textarea
+                                  value={question.instructions || ""}
+                                  onChange={(event) =>
+                                    updateTemplateLibraryQuestion(globalQuestionIndex, {
+                                      instructions: event.target.value
+                                    })
+                                  }
+                                  rows={2}
+                                  disabled={templateLibraryActionLocked}
+                                />
+                                <div className="actions">
+                                  <button
+                                    className="ghost small"
+                                    type="button"
+                                    onClick={() =>
+                                      moveTemplateLibraryQuestionWithinCategory(
+                                        category,
+                                        questionIndexWithinCategory,
+                                        -1
+                                      )
+                                    }
+                                    disabled={templateLibraryActionLocked || questionIndexWithinCategory === 0}
+                                  >
+                                    Up
+                                  </button>
+                                  <button
+                                    className="ghost small"
+                                    type="button"
+                                    onClick={() =>
+                                      moveTemplateLibraryQuestionWithinCategory(
+                                        category,
+                                        questionIndexWithinCategory,
+                                        1
+                                      )
+                                    }
+                                    disabled={
+                                      templateLibraryActionLocked ||
+                                      questionIndexWithinCategory === questionIndexes.length - 1
+                                    }
+                                  >
+                                    Down
+                                  </button>
+                                  <button
+                                    className="ghost small"
+                                    type="button"
+                                    onClick={() => removeTemplateLibraryQuestion(globalQuestionIndex)}
+                                    disabled={templateLibraryActionLocked}
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="admin-survey-category-link-row">
+                        <button
+                          className="admin-survey-add-question-link"
+                          type="button"
+                          onClick={() => openAddQuestionModal("TEMPLATE", category)}
+                        >
+                          Add Question
+                        </button>
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+
+              <p className="detail-label">Add New Category</p>
+              <div className="detail-grid admin-survey-category-builder">
+                <div>
+                  <label htmlFor="admin-template-new-category-name">Category name</label>
+                  <input
+                    id="admin-template-new-category-name"
+                    value={templateNewCategoryName}
+                    onChange={(event) => setTemplateNewCategoryName(event.target.value)}
+                    placeholder="e.g. Workflow Fit"
+                    disabled={templateLibraryActionLocked}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="admin-template-new-category-question">First question</label>
+                  <input
+                    id="admin-template-new-category-question"
+                    value={templateNewCategoryPrompt}
+                    onChange={(event) => setTemplateNewCategoryPrompt(event.target.value)}
+                    placeholder="First question for this category"
+                    disabled={templateLibraryActionLocked}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="admin-template-new-category-instructions">Instructions</label>
+                  <textarea
+                    id="admin-template-new-category-instructions"
+                    value={templateNewCategoryInstructions}
+                    onChange={(event) => setTemplateNewCategoryInstructions(event.target.value)}
+                    rows={2}
+                    placeholder="Optional instructions shown below the question"
+                    disabled={templateLibraryActionLocked}
+                  />
+                </div>
+                <div className="actions">
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={() => void createAndAddNewTemplateCategory()}
+                    disabled={
+                      templateLibraryActionLocked ||
+                      !templateNewCategoryName.trim() ||
+                      !templateNewCategoryPrompt.trim()
+                    }
+                  >
+                    {addingTemplateCategory ? "Adding..." : "Add Category"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="actions">
+                {templateLibraryDirty ? <span className="muted">Unsaved changes</span> : <span className="muted">Saved</span>}
+                <button
+                  className="ghost small"
+                  type="button"
+                  onClick={() => resetTemplateLibraryDraft()}
+                  disabled={templateLibraryActionLocked || !templateLibraryDirty}
+                >
+                  Reset
+                </button>
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() => void saveTemplateLibraryDraft()}
+                  disabled={templateLibraryActionLocked || !templateLibraryDirty}
+                >
+                  {savingTemplateLibraryDraft
+                    ? "Saving..."
+                    : templateLibraryDraft.id
+                      ? "Save Template"
+                      : "Create Template"}
+                </button>
+                <button
+                  className="ghost small"
+                  type="button"
+                  onClick={() => void deleteTemplateLibraryDraft()}
+                  disabled={
+                    templateLibraryActionLocked ||
+                    !templateLibraryDraft.id ||
+                    templateLibraryDraft.isStandard
+                  }
+                >
+                  {deletingTemplateLibraryDraftId === templateLibraryDraft.id
+                    ? "Deleting..."
+                    : "Delete Template"}
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+      )}
+
+      {showAddSurveyModal ? (
+        <div className="pipeline-note-backdrop" onMouseDown={() => closeAddSurveyModal()}>
+          <div
+            className="pipeline-note-modal admin-survey-create-modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="pipeline-card-head">
+              <h3>Add Company Survey</h3>
+              <button
+                className="modal-icon-close"
+                type="button"
+                onClick={() => closeAddSurveyModal()}
+                disabled={creatingSurvey}
+                aria-label="Close add survey dialog"
+              >
+                ×
+              </button>
+            </div>
+
+            <p className="muted">Create a survey from the template library, another survey, or the active question bank.</p>
+
+            <div className="detail-grid admin-survey-category-builder">
+              <div>
+                <label>Company</label>
+                <input value={selectedCompany?.name || ""} readOnly />
+              </div>
+              <div>
+                <label htmlFor="admin-new-survey-title-modal">Survey title</label>
+                <input
+                  id="admin-new-survey-title-modal"
+                  value={newSurveyTitle}
+                  onChange={(event) => setNewSurveyTitle(event.target.value)}
+                  placeholder="e.g. Screening Webinar Survey (March)"
+                  disabled={creatingSurvey}
+                />
+              </div>
+              <div>
+                <label htmlFor="admin-new-survey-source-mode-modal">Source</label>
+                <select
+                  id="admin-new-survey-source-mode-modal"
+                  value={newSurveySourceMode}
+                  onChange={(event) =>
+                    setNewSurveySourceMode(event.target.value as "TEMPLATE" | "SESSION" | "QUESTIONS")
+                  }
+                  disabled={creatingSurvey}
+                >
+                  <option value="TEMPLATE">Survey Template Library</option>
+                  <option value="SESSION">Existing Survey</option>
+                  <option value="QUESTIONS">Active Question Bank</option>
+                </select>
+              </div>
+
+              {newSurveySourceMode === "TEMPLATE" ? (
+                <div>
+                  <label htmlFor="admin-new-survey-template-modal">Template</label>
+                  <select
+                    id="admin-new-survey-template-modal"
+                    value={newSurveyTemplateId}
+                    onChange={(event) => setNewSurveyTemplateId(event.target.value)}
+                    disabled={creatingSurvey || surveyTemplates.length === 0}
+                  >
+                    {surveyTemplates.length === 0 ? <option value="">No templates available</option> : null}
+                    {surveyTemplates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {`${template.name} (${template.questionCount} questions${
+                          template.isStandard ? ", Standard" : ""
+                        })`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+
+              {newSurveySourceMode === "SESSION" ? (
+                <div>
+                  <label htmlFor="admin-new-survey-source-session-modal">Existing survey</label>
+                  <select
+                    id="admin-new-survey-source-session-modal"
+                    value={newSurveySourceSessionId}
+                    onChange={(event) => setNewSurveySourceSessionId(event.target.value)}
+                    disabled={creatingSurvey || sourceSessions.length === 0}
+                  >
+                    {sourceSessions.length === 0 ? <option value="">No surveys available</option> : null}
+                    {sourceSessions.map((session) => (
+                      <option key={session.id} value={session.id}>
+                        {`${session.title} — ${session.companyName}${
+                          session.templateName ? ` (${session.templateName})` : ""
+                        }`}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="muted">Includes surveys created for any company.</p>
+                </div>
+              ) : null}
+
+              {newSurveySourceMode === "QUESTIONS" ? (
+                <p className="muted">Creates a survey from the currently active question library.</p>
+              ) : null}
+            </div>
+
+            <div className="actions">
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => void createSurvey()}
+                disabled={
+                  creatingSurvey ||
+                  !selectedCompanyId ||
+                  (newSurveySourceMode === "TEMPLATE" && !newSurveyTemplateId && surveyTemplates.length > 0) ||
+                  (newSurveySourceMode === "SESSION" && !newSurveySourceSessionId && sourceSessions.length > 0) ||
+                  (newSurveySourceMode === "SESSION" && sourceSessions.length === 0)
+                }
+              >
+                {creatingSurvey ? "Creating..." : "Add Survey"}
+              </button>
+              <button
+                className="ghost small"
+                type="button"
+                onClick={() => closeAddSurveyModal()}
+                disabled={creatingSurvey}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showAddLibraryTemplateModal ? (
+        <div className="pipeline-note-backdrop" onMouseDown={() => closeAddLibraryTemplateModal()}>
+          <div
+            className="pipeline-note-modal admin-survey-template-modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="pipeline-card-head">
+              <h3>Add Template to Library</h3>
+              <button
+                className="modal-icon-close"
+                type="button"
+                onClick={() => closeAddLibraryTemplateModal()}
+                disabled={savingTemplateMode === "CREATE"}
+                aria-label="Close add template dialog"
+              >
+                ×
+              </button>
+            </div>
+
+            <p className="muted">
+              Save this survey&apos;s current question set as a new template for future company surveys.
+            </p>
+
+            <div className="detail-grid admin-survey-category-builder">
+              <div>
+                <label htmlFor="admin-company-template-modal-name">Template name</label>
+                <input
+                  id="admin-company-template-modal-name"
+                  value={newLibraryTemplateName}
+                  onChange={(event) => setNewLibraryTemplateName(event.target.value)}
+                  placeholder="Template name"
+                  disabled={savingTemplateMode === "CREATE"}
+                />
+              </div>
+              <div>
+                <label htmlFor="admin-company-template-modal-description">Template description</label>
+                <textarea
+                  id="admin-company-template-modal-description"
+                  value={newLibraryTemplateDescription}
+                  onChange={(event) => setNewLibraryTemplateDescription(event.target.value)}
+                  rows={2}
+                  placeholder="Optional description"
+                  disabled={savingTemplateMode === "CREATE"}
+                />
+              </div>
+            </div>
+
+            <div className="actions">
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => void saveNewLibraryTemplateFromModal()}
+                disabled={savingTemplateMode === "CREATE" || !newLibraryTemplateName.trim()}
+              >
+                {savingTemplateMode === "CREATE" ? "Saving..." : "Add Template"}
+              </button>
+              <button
+                className="ghost small"
+                type="button"
+                onClick={() => closeAddLibraryTemplateModal()}
+                disabled={savingTemplateMode === "CREATE"}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {addQuestionModal ? (
+        <div className="pipeline-note-backdrop" onMouseDown={() => closeAddQuestionModal()}>
+          <div
+            className="pipeline-note-modal admin-survey-add-question-modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="pipeline-card-head">
+              <h3>{`Add Question to ${addQuestionModal.category}`}</h3>
+              <button
+                className="modal-icon-close"
+                type="button"
+                onClick={() => closeAddQuestionModal()}
+                disabled={submittingAddQuestionModal}
+                aria-label="Close add question dialog"
+              >
+                ×
+              </button>
+            </div>
+
+            {addQuestionModal.context === "SURVEY" && questionEditingLocked ? (
+              <p className="muted">Set this survey to Draft to add questions.</p>
+            ) : null}
+
+            <div className="detail-grid admin-survey-category-builder">
+              <div>
+                <label htmlFor="admin-add-question-existing-select">Add existing question</label>
+                <select
+                  id="admin-add-question-existing-select"
+                  value={modalExistingQuestionId}
+                  onChange={(event) => setModalExistingQuestionId(event.target.value)}
+                  disabled={submittingAddQuestionModal || addQuestionModalLocked}
+                >
+                  {modalAvailableQuestions.length === 0 ? (
+                    <option value="">No available active questions</option>
+                  ) : null}
+                  {modalAvailableQuestions.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {`${entry.category}: ${entry.prompt}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="actions">
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() => addExistingQuestionFromModal()}
+                  disabled={submittingAddQuestionModal || addQuestionModalLocked || !modalExistingQuestionId}
+                >
+                  Add Existing Question
+                </button>
+              </div>
+            </div>
+
+            <div className="detail-grid admin-survey-category-builder">
+              <div>
+                <label htmlFor="admin-add-question-new-prompt">Create new question</label>
+                <input
+                  id="admin-add-question-new-prompt"
+                  value={modalNewQuestionPrompt}
+                  onChange={(event) => setModalNewQuestionPrompt(event.target.value)}
+                  placeholder="Question prompt"
+                  disabled={submittingAddQuestionModal || addQuestionModalLocked}
+                />
+              </div>
+              <div>
+                <label htmlFor="admin-add-question-new-instructions">Instructions</label>
+                <textarea
+                  id="admin-add-question-new-instructions"
+                  value={modalNewQuestionInstructions}
+                  onChange={(event) => setModalNewQuestionInstructions(event.target.value)}
+                  rows={2}
+                  placeholder="Optional instructions shown below the question"
+                  disabled={submittingAddQuestionModal || addQuestionModalLocked}
+                />
+              </div>
+              <div className="actions">
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() => void createQuestionFromModal()}
+                  disabled={
+                    submittingAddQuestionModal ||
+                    addQuestionModalLocked ||
+                    !modalNewQuestionPrompt.trim()
+                  }
+                >
+                  {submittingAddQuestionModal ? "Adding..." : `Create in ${addQuestionModal.category}`}
+                </button>
+              </div>
+            </div>
+
+            <div className="actions">
+              <button
+                className="ghost small"
+                type="button"
+                onClick={() => closeAddQuestionModal()}
+                disabled={submittingAddQuestionModal}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

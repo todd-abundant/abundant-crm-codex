@@ -2438,6 +2438,11 @@ select {
   margin-top: 12px;
 }
 
+.pipeline-view-selector {
+  margin-top: 10px;
+  max-width: 320px;
+}
+
 .pipeline-column {
   background: #ffffff;
   border: 1px solid var(--colorBorder);
@@ -4200,6 +4205,33 @@ select {
   margin-top: 8px;
 }
 
+.admin-survey-category-link-row {
+  margin-top: 6px;
+}
+
+.admin-survey-add-question-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #0b63b0;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.admin-survey-add-question-link:hover,
+.admin-survey-add-question-link:focus-visible {
+  color: #094d88;
+}
+
+.admin-survey-add-question-link:focus-visible {
+  outline: 2px solid rgba(11, 99, 176, 0.28);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .admin-survey-question-list {
   display: grid;
   gap: 10px;
@@ -4253,6 +4285,18 @@ select {
 
 .admin-survey-submission-answers p {
   margin: 0;
+}
+
+.admin-survey-add-question-modal {
+  width: min(760px, 100%);
+}
+
+.admin-survey-create-modal {
+  width: min(760px, 100%);
+}
+
+.admin-survey-template-modal {
+  width: min(680px, 100%);
 }
 
 .live-survey-question-instructions {

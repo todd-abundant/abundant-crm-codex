@@ -1,12 +1,15 @@
 "use client";
 
 import * as React from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { PipelineOpportunityDetailView } from "./pipeline-opportunity-detail";
 import { RichTextArea } from "./rich-text-area";
 import {
   PIPELINE_BOARD_COLUMNS,
+  PIPELINE_COMPANY_TYPE_OPTIONS,
   mapBoardColumnToCanonicalPhase,
   phaseLabel,
+  type PipelineCompanyType,
   type PipelineBoardColumn,
   type PipelinePhase
 } from "@/lib/pipeline-opportunities";
@@ -170,7 +173,14 @@ function toNullableNumber(value: string) {
   return rounded;
 }
 
-export function PipelineKanban() {
+type PipelineKanbanProps = {
+  companyType: PipelineCompanyType;
+};
+
+export function PipelineKanban({ companyType }: PipelineKanbanProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [items, setItems] = React.useState<PipelineBoardItem[]>([]);
   const [healthSystems, setHealthSystems] = React.useState<HealthSystemOption[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -188,12 +198,16 @@ export function PipelineKanban() {
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const undoTimeoutRef = React.useRef<number | null>(null);
   const suppressLeadSourceBlurRef = React.useRef(false);
+  const companyTypeView = React.useMemo(
+    () => PIPELINE_COMPANY_TYPE_OPTIONS.find((entry) => entry.value === companyType) || PIPELINE_COMPANY_TYPE_OPTIONS[0],
+    [companyType]
+  );
 
   const loadBoard = React.useCallback(async () => {
     setLoading(true);
     setStatus(null);
     try {
-      const res = await fetch("/api/pipeline/opportunities", { cache: "no-store" });
+      const res = await fetch(`/api/pipeline/opportunities?companyType=${companyType}`, { cache: "no-store" });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || "Failed to load pipeline board");
 
@@ -223,7 +237,21 @@ export function PipelineKanban() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [companyType]);
+
+  const handleCompanyTypeChange = React.useCallback(
+    (nextType: PipelineCompanyType) => {
+      const nextSearchParams = new URLSearchParams(searchParams.toString());
+      if (nextType === "STARTUP") {
+        nextSearchParams.delete("companyType");
+      } else {
+        nextSearchParams.set("companyType", nextType);
+      }
+      const nextQuery = nextSearchParams.toString();
+      router.push(nextQuery ? `${pathname}?${nextQuery}` : pathname);
+    },
+    [pathname, router, searchParams]
+  );
 
   React.useEffect(() => {
     void loadBoard();
@@ -668,13 +696,26 @@ export function PipelineKanban() {
   return (
     <main>
       <section className="hero">
-        <h1>Pipeline Kanban</h1>
-        <p>
-          Active pipeline opportunities by stage. Drag cards between columns to update phase. Click any card for full details.
-        </p>
+        <h1>{companyTypeView.boardTitle}</h1>
+        <p>{companyTypeView.boardDescription} Click any card for full details.</p>
+        <div className="pipeline-view-selector">
+          <label htmlFor="pipeline-company-type">Pipeline Type</label>
+          <select
+            id="pipeline-company-type"
+            value={companyType}
+            onChange={(event) => handleCompanyTypeChange(event.target.value as PipelineCompanyType)}
+          >
+            {PIPELINE_COMPANY_TYPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </section>
 
       {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
+      {loading ? <p className="status">Loading pipeline board...</p> : null}
 
       <section className="pipeline-kanban" aria-label="Pipeline opportunities board">
         {PIPELINE_BOARD_COLUMNS.map((column) => {

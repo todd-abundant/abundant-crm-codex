@@ -13,36 +13,59 @@ type SurveySeedQuestion = {
 
 export const standardScreeningSurveyQuestions: SurveySeedQuestion[] = [
   {
-    category: "Desirability",
-    prompt: "How urgent is this problem for your organization?"
+    category: "DESIRABILITY",
+    prompt: "How does what has been described align with the challenges you are facing?"
   },
   {
-    category: "Desirability",
-    prompt: "How compelling is the value proposition for your clinical and operational teams?"
+    category: "DESIRABILITY",
+    prompt: "What is your organization's current competency in solving this problem?"
   },
   {
-    category: "Feasibility",
-    prompt: "How feasible is implementation with your current workflows and staffing?"
+    category: "DESIRABILITY",
+    prompt: "How desirable is this solution for your organization?"
   },
   {
-    category: "Feasibility",
-    prompt: "How realistic is integration with your current EHR and data systems?"
+    category: "DESIRABILITY",
+    prompt: "Is this a top-three strategic priority for your organization in the next 18 months?"
   },
   {
-    category: "Impact",
-    prompt: "How strong is the expected clinical impact in the first 12 months?"
+    category: "FEASABILITY",
+    prompt:
+      "Overall, how feasible would it be for your organization to implement a solution like this in the next year given resourcing and governance?"
   },
   {
-    category: "Viability",
-    prompt: "How strong is the expected ROI for your health system?"
+    category: "FEASABILITY",
+    prompt: "How feasible would it be to implement this solution from an IT perspective?"
   },
   {
-    category: "Co-Development",
-    prompt: "How interested is your team in active co-development and pilot design?"
+    category: "FEASABILITY",
+    prompt: "How feasible would it be to implement this solution from a clinical perspective?"
   },
   {
-    category: "Co-Development",
-    prompt: "How prepared is your team to share feedback and data during a pilot?"
+    category: "VIABILITY",
+    prompt: "How differentiated is this solution from others you've evaluated or have in place today?"
+  },
+  {
+    category: "VIABILITY",
+    prompt: "How attractive is the business model for a health system customer?"
+  },
+  {
+    category: "IMPACT",
+    prompt: "What magnitude of ROI do you anticipate seeing from this solution?"
+  },
+  {
+    category: "IMPACT",
+    prompt: "How confident are you in your ability to measure ROI for this solution?"
+  },
+  {
+    category: "CO-DEVELOPMENT INTEREST",
+    prompt:
+      "If you are the right stakeholder to participate in co-development, how interested are you in being a co-development partner?"
+  },
+  {
+    category: "CO-DEVELOPMENT INTEREST",
+    prompt:
+      "If you are not the right stakeholder at your organization, how likely are you to bring forward this co-development opportunity to key stakeholders?"
   }
 ];
 
@@ -69,19 +92,109 @@ function normalizedKey(value: { category: string; prompt: string }) {
 
 export async function ensureDefaultScreeningSurveyQuestions(client: SurveyWriteClient) {
   const existing = await client.companyScreeningSurveyQuestion.findMany({
-    select: { id: true, category: true, prompt: true, isStandard: true }
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: {
+      id: true,
+      category: true,
+      prompt: true,
+      instructions: true,
+      scaleMin: true,
+      scaleMax: true,
+      isActive: true,
+      isStandard: true
+    }
   });
 
-  const existingKeys = new Set(existing.map((entry) => normalizedKey(entry)));
-  const standardKeys = new Set(standardScreeningSurveyQuestions.map((entry) => normalizedKey(entry)));
-  const missing = standardScreeningSurveyQuestions
-    .filter((entry) => !existingKeys.has(normalizedKey(entry)))
-    .map((entry) => ({
-      category: entry.category,
-      prompt: entry.prompt,
-      instructions: entry.instructions?.trim() || null,
-      scaleMin: entry.scaleMin ?? 1,
-      scaleMax: entry.scaleMax ?? 10,
+  const usedQuestionIds = new Set<string>();
+  const desiredAssignments = standardScreeningSurveyQuestions.map((entry) => ({
+    entry,
+    existingQuestion: null as (typeof existing)[number] | null
+  }));
+
+  const findUnusedQuestion = (
+    predicate: (question: (typeof existing)[number]) => boolean
+  ) => {
+    return (
+      existing.find((question) => !usedQuestionIds.has(question.id) && predicate(question)) || null
+    );
+  };
+
+  // Prefer exact matches that are already marked standard to keep existing IDs stable.
+  for (const assignment of desiredAssignments) {
+    const key = normalizedKey(assignment.entry);
+    const matched = findUnusedQuestion(
+      (question) => question.isStandard && normalizedKey(question) === key
+    );
+    if (!matched) continue;
+    assignment.existingQuestion = matched;
+    usedQuestionIds.add(matched.id);
+  }
+
+  for (const assignment of desiredAssignments) {
+    if (assignment.existingQuestion) continue;
+    const key = normalizedKey(assignment.entry);
+    const matched = findUnusedQuestion((question) => normalizedKey(question) === key);
+    if (!matched) continue;
+    assignment.existingQuestion = matched;
+    usedQuestionIds.add(matched.id);
+  }
+
+  const reusableStandardQuestions = existing.filter(
+    (question) => question.isStandard && !usedQuestionIds.has(question.id)
+  );
+  let reusableStandardIndex = 0;
+
+  // Retitle legacy standard questions before creating new rows.
+  for (const assignment of desiredAssignments) {
+    if (assignment.existingQuestion) continue;
+    const reusable = reusableStandardQuestions[reusableStandardIndex] || null;
+    if (!reusable) continue;
+    reusableStandardIndex += 1;
+    assignment.existingQuestion = reusable;
+    usedQuestionIds.add(reusable.id);
+  }
+
+  for (const assignment of desiredAssignments) {
+    if (!assignment.existingQuestion) continue;
+    const current = assignment.existingQuestion;
+    const nextInstructions = assignment.entry.instructions?.trim() || null;
+    const nextScaleMin = assignment.entry.scaleMin ?? 1;
+    const nextScaleMax = assignment.entry.scaleMax ?? 10;
+
+    if (
+      current.category === assignment.entry.category &&
+      current.prompt === assignment.entry.prompt &&
+      (current.instructions || null) === nextInstructions &&
+      current.scaleMin === nextScaleMin &&
+      current.scaleMax === nextScaleMax &&
+      current.isActive &&
+      current.isStandard
+    ) {
+      continue;
+    }
+
+    await client.companyScreeningSurveyQuestion.update({
+      where: { id: current.id },
+      data: {
+        category: assignment.entry.category,
+        prompt: assignment.entry.prompt,
+        instructions: nextInstructions,
+        scaleMin: nextScaleMin,
+        scaleMax: nextScaleMax,
+        isActive: true,
+        isStandard: true
+      }
+    });
+  }
+
+  const missing = desiredAssignments
+    .filter((assignment) => assignment.existingQuestion === null)
+    .map((assignment) => ({
+      category: assignment.entry.category,
+      prompt: assignment.entry.prompt,
+      instructions: assignment.entry.instructions?.trim() || null,
+      scaleMin: assignment.entry.scaleMin ?? 1,
+      scaleMax: assignment.entry.scaleMax ?? 10,
       isStandard: true,
       isActive: true
     }));
@@ -92,26 +205,25 @@ export async function ensureDefaultScreeningSurveyQuestions(client: SurveyWriteC
     });
   }
 
-  const standardIdsToFlag = existing
-    .filter((entry) => standardKeys.has(normalizedKey(entry)) && !entry.isStandard)
-    .map((entry) => entry.id);
+  const staleStandardIds = existing
+    .filter((question) => question.isStandard && !usedQuestionIds.has(question.id))
+    .map((question) => question.id);
 
-  if (standardIdsToFlag.length > 0) {
+  if (staleStandardIds.length > 0) {
     await client.companyScreeningSurveyQuestion.updateMany({
       where: {
-        id: { in: standardIdsToFlag }
+        id: { in: staleStandardIds }
       },
       data: {
-        isStandard: true
+        isStandard: false,
+        isActive: false
       }
     });
   }
-}
 
-export async function ensureDefaultScreeningSurveyLibrary(client: SurveyWriteClient) {
-  await ensureDefaultScreeningSurveyQuestions(client);
-
-  const questions = await client.companyScreeningSurveyQuestion.findMany({
+  const currentStandardQuestions = await client.companyScreeningSurveyQuestion.findMany({
+    where: { isStandard: true },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: {
       id: true,
       category: true,
@@ -119,86 +231,114 @@ export async function ensureDefaultScreeningSurveyLibrary(client: SurveyWriteCli
     }
   });
 
-  const questionByKey = new Map(questions.map((entry) => [normalizedKey(entry), entry] as const));
+  const standardQuestionIdByKey = new Map<string, string>();
+  for (const question of currentStandardQuestions) {
+    const key = normalizedKey(question);
+    if (!standardQuestionIdByKey.has(key)) {
+      standardQuestionIdByKey.set(key, question.id);
+    }
+  }
+
+  return standardQuestionIdByKey;
+}
+
+export async function ensureDefaultScreeningSurveyLibrary(client: SurveyWriteClient) {
+  const standardQuestionIdByKey = await ensureDefaultScreeningSurveyQuestions(client);
 
   for (const template of standardScreeningSurveyTemplates) {
-    const existingTemplate = await client.companyScreeningSurveyTemplate.findUnique({
+    const templateRecord = await client.companyScreeningSurveyTemplate.upsert({
       where: { key: template.key },
+      create: {
+        key: template.key,
+        name: template.name,
+        description: template.description?.trim() || null,
+        isActive: true,
+        isStandard: true
+      },
+      update: {
+        name: template.name,
+        description: template.description?.trim() || null,
+        isActive: true,
+        isStandard: true
+      },
       select: {
-        id: true,
-        isStandard: true,
-        _count: {
-          select: {
-            questions: true
-          }
-        }
+        id: true
       }
     });
+    const templateId = templateRecord.id;
 
-    let templateId = existingTemplate?.id || null;
-    let hasTemplateQuestions = (existingTemplate?._count.questions || 0) > 0;
+    const desiredTemplateQuestions: Array<{
+      questionId: string;
+      displayOrder: number;
+      categoryOverride: string;
+      promptOverride: string;
+      instructionsOverride: string | null;
+    }> = [];
 
-    if (!templateId) {
-      const created = await client.companyScreeningSurveyTemplate.create({
-        data: {
-          key: template.key,
-          name: template.name,
-          description: template.description?.trim() || null,
-          isActive: true,
-          isStandard: true
-        },
-        select: {
-          id: true
-        }
-      });
-      templateId = created.id;
-      hasTemplateQuestions = false;
-    } else if (!existingTemplate?.isStandard) {
-      await client.companyScreeningSurveyTemplate.update({
-        where: { id: templateId },
-        data: {
-          isStandard: true
-        }
+    for (const [index, entry] of template.questions.entries()) {
+      const questionId = standardQuestionIdByKey.get(normalizedKey(entry));
+      if (!questionId) continue;
+      desiredTemplateQuestions.push({
+        questionId,
+        displayOrder: index,
+        categoryOverride: entry.category.trim(),
+        promptOverride: entry.prompt.trim(),
+        instructionsOverride: entry.instructions?.trim() || null
       });
     }
-
-    if (hasTemplateQuestions) {
-      continue;
-    }
-
-    const desiredTemplateQuestions = template.questions
-      .map((entry, index) => {
-        const matchedQuestion = questionByKey.get(normalizedKey(entry));
-        if (!matchedQuestion) return null;
-        return {
-          templateId,
-          questionId: matchedQuestion.id,
-          displayOrder: index,
-          categoryOverride: entry.category.trim(),
-          promptOverride: entry.prompt.trim(),
-          instructionsOverride: entry.instructions?.trim() || null
-        };
-      })
-      .filter(
-        (
-          entry
-        ): entry is {
-          templateId: string;
-          questionId: string;
-          displayOrder: number;
-          categoryOverride: string;
-          promptOverride: string;
-          instructionsOverride: string | null;
-        } => entry !== null
-      );
 
     if (desiredTemplateQuestions.length === 0) {
       continue;
     }
 
-    await client.companyScreeningSurveyTemplateQuestion.createMany({
-      data: desiredTemplateQuestions
+    const existingTemplateQuestions = await client.companyScreeningSurveyTemplateQuestion.findMany({
+      where: { templateId },
+      select: {
+        id: true,
+        questionId: true
+      }
     });
+    const existingByQuestionId = new Map(
+      existingTemplateQuestions.map((entry) => [entry.questionId, entry] as const)
+    );
+    const desiredQuestionIds = new Set(desiredTemplateQuestions.map((entry) => entry.questionId));
+
+    const removedTemplateQuestionIds = existingTemplateQuestions
+      .filter((entry) => !desiredQuestionIds.has(entry.questionId))
+      .map((entry) => entry.id);
+
+    if (removedTemplateQuestionIds.length > 0) {
+      await client.companyScreeningSurveyTemplateQuestion.deleteMany({
+        where: { id: { in: removedTemplateQuestionIds } }
+      });
+    }
+
+    for (const entry of desiredTemplateQuestions) {
+      const existingTemplateQuestion = existingByQuestionId.get(entry.questionId);
+      if (existingTemplateQuestion) {
+        await client.companyScreeningSurveyTemplateQuestion.update({
+          where: { id: existingTemplateQuestion.id },
+          data: {
+            displayOrder: entry.displayOrder,
+            categoryOverride: entry.categoryOverride,
+            promptOverride: entry.promptOverride,
+            instructionsOverride: entry.instructionsOverride
+          }
+        });
+        continue;
+      }
+
+      await client.companyScreeningSurveyTemplateQuestion.create({
+        data: {
+          templateId,
+          questionId: entry.questionId,
+          displayOrder: entry.displayOrder,
+          categoryOverride: entry.categoryOverride,
+          promptOverride: entry.promptOverride,
+          instructionsOverride: entry.instructionsOverride
+        }
+      });
+    }
   }
 }
 

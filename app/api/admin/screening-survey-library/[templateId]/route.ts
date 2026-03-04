@@ -13,7 +13,7 @@ const templateQuestionSchema = z.object({
   questionId: z.string().min(1),
   category: z.string().trim().min(1).max(80),
   prompt: z.string().trim().min(1).max(360),
-  instructions: z.string().trim().max(600).optional().or(z.literal("")),
+  instructions: z.string().trim().max(600).optional().nullable().or(z.literal("")),
   displayOrder: z.number().int().min(0)
 });
 
@@ -108,6 +108,48 @@ export async function PATCH(
     console.error("update_admin_screening_survey_template_error", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to update survey template." },
+      { status: 400 }
+    );
+  }
+}
+
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ templateId: string }> }
+) {
+  const auth = await requireAdminApi();
+  if (!auth.ok) {
+    return auth.response;
+  }
+
+  try {
+    const { templateId } = await context.params;
+    const template = await prisma.companyScreeningSurveyTemplate.findUnique({
+      where: { id: templateId },
+      select: {
+        id: true,
+        isStandard: true
+      }
+    });
+    if (!template) {
+      return NextResponse.json({ error: "Survey template not found." }, { status: 404 });
+    }
+    if (template.isStandard) {
+      return NextResponse.json(
+        { error: "Standard templates cannot be deleted." },
+        { status: 400 }
+      );
+    }
+
+    await prisma.companyScreeningSurveyTemplate.delete({
+      where: { id: templateId }
+    });
+
+    return NextResponse.json({ deletedTemplateId: templateId });
+  } catch (error) {
+    console.error("delete_admin_screening_survey_template_error", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to delete survey template." },
       { status: 400 }
     );
   }

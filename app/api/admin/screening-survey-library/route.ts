@@ -14,7 +14,7 @@ const templateQuestionSchema = z.object({
   questionId: z.string().min(1),
   category: z.string().trim().min(1).max(80),
   prompt: z.string().trim().min(1).max(360),
-  instructions: z.string().trim().max(600).optional().or(z.literal("")),
+  instructions: z.string().trim().max(600).optional().nullable().or(z.literal("")),
   displayOrder: z.number().int().min(0)
 });
 

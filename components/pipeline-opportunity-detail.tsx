@@ -207,6 +207,38 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#39;");
 }
 
+function richTextToPlainText(value: string | null | undefined) {
+  if (!value) return "";
+
+  const normalized = normalizeRichText(value);
+  if (!normalized) return "";
+
+  if (typeof DOMParser === "undefined") {
+    return normalized
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(p|div|li|ul|ol|h[1-6])>/gi, "\n")
+      .replace(/<[^>]*>/g, "")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&#39;/gi, "'")
+      .replace(/&quot;/gi, '"')
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  const htmlWithBreaks = normalized
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|ul|ol|h[1-6])>/gi, "\n");
+
+  const parsed = new DOMParser().parseFromString(htmlWithBreaks, "text/html");
+  return (parsed.body.textContent || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function formatVentureStudioAssessmentLabel(value: VentureStudioAssessment) {
   if (value === "green") return "Green";
   if (value === "yellow") return "Yellow";
@@ -772,6 +804,7 @@ export function PipelineOpportunityDetailView({
   const [addingNote, setAddingNote] = React.useState(false);
   const [showAddNoteModal, setShowAddNoteModal] = React.useState(false);
   const [showAddDocumentModal, setShowAddDocumentModal] = React.useState(false);
+  const descriptionPlainText = React.useMemo(() => richTextToPlainText(item?.description), [item?.description]);
 
   const currentIntakeDocument = (item?.documents || [])
     .filter((document) => document.type === "INTAKE_REPORT")
@@ -2650,10 +2683,10 @@ export function PipelineOpportunityDetailView({
               />
             </div>
 
-            {item.description ? (
+            {descriptionPlainText ? (
               <div className="detail-section">
                 <label>Description</label>
-                <textarea value={item.description} readOnly />
+                <textarea value={descriptionPlainText} readOnly />
               </div>
             ) : null}
           </>

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { PIPELINE_COMPANY_TYPE_OPTIONS } from "@/lib/pipeline-opportunities";
 
 type HeaderUser = {
   name: string | null;
@@ -31,6 +32,19 @@ export function AppHeader({
           </Link>
           {showWorkbenchTabs ? (
             <>
+              <details className="top-nav-dropdown">
+                <summary className="top-nav-link">Pipeline</summary>
+                <div className="top-nav-dropdown-menu">
+                  {PIPELINE_COMPANY_TYPE_OPTIONS.map((option) => {
+                    const href = option.value === "STARTUP" ? "/pipeline" : `/pipeline?companyType=${option.value}`;
+                    return (
+                      <Link key={option.value} href={href} className="top-nav-dropdown-link">
+                        {option.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </details>
               <Link href="/health-systems" className="top-nav-link">
                 Health Systems
               </Link>
@@ -39,9 +53,6 @@ export function AppHeader({
               </Link>
               <Link href="/companies" className="top-nav-link">
                 Companies
-              </Link>
-              <Link href="/pipeline" className="top-nav-link">
-                Pipeline
               </Link>
               <Link href="/workbench" className="top-nav-link">
                 Workbench (beta)

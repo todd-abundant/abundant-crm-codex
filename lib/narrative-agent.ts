@@ -967,7 +967,7 @@ function summarizeAutoResolvedMatches(actions: NarrativeAction): string | null {
     const selectedCompany = findMatchById(actions.companyMatches, actions.selectedCompanyId);
     const selectedCoInvestor = findMatchById(actions.coInvestorMatches, actions.selectedCoInvestorId);
     if (selectedCompany && selectedCoInvestor) {
-      return `Relationship resolved to existing company ${selectedCompany.name} and co-investor ${selectedCoInvestor.name}.`;
+      return `Relationship resolved to company ${selectedCompany.name} and co-investor ${selectedCoInvestor.name}.`;
     }
     if (selectedCompany) {
       return `Relationship company resolved to existing record ${selectedCompany.name} (${formatConfidencePercent(
@@ -1078,7 +1078,7 @@ function buildActionClarificationQuestion(action: NarrativeAction): string | nul
   if (!action.selectedCompanyId && !action.companyCreateActionId) {
     const topCompany = action.companyMatches[0];
     if (hasMatchConfidenceBelowAutoThreshold(topCompany)) {
-      return `I found a possible existing company for this relationship: ${topCompany.name} (${formatConfidencePercent(
+      return `I found a possible company match for this relationship: ${topCompany.name} (${formatConfidencePercent(
         topCompany.confidence
       )}). Should I use it?`;
     }
@@ -1650,7 +1650,7 @@ async function extractActionsFromNarrative(params: {
     "Use the provided data model snapshot as source of truth for supported entities/fields. " +
     "Relationship rules: health systems and co-investors are different entities; a health system is not a co-investor unless the narrative explicitly names an investment arm/fund as the investor. " +
     "If a health system introduced us to a company, model that as company lead source (HEALTH_SYSTEM), not a co-investor relationship. " +
-    "When lead source changes are requested for an existing company, use UPDATE_ENTITY on COMPANY and include patch fields leadSourceType plus leadSourceHealthSystemName/leadSourceOther/leadSourceNotes as needed. " +
+    "When lead source changes are requested for a company record, use UPDATE_ENTITY on COMPANY and include patch fields leadSourceType plus leadSourceHealthSystemName/leadSourceOther/leadSourceNotes as needed. " +
     "Execution checklist for company-health-system requests: " +
     "(a) resolve canonical company and health-system names, " +
     "(b) emit at least one UPDATE_ENTITY action for the Company lead-source change, " +
