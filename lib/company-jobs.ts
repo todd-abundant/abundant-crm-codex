@@ -3,12 +3,6 @@ import { replaceCompanyContactLinks } from "@/lib/contact-links";
 import { enrichCompanyFromWeb } from "@/lib/company-research";
 import { type CompanySearchCandidate } from "@/lib/schemas";
 
-function parseOptionalDate(value?: string | null): Date | null {
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
 function trimOrNull(value?: string | null): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;

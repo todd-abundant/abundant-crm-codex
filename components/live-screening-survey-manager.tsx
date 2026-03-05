@@ -308,6 +308,7 @@ export function LiveScreeningSurveyManager({
               </div>
               <div className="screening-live-survey-qr-wrap">
                 {origin ? (
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     className="screening-live-survey-qr"
                     src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(

@@ -356,7 +356,7 @@ export default function TranscriptMemberInsightsTestPage() {
   } | null>(null);
   const progressTimingRef = React.useRef<AnalysisProgressTimingStore>(loadAnalysisProgressTimingsFromStorage());
   const [warnings, setWarnings] = React.useState<string[]>([]);
-  const [summary, setSummary] = React.useState<AnalyzeSummary | null>(null);
+  const [, setSummary] = React.useState<AnalyzeSummary | null>(null);
 
   const selectedCount = React.useMemo(() => draftQuotes.filter((entry) => entry.include).length, [draftQuotes]);
   const selectedWithoutHealthSystem = React.useMemo(
@@ -1003,17 +1003,17 @@ function recordProgressPhaseTiming(mode: AnalysisProgressMode, phase: string, el
     const estimatedSeconds = Math.max(1, Math.round(estimatedMs / 1000));
     const remainingSeconds = Math.max(0, Math.round(remainingMs / 1000));
     return `${label} (about ${estimatedSeconds}s; ~${remainingSeconds}s remaining)`;
-  }, [analysisProgress?.mode, analysisProgress?.phase, analysisProgress?.estimatedMs, analysisProgress?.percent]);
+  }, [analysisProgress]);
 
   const analysisPhaseOrder = React.useMemo(
     () => (analysisProgress ? ANALYSIS_PROGRESS_PHASE_ORDER[analysisProgress.mode] : []),
-    [analysisProgress?.mode]
+    [analysisProgress]
   );
   const activePhaseIndex = React.useMemo(() => {
     if (!analysisProgress) return -1;
     const index = analysisPhaseOrder.indexOf(analysisProgress.phase);
     return index === -1 ? -1 : index;
-  }, [analysisProgress?.phase, analysisPhaseOrder]);
+  }, [analysisProgress, analysisPhaseOrder]);
 
   const progressBarPhaseRows = React.useMemo(() => {
     if (!analysisProgress) return [];
@@ -1023,7 +1023,7 @@ function recordProgressPhaseTiming(mode: AnalysisProgressMode, phase: string, el
       status:
         index < activePhaseIndex ? "completed" : index === activePhaseIndex ? "active" : "pending"
     }));
-  }, [analysisProgress?.mode, analysisProgress?.phase, analysisPhaseOrder, activePhaseIndex]);
+  }, [analysisProgress, analysisPhaseOrder, activePhaseIndex]);
 
   return (
     <main>

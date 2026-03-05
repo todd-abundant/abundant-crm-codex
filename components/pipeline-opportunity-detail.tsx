@@ -4139,6 +4139,7 @@ export function PipelineOpportunityDetailView({
 
             {marketLandscapeOption1Info?.kind === "ok" && marketLandscapeOption1Info.thumbnailUrl ? (
               <div className="market-landscape-option1-preview">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={`${marketLandscapeOption1Info.thumbnailUrl}?refresh=1&t=${marketLandscapeOption1ThumbnailNonce}`}
                   alt="Market Landscape slide preview"

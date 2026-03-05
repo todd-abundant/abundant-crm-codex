@@ -259,14 +259,6 @@ function findDuplicateRecord(records: HealthSystemRecord[], candidate: SearchCan
   }) || null;
 }
 
-function statusClass(status: HealthSystemRecord["researchStatus"]) {
-  if (status === "COMPLETED") return "done";
-  if (status === "FAILED") return "failed";
-  if (status === "RUNNING") return "running";
-  if (status === "QUEUED") return "queued";
-  return "draft";
-}
-
 function toNullableBoolean(value: "null" | "true" | "false") {
   if (value === "null") return null;
   return value === "true";
@@ -342,7 +334,7 @@ export function HealthSystemWorkbench() {
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [draftRecordId, setDraftRecordId] = useState<string | null>(null);
   const [detailDraft, setDetailDraft] = useState<DetailDraft | null>(null);
-  const [runningAgent, setRunningAgent] = useState(false);
+  const [, setRunningAgent] = useState(false);
   const [creatingFromSearch, setCreatingFromSearch] = useState(false);
   const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
   const [newIsLimitedPartner, setNewIsLimitedPartner] = useState(false);
@@ -1679,6 +1671,7 @@ export function HealthSystemWorkbench() {
               <div className="detail-head">
                 <div className="health-system-head-main">
                   {selectedRecord.logoUrl ? (
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       className="health-system-logo-preview"
                       src={selectedRecord.logoUrl}

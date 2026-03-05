@@ -338,14 +338,6 @@ function findDuplicateRecord(records: CompanyRecord[], candidate: SearchCandidat
   );
 }
 
-function statusClass(status: ResearchStatus) {
-  if (status === "COMPLETED") return "done";
-  if (status === "FAILED") return "failed";
-  if (status === "RUNNING") return "running";
-  if (status === "QUEUED") return "queued";
-  return "draft";
-}
-
 function isResearchInProgress(status: ResearchStatus) {
   return status === "QUEUED" || status === "RUNNING";
 }
@@ -445,7 +437,7 @@ export function CompanyWorkbench() {
   const [selectedRecordId, setSelectedRecordId] = React.useState<string | null>(null);
   const [draftRecordId, setDraftRecordId] = React.useState<string | null>(null);
   const [detailDraft, setDetailDraft] = React.useState<DetailDraft | null>(null);
-  const [runningAgent, setRunningAgent] = React.useState(false);
+  const [, setRunningAgent] = React.useState(false);
   const [creatingFromSearch, setCreatingFromSearch] = React.useState(false);
   const [deletingRecordId, setDeletingRecordId] = React.useState<string | null>(null);
   const [searchCandidates, setSearchCandidates] = React.useState<SearchCandidate[]>([]);
@@ -1528,7 +1520,15 @@ export function CompanyWorkbench() {
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [matchModalOpen, shouldOfferCreate, query, newCompanyType, matchModalManualMode]);
+  }, [
+    matchModalOpen,
+    shouldOfferCreate,
+    query,
+    newCompanyType,
+    matchModalManualMode,
+    searchAbortController,
+    searchMatchCandidateCache
+  ]);
 
   React.useEffect(() => {
     if (filteredRecords.length === 0) {

@@ -585,7 +585,7 @@ export async function PATCH(
         });
       }
 
-      return tx.company.findUnique({
+      return tx.company.findUniqueOrThrow({
         where: { id },
         include: companyPipelineInclude
       });

@@ -3,10 +3,6 @@ import { prisma } from "@/lib/db";
 import { companyUpdateSchema } from "@/lib/schemas";
 import { parseDateInput } from "@/lib/date-parse";
 
-function toNullableDate(value?: string | null) {
-  return parseDateInput(value);
-}
-
 function toNullableNumber(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;

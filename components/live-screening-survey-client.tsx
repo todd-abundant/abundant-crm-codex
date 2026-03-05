@@ -188,6 +188,7 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
     <main className="live-survey-main">
       <section className="live-survey-card">
         <div className="live-survey-brand">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/icon.svg" alt="Abundant logo" className="live-survey-logo" />
           <div>
             <p className="live-survey-eyebrow">Abundant Webinar Survey</p>

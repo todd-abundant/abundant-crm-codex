@@ -189,14 +189,6 @@ function findDuplicateRecord(records: CoInvestorRecord[], candidate: SearchCandi
   );
 }
 
-function statusClass(status: CoInvestorRecord["researchStatus"]) {
-  if (status === "COMPLETED") return "done";
-  if (status === "FAILED") return "failed";
-  if (status === "RUNNING") return "running";
-  if (status === "QUEUED") return "queued";
-  return "draft";
-}
-
 function summarizeInsightSnapshot(value?: string | null) {
   const clean = (value || "")
     .replace(/\[[^\]]+\]\((https?:\/\/[^\s)]+)\)/g, "")
@@ -301,7 +293,7 @@ export function CoInvestorWorkbench() {
   const [selectedRecordId, setSelectedRecordId] = React.useState<string | null>(null);
   const [detailDraft, setDetailDraft] = React.useState<DetailDraft | null>(null);
   const [draftRecordId, setDraftRecordId] = React.useState<string | null>(null);
-  const [runningAgent, setRunningAgent] = React.useState(false);
+  const [, setRunningAgent] = React.useState(false);
   const [creatingFromSearch, setCreatingFromSearch] = React.useState(false);
   const [deletingRecordId, setDeletingRecordId] = React.useState<string | null>(null);
   const [searchCandidates, setSearchCandidates] = React.useState<SearchCandidate[]>([]);
