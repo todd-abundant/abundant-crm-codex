@@ -401,8 +401,13 @@ export async function GET(
         phaseLabel: phaseLabel(phase),
         column,
         isScreeningStage: isScreeningPhase(phase),
+        intakeDecisionAt: company.pipeline?.intakeDecisionAt ?? company.intakeScheduledAt ?? null,
+        ventureStudioContractExecutedAt: company.pipeline?.ventureStudioContractExecutedAt ?? null,
+        screeningWebinarDate1At: company.pipeline?.screeningWebinarDate1At ?? null,
+        screeningWebinarDate2At: company.pipeline?.screeningWebinarDate2At ?? null,
         ventureLikelihoodPercent: company.pipeline?.ventureLikelihoodPercent ?? null,
         ventureExpectedCloseDate: company.pipeline?.ventureExpectedCloseDate ?? null,
+        updatedAt: (company.pipeline?.updatedAt || company.updatedAt).toISOString(),
         opportunities: company.opportunities.map((opportunity) => ({
           id: opportunity.id,
           title: opportunity.title,

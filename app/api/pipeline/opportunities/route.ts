@@ -107,13 +107,16 @@ export async function GET(request: Request) {
           phaseLabel: phaseLabel(phase),
           column,
           openOpportunityCount: company.opportunities.length,
-          intakeScheduledAt: company.intakeScheduledAt,
+          intakeScheduledAt: company.pipeline?.intakeDecisionAt ?? company.intakeScheduledAt,
           declineReason: company.declineReason,
           leadSource:
             company.leadSourceType === "HEALTH_SYSTEM"
               ? company.leadSourceHealthSystem?.name || ""
               : company.leadSourceOther || "",
           nextStep: company.pipeline?.nextStep || "",
+          ventureStudioContractExecutedAt: company.pipeline?.ventureStudioContractExecutedAt ?? null,
+          screeningWebinarDate1At: company.pipeline?.screeningWebinarDate1At ?? null,
+          screeningWebinarDate2At: company.pipeline?.screeningWebinarDate2At ?? null,
           ventureLikelihoodPercent: company.pipeline?.ventureLikelihoodPercent ?? null,
           ventureExpectedCloseDate: company.pipeline?.ventureExpectedCloseDate ?? null,
           noteCount: companyNotes.length,

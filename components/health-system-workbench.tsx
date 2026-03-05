@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   InlineBooleanField,
   InlineSelectField,
-  InlineTextField,
-  InlineTextareaField
+  InlineTextField
 } from "./inline-detail-field";
 import { SearchMatchModal } from "./search-match-modal";
 import { EntityLookupInput } from "./entity-lookup-input";
@@ -35,6 +34,7 @@ type ManualSearchCandidate = {
 type HealthSystemRecord = {
   id: string;
   name: string;
+  logoUrl?: string | null;
   legalName?: string | null;
   website?: string | null;
   headquartersCity?: string | null;
@@ -46,9 +46,7 @@ type HealthSystemRecord = {
   isAllianceMember: boolean;
   hasInnovationTeam?: boolean | null;
   hasVentureTeam?: boolean | null;
-  ventureTeamSummary?: string | null;
   researchStatus: "DRAFT" | "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
-  researchNotes?: string | null;
   researchError?: string | null;
   contactLinks: Array<{
     id: string;
@@ -62,14 +60,6 @@ type HealthSystemRecord = {
       phone?: string | null;
       linkedinUrl?: string | null;
     };
-  }>;
-  venturePartners: Array<{
-    id: string;
-    name: string;
-    title?: string | null;
-    profileUrl?: string | null;
-    coInvestorId?: string | null;
-    coInvestor?: { id: string; name: string } | null;
   }>;
   investments: Array<{
     id: string;
@@ -96,18 +86,78 @@ type HealthSystemRecord = {
   }>;
 };
 
-type CoInvestorOption = {
-  id: string;
-  name: string;
-};
-
 type CompanyOption = {
   id: string;
   name: string;
 };
 
+const LOGO_TARGET_HEIGHT_PX = 96;
+const LOGO_MAX_DATA_URL_BYTES = 2_500_000;
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Failed to process uploaded logo."));
+      }
+    };
+    reader.onerror = () => reject(new Error("Failed to process uploaded logo."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderLogoToWebp(source: string, targetHeight: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      if (!image.naturalWidth || !image.naturalHeight) {
+        reject(new Error("Uploaded logo has no dimensions."));
+        return;
+      }
+
+      const aspectRatio = image.naturalWidth / image.naturalHeight;
+      const targetWidth = Math.max(1, Math.round(aspectRatio * targetHeight));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+
+      const context = canvas.getContext("2d");
+      if (!context) {
+        reject(new Error("Unable to process logo in this browser."));
+        return;
+      }
+
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, targetWidth, targetHeight);
+      resolve(canvas.toDataURL("image/webp", 0.9));
+    };
+    image.onerror = () => reject(new Error("Failed to process uploaded logo."));
+    image.src = source;
+  });
+}
+
+function sanitizeLogoUpload(file: File, targetHeight: number) {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Logo upload must be an image file.");
+  }
+
+  return Promise.resolve(file)
+    .then(readFileAsDataUrl)
+    .then((dataUrl) => renderLogoToWebp(dataUrl, targetHeight))
+    .then((dataUrl) => {
+      if (dataUrl.length > LOGO_MAX_DATA_URL_BYTES) {
+        throw new Error("Processed logo is too large.");
+      }
+      return dataUrl;
+    });
+}
+
 const companyHealthSystemRelationshipOptions: Array<{ value: "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"; label: string }> = [
-  { value: "CUSTOMER", label: "Customer" },
+  { value: "CUSTOMER", label: "Vendor" },
   { value: "SPIN_OUT_PARTNER", label: "Spin-out Partner" },
   { value: "INVESTOR_PARTNER", label: "Investor Partner" },
   { value: "OTHER", label: "Other" }
@@ -126,8 +176,6 @@ type DetailDraft = {
   isAllianceMember: boolean;
   hasInnovationTeam: "null" | "true" | "false";
   hasVentureTeam: "null" | "true" | "false";
-  ventureTeamSummary: string;
-  researchNotes: string;
 };
 
 type DetailTab = "overview" | "documents" | "notes" | "contacts" | "relationships";
@@ -284,9 +332,7 @@ function draftFromRecord(record: HealthSystemRecord): DetailDraft {
         ? "null"
         : record.hasVentureTeam
           ? "true"
-          : "false",
-    ventureTeamSummary: record.ventureTeamSummary || "",
-    researchNotes: record.researchNotes || ""
+          : "false"
   };
 }
 
@@ -340,17 +386,7 @@ export function HealthSystemWorkbench() {
   >("EXECUTIVE");
   const [updatingContact, setUpdatingContact] = useState(false);
   const [deletingContactLinkId, setDeletingContactLinkId] = useState<string | null>(null);
-  const [coInvestors, setCoInvestors] = useState<CoInvestorOption[]>([]);
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
-  const [addingVenturePartner, setAddingVenturePartner] = useState(false);
-  const [addVenturePartnerRelationshipModalOpen, setAddVenturePartnerRelationshipModalOpen] = useState(false);
-  const [venturePartnerCoInvestorId, setVenturePartnerCoInvestorId] = useState("");
-  const [venturePartnerTitle, setVenturePartnerTitle] = useState("");
-  const [editingVenturePartnerLinkId, setEditingVenturePartnerLinkId] = useState<string | null>(null);
-  const [editingVenturePartnerCoInvestorId, setEditingVenturePartnerCoInvestorId] = useState("");
-  const [editingVenturePartnerTitle, setEditingVenturePartnerTitle] = useState("");
-  const [updatingVenturePartner, setUpdatingVenturePartner] = useState(false);
-  const [deletingVenturePartnerLinkId, setDeletingVenturePartnerLinkId] = useState<string | null>(null);
   const [addingInvestment, setAddingInvestment] = useState(false);
   const [addInvestmentRelationshipModalOpen, setAddInvestmentRelationshipModalOpen] = useState(false);
   const [investmentCompanyId, setInvestmentCompanyId] = useState("");
@@ -384,9 +420,12 @@ export function HealthSystemWorkbench() {
   const [updatingCustomer, setUpdatingCustomer] = useState(false);
   const [deletingCustomerLinkId, setDeletingCustomerLinkId] = useState<string | null>(null);
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTab>("overview");
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [isDeletingLogo, setIsDeletingLogo] = useState(false);
   const [keepListView, setKeepListView] = useState(false);
   const candidateSearchCacheRef = useRef<Record<string, SearchCandidate[]>>({});
   const candidateSearchAbortRef = useRef<AbortController | null>(null);
+  const logoUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const hasPending = useMemo(
     () => records.some((record) => record.researchStatus === "QUEUED" || record.researchStatus === "RUNNING"),
@@ -475,41 +514,20 @@ export function HealthSystemWorkbench() {
   }
 
   async function loadReferenceRecords() {
-    const [coInvestorRes, companyRes] = await Promise.all([fetch("/api/co-investors"), fetch("/api/companies")]);
-
-    const coInvestorPayload = await coInvestorRes.json();
+    const companyRes = await fetch("/api/companies");
     const companyPayload = await companyRes.json();
-
-    if (!coInvestorRes.ok) {
-      throw new Error(coInvestorPayload.error || "Failed to load co-investors");
-    }
     if (!companyRes.ok) {
       throw new Error(companyPayload.error || "Failed to load companies");
     }
 
-    setCoInvestors((coInvestorPayload.coInvestors || []).map((item: { id: string; name: string }) => ({
-      id: item.id,
-      name: item.name
-    })));
     setCompanies((companyPayload.companies || []).map((item: { id: string; name: string }) => ({
       id: item.id,
       name: item.name
     })));
   }
 
-  function getCoInvestorNameById(id: string) {
-    return coInvestors.find((coInvestor) => coInvestor.id === id)?.name || "";
-  }
-
   function getCompanyNameById(id: string) {
     return companies.find((company) => company.id === id)?.name || "";
-  }
-
-  function addCoInvestorOption(option: { id: string; name: string }) {
-    setCoInvestors((current) => {
-      if (current.some((entry) => entry.id === option.id)) return current;
-      return [{ id: option.id, name: option.name }, ...current];
-    });
   }
 
   function addCompanyOption(option: { id: string; name: string }) {
@@ -827,154 +845,92 @@ export function HealthSystemWorkbench() {
     }
   }
 
-  function resetVenturePartnerForm() {
-    setVenturePartnerCoInvestorId("");
-    setVenturePartnerTitle("");
+  function getLogoUploadButtonText() {
+    if (isUploadingLogo) return "Uploading...";
+    if (!selectedRecord) return "Upload";
+    return selectedRecord.logoUrl ? "Replace" : "Upload";
   }
 
-  function openVenturePartnerRelationshipModal() {
-    setStatus(null);
-    resetVenturePartnerForm();
-    setAddVenturePartnerRelationshipModalOpen(true);
-  }
-
-  function closeVenturePartnerRelationshipModal() {
-    if (addingVenturePartner) return;
-    setAddVenturePartnerRelationshipModalOpen(false);
-    resetVenturePartnerForm();
-  }
-
-  function resetEditingVenturePartnerForm() {
-    setEditingVenturePartnerLinkId(null);
-    setEditingVenturePartnerCoInvestorId("");
-    setEditingVenturePartnerTitle("");
-  }
-
-  function beginEditingVenturePartner(partner: HealthSystemRecord["venturePartners"][number]) {
-    setEditingVenturePartnerLinkId(partner.id);
-    setEditingVenturePartnerCoInvestorId(partner.coInvestorId || "");
-    setEditingVenturePartnerTitle(partner.title || "");
-    setStatus(null);
-  }
-
-  async function addVenturePartnerToSelectedRecord() {
-    if (!selectedRecord) return;
-    if (!venturePartnerCoInvestorId) {
-      setStatus({ kind: "error", text: "Select a venture partner." });
-      return;
+  function clearLogoInput() {
+    if (logoUploadInputRef.current) {
+      logoUploadInputRef.current.value = "";
     }
+  }
 
-    setAddingVenturePartner(true);
+  async function uploadLogoForSelectedRecord(file: File) {
+    if (!selectedRecord) return;
+
+    setIsUploadingLogo(true);
     setStatus(null);
 
     try {
-      const res = await fetch(`/api/health-systems/${selectedRecord.id}/venture-partners`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          coInvestorId: venturePartnerCoInvestorId,
-          title: venturePartnerTitle
-        })
-      });
-
-      const payload = await res.json();
-      if (!res.ok) {
-        throw new Error(payload.error || "Failed to add venture partner");
-      }
-
-      setStatus({
-        kind: "ok",
-        text: `${payload.partner?.coInvestor?.name || "Venture partner"} linked.`
-      });
-      resetVenturePartnerForm();
-      await loadRecords();
-      closeVenturePartnerRelationshipModal();
-    } catch (error) {
-      setStatus({
-        kind: "error",
-        text: error instanceof Error ? error.message : "Failed to add venture partner"
-      });
-    } finally {
-      setAddingVenturePartner(false);
-    }
-  }
-
-  async function updateVenturePartnerForSelectedRecord(linkId: string) {
-    if (!selectedRecord) return;
-    if (!editingVenturePartnerCoInvestorId) {
-      setStatus({ kind: "error", text: "Select a venture partner." });
-      return;
-    }
-
-    setUpdatingVenturePartner(true);
-    setStatus(null);
-
-    try {
-      const res = await fetch(`/api/health-systems/${selectedRecord.id}/venture-partners`, {
+      const logoUrl = await sanitizeLogoUpload(file, LOGO_TARGET_HEIGHT_PX);
+      const res = await fetch(`/api/health-systems/${selectedRecord.id}/logo`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          linkId,
-          coInvestorId: editingVenturePartnerCoInvestorId,
-          title: editingVenturePartnerTitle
-        })
+        body: JSON.stringify({ logoUrl })
       });
 
       const payload = await res.json();
       if (!res.ok) {
-        throw new Error(payload.error || "Failed to update venture partner");
+        throw new Error(payload.error || "Failed to upload logo");
       }
 
-      setStatus({
-        kind: "ok",
-        text: `${payload.partner?.coInvestor?.name || "Venture partner"} updated.`
-      });
-      resetEditingVenturePartnerForm();
+      setStatus({ kind: "ok", text: `Logo uploaded for ${payload.healthSystem?.name || selectedRecord.name}.` });
       await loadRecords();
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to update venture partner"
+        text: error instanceof Error ? error.message : "Failed to upload logo"
       });
     } finally {
-      setUpdatingVenturePartner(false);
+      setIsUploadingLogo(false);
+      clearLogoInput();
     }
   }
 
-  async function deleteVenturePartnerFromSelectedRecord(linkId: string, partnerName: string) {
-    if (!selectedRecord) return;
-    const confirmDelete = window.confirm(`Remove ${partnerName} from this health system?`);
+  async function deleteLogoForSelectedRecord() {
+    if (!selectedRecord || !selectedRecord.logoUrl) return;
+    const confirmDelete = window.confirm(`Remove logo from ${selectedRecord.name}?`);
     if (!confirmDelete) return;
 
-    setDeletingVenturePartnerLinkId(linkId);
+    setIsDeletingLogo(true);
     setStatus(null);
 
     try {
-      const res = await fetch(`/api/health-systems/${selectedRecord.id}/venture-partners`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ linkId })
+      const res = await fetch(`/api/health-systems/${selectedRecord.id}/logo`, {
+        method: "DELETE"
       });
-
       const payload = await res.json();
       if (!res.ok) {
-        throw new Error(payload.error || "Failed to delete venture partner");
+        throw new Error(payload.error || "Failed to delete logo");
       }
 
-      if (editingVenturePartnerLinkId === linkId) {
-        resetEditingVenturePartnerForm();
-      }
-
-      setStatus({ kind: "ok", text: `${partnerName} removed from venture partners.` });
+      setStatus({ kind: "ok", text: `Logo removed from ${payload.healthSystem?.name || selectedRecord.name}.` });
       await loadRecords();
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to delete venture partner"
+        text: error instanceof Error ? error.message : "Failed to remove logo"
       });
     } finally {
-      setDeletingVenturePartnerLinkId(null);
+      setIsDeletingLogo(false);
     }
+  }
+
+  function handleLogoInputChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      clearLogoInput();
+      return;
+    }
+
+    if (!selectedRecord) {
+      clearLogoInput();
+      return;
+    }
+
+    void uploadLogoForSelectedRecord(file);
   }
 
   function resetInvestmentForm() {
@@ -1168,14 +1124,14 @@ export function HealthSystemWorkbench() {
         })
       });
 
-      const payload = await res.json();
-      if (!res.ok) {
-        throw new Error(payload.error || "Failed to add customer link");
+        const payload = await res.json();
+        if (!res.ok) {
+        throw new Error(payload.error || "Failed to add vendor link");
       }
 
       setStatus({
         kind: "ok",
-        text: `${payload.link?.company?.name || getCompanyNameById(customerCompanyId)} linked as customer.`
+        text: `${payload.link?.company?.name || getCompanyNameById(customerCompanyId)} linked as vendor.`
       });
       resetCustomerForm();
       await loadRecords();
@@ -1183,7 +1139,7 @@ export function HealthSystemWorkbench() {
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to add customer"
+        text: error instanceof Error ? error.message : "Failed to add vendor"
       });
     } finally {
       setAddingCustomer(false);
@@ -1215,7 +1171,7 @@ export function HealthSystemWorkbench() {
 
       const payload = await res.json();
       if (!res.ok) {
-        throw new Error(payload.error || "Failed to update customer link");
+        throw new Error(payload.error || "Failed to update vendor link");
       }
 
       setStatus({
@@ -1227,7 +1183,7 @@ export function HealthSystemWorkbench() {
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to update customer"
+        text: error instanceof Error ? error.message : "Failed to update vendor"
       });
     } finally {
       setUpdatingCustomer(false);
@@ -1236,7 +1192,7 @@ export function HealthSystemWorkbench() {
 
   async function deleteCustomerFromSelectedRecord(linkId: string, companyName: string) {
     if (!selectedRecord) return;
-    const confirmDelete = window.confirm(`Remove ${companyName} from customers?`);
+    const confirmDelete = window.confirm(`Remove ${companyName} from vendors?`);
     if (!confirmDelete) return;
 
     setDeletingCustomerLinkId(linkId);
@@ -1251,19 +1207,19 @@ export function HealthSystemWorkbench() {
 
       const payload = await res.json();
       if (!res.ok) {
-        throw new Error(payload.error || "Failed to delete customer link");
+        throw new Error(payload.error || "Failed to delete vendor link");
       }
 
       if (editingCustomerLinkId === linkId) {
         resetEditingCustomerForm();
       }
 
-      setStatus({ kind: "ok", text: `${companyName} removed from customers.` });
+      setStatus({ kind: "ok", text: `${companyName} removed from vendors.` });
       await loadRecords();
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to delete customer"
+        text: error instanceof Error ? error.message : "Failed to delete vendor"
       });
     } finally {
       setDeletingCustomerLinkId(null);
@@ -1343,9 +1299,7 @@ export function HealthSystemWorkbench() {
           limitedPartnerInvestmentUsd: toNullableNumber(draftToSave.limitedPartnerInvestmentUsd),
           isAllianceMember: draftToSave.isAllianceMember,
           hasInnovationTeam: toNullableBoolean(draftToSave.hasInnovationTeam),
-          hasVentureTeam: toNullableBoolean(draftToSave.hasVentureTeam),
-          ventureTeamSummary: draftToSave.ventureTeamSummary,
-          researchNotes: draftToSave.researchNotes
+          hasVentureTeam: toNullableBoolean(draftToSave.hasVentureTeam)
         })
       });
 
@@ -1528,16 +1482,12 @@ export function HealthSystemWorkbench() {
       setAddContactModalOpen(false);
       setAddCustomerRelationshipModalOpen(false);
       setAddInvestmentRelationshipModalOpen(false);
-      setAddVenturePartnerRelationshipModalOpen(false);
       resetEditingContactForm();
-      resetVenturePartnerForm();
-      resetEditingVenturePartnerForm();
       resetInvestmentForm();
       resetEditingInvestmentForm();
       resetCustomerForm();
       resetEditingCustomerForm();
       setDeletingContactLinkId(null);
-      setDeletingVenturePartnerLinkId(null);
       setDeletingInvestmentLinkId(null);
       setDeletingCustomerLinkId(null);
       return;
@@ -1550,7 +1500,6 @@ export function HealthSystemWorkbench() {
       setAddContactModalOpen(false);
       setAddCustomerRelationshipModalOpen(false);
       setAddInvestmentRelationshipModalOpen(false);
-      setAddVenturePartnerRelationshipModalOpen(false);
     }
   }, [selectedRecord, draftRecordId]);
 
@@ -1564,8 +1513,9 @@ export function HealthSystemWorkbench() {
         </p>
       </section>
 
-      <div className="grid">
-        <section className="panel" aria-label="List panel">
+      <div className="grid health-system-workbench-layout">
+        <section className="panel health-system-list-panel" aria-label="List panel">
+          <div className="health-system-panel-scroll">
           <label htmlFor="search-health-system">Search</label>
           <input
             id="search-health-system"
@@ -1717,16 +1667,58 @@ export function HealthSystemWorkbench() {
           </div>
 
           {status && <p className={`status ${status.kind}`}>{status.text}</p>}
+          </div>
         </section>
 
-        <section className="panel" aria-label="Detail panel">
-          {!selectedRecord || !detailDraft ? (
-            <p className="muted">Select a health system from the list to view details.</p>
-          ) : (
-            <div className="detail-card">
+        <section className="panel health-system-detail-panel" aria-label="Detail panel">
+          <div className="health-system-panel-scroll">
+            {!selectedRecord || !detailDraft ? (
+              <p className="muted">Select a health system from the list to view details.</p>
+            ) : (
+              <div className="detail-card">
               <div className="detail-head">
-                <h3>{selectedRecord.name}</h3>
+                <div className="health-system-head-main">
+                  {selectedRecord.logoUrl ? (
+                    <img
+                      className="health-system-logo-preview"
+                      src={selectedRecord.logoUrl}
+                      alt={`${selectedRecord.name} logo`}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="health-system-logo-preview-placeholder">No Logo</div>
+                  )}
+                  <h3>{selectedRecord.name}</h3>
+                </div>
+                <div className="health-system-head-actions">
+                  <input
+                    ref={logoUploadInputRef}
+                    className="health-system-logo-input"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleLogoInputChange}
+                  />
+                  <button
+                    type="button"
+                    className="ghost small"
+                    onClick={() => logoUploadInputRef.current?.click()}
+                    disabled={isUploadingLogo || isDeletingLogo}
+                  >
+                    {getLogoUploadButtonText()} logo
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    onClick={() => void deleteLogoForSelectedRecord()}
+                    disabled={isDeletingLogo || isUploadingLogo || !selectedRecord.logoUrl}
+                  >
+                    {isDeletingLogo ? "Removing..." : "Remove"}
+                  </button>
+                </div>
               </div>
+              <p className="muted health-system-logo-help">
+                Logos are converted to WebP at 96px height and capped at 2.5MB.
+              </p>
 
               <div className="detail-tabs" role="tablist" aria-label="Health system detail sections">
                 <button
@@ -1868,17 +1860,6 @@ export function HealthSystemWorkbench() {
                 />
               </div>
 
-              <div className="detail-section">
-                <InlineTextareaField
-                  multiline
-                  label="Venture Team Summary"
-                  value={detailDraft.ventureTeamSummary}
-                  rows={12}
-                  enableFormatting
-                  onSave={(value) => updateDetailDraft({ ventureTeamSummary: value })}
-                />
-              </div>
-
                 </>
               )}
 
@@ -1894,17 +1875,6 @@ export function HealthSystemWorkbench() {
 
               {activeDetailTab === "notes" && (
                 <>
-              <div className="detail-section">
-                <InlineTextareaField
-                  multiline
-                  label="Research Notes"
-                  value={detailDraft.researchNotes}
-                  rows={12}
-                  enableFormatting
-                  onSave={(value) => updateDetailDraft({ researchNotes: value })}
-                />
-              </div>
-
               {selectedRecord.researchError && (
                 <div className="detail-section">
                   <p className="detail-label">Research Error</p>
@@ -2118,18 +2088,18 @@ export function HealthSystemWorkbench() {
               {activeDetailTab === "relationships" && (
                 <>
               <div className="detail-section">
-                <p className="detail-label">Customers</p>
+                <p className="detail-label">Vendors</p>
                 <div className="actions">
                   <button
                     type="button"
                     className="ghost small contact-add-link"
                     onClick={() => void openCustomerRelationshipModal()}
                   >
-                    Add Customer
+                    Add Vendor
                   </button>
                 </div>
                 {selectedRecord.customerLinks.length === 0 ? (
-                  <p className="muted">No customers linked yet.</p>
+                  <p className="muted">No vendors linked yet.</p>
                 ) : (
                   selectedRecord.customerLinks.map((link) => (
                     <div key={link.id} className="detail-list-item">
@@ -2151,7 +2121,7 @@ export function HealthSystemWorkbench() {
                                   companyType: "STARTUP",
                                   primaryCategory: "OTHER",
                                   leadSourceType: "OTHER",
-                                  leadSourceOther: "Added from health system customer"
+                                  leadSourceOther: "Added from health system vendor"
                                 }}
                                 onEntityCreated={(option) => addCompanyOption(option)}
                               />
@@ -2197,7 +2167,7 @@ export function HealthSystemWorkbench() {
                               onClick={() => updateCustomerForSelectedRecord(link.id)}
                               disabled={updatingCustomer}
                             >
-                              {updatingCustomer ? "Saving..." : "Save Customer"}
+                              {updatingCustomer ? "Saving..." : "Save Vendor"}
                             </button>
                             <button className="ghost small" onClick={resetEditingCustomerForm} type="button">
                               Cancel
@@ -2238,8 +2208,8 @@ export function HealthSystemWorkbench() {
                   onClose={closeCustomerRelationshipModal}
                   onSubmit={() => void addCustomerToSelectedRecord()}
                   isSubmitting={addingCustomer}
-                  title="Add Customer"
-                  submitLabel="Add Customer"
+                  title="Add Vendor"
+                  submitLabel="Add Vendor"
                   submitDisabled={!customerCompanyId}
                 >
                   <div className="detail-grid">
@@ -2258,7 +2228,7 @@ export function HealthSystemWorkbench() {
                           companyType: "STARTUP",
                           primaryCategory: "OTHER",
                           leadSourceType: "OTHER",
-                          leadSourceOther: "Added from health system customer"
+                                  leadSourceOther: "Added from health system vendor"
                         }}
                         onEntityCreated={(option) => addCompanyOption(option)}
                       />
@@ -2495,143 +2465,11 @@ export function HealthSystemWorkbench() {
                 </AddRelationshipModal>
               </div>
 
-              <div className="detail-section">
-                <p className="detail-label">Venture Partners</p>
-                <div className="actions">
-                  <button
-                    type="button"
-                    className="ghost small contact-add-link"
-                    onClick={() => void openVenturePartnerRelationshipModal()}
-                  >
-                    Add Venture Partner
-                  </button>
-                </div>
-                {selectedRecord.venturePartners.length === 0 ? (
-                  <p className="muted">No venture partners captured.</p>
-                ) : (
-                  selectedRecord.venturePartners.map((partner) => (
-                    <div key={partner.id} className="detail-list-item">
-                      {editingVenturePartnerLinkId === partner.id ? (
-                        <div className="detail-card">
-                          <div className="detail-grid">
-                            <div>
-                              <label>Co-Investor</label>
-                              <EntityLookupInput
-                                entityKind="CO_INVESTOR"
-                                value={editingVenturePartnerCoInvestorId}
-                                onChange={setEditingVenturePartnerCoInvestorId}
-                                initialOptions={coInvestors.map((coInvestor) => ({
-                                  id: coInvestor.id,
-                                  name: coInvestor.name
-                                }))}
-                                placeholder="Search co-investors"
-                                onEntityCreated={(option) => addCoInvestorOption(option)}
-                              />
-                            </div>
-                            <div>
-                              <label>Title</label>
-                              <input
-                                value={editingVenturePartnerTitle}
-                                onChange={(event) => setEditingVenturePartnerTitle(event.target.value)}
-                                placeholder="Investment partner"
-                              />
-                            </div>
-                          </div>
-                          <div className="actions">
-                            <button
-                              className="primary"
-                              onClick={() => updateVenturePartnerForSelectedRecord(partner.id)}
-                              disabled={updatingVenturePartner}
-                            >
-                              {updatingVenturePartner ? "Saving..." : "Save Venture Partner"}
-                            </button>
-                            <button
-                              className="ghost small"
-                              onClick={resetEditingVenturePartnerForm}
-                              type="button"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div>
-                          <strong>{partner.coInvestor?.name || partner.name}</strong>
-                          {partner.title ? `, ${partner.title}` : ""}
-                          {partner.profileUrl && (
-                            <>
-                              {" "}-{" "}
-                              <a href={partner.profileUrl} target="_blank" rel="noreferrer">
-                                profile
-                              </a>
-                            </>
-                          )}
-                          <div className="actions">
-                            <button
-                              className="ghost small"
-                              onClick={() => beginEditingVenturePartner(partner)}
-                              type="button"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              className="ghost small"
-                              onClick={() =>
-                                deleteVenturePartnerFromSelectedRecord(
-                                  partner.id,
-                                  partner.coInvestor?.name || partner.name
-                                )
-                              }
-                              disabled={deletingVenturePartnerLinkId === partner.id}
-                            >
-                              {deletingVenturePartnerLinkId === partner.id ? "Removing..." : "Delete"}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-                <AddRelationshipModal
-                  open={addVenturePartnerRelationshipModalOpen}
-                  onClose={closeVenturePartnerRelationshipModal}
-                  onSubmit={() => void addVenturePartnerToSelectedRecord()}
-                  isSubmitting={addingVenturePartner}
-                  title="Add Venture Partner"
-                  submitLabel="Add Venture Partner"
-                  submitDisabled={!venturePartnerCoInvestorId}
-                >
-                  <div className="detail-grid">
-                    <div>
-                      <label>Co-Investor</label>
-                      <EntityLookupInput
-                        entityKind="CO_INVESTOR"
-                        value={venturePartnerCoInvestorId}
-                        onChange={setVenturePartnerCoInvestorId}
-                        initialOptions={coInvestors.map((coInvestor) => ({
-                          id: coInvestor.id,
-                          name: coInvestor.name
-                        }))}
-                        placeholder="Search co-investors"
-                        onEntityCreated={(option) => addCoInvestorOption(option)}
-                      />
-                    </div>
-                    <div>
-                      <label>Title</label>
-                      <input
-                        value={venturePartnerTitle}
-                        onChange={(event) => setVenturePartnerTitle(event.target.value)}
-                        placeholder="Investment partner"
-                      />
-                    </div>
-                  </div>
-                </AddRelationshipModal>
-              </div>
-
                 </>
               )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </section>
       </div>
     </main>

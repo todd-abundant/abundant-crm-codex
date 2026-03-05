@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { PIPELINE_COMPANY_TYPE_OPTIONS } from "@/lib/pipeline-opportunities";
@@ -19,14 +20,28 @@ export function AppHeader({
   showAdminTab: boolean;
 }) {
   const pathname = usePathname();
+  const navRef = React.useRef<HTMLElement | null>(null);
   const isIsolatedSurvey = pathname.startsWith("/survey/live/");
+
+  const closeOpenDropdowns = React.useCallback(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    nav.querySelectorAll("details[open]").forEach((dropdown) => {
+      dropdown.removeAttribute("open");
+    });
+  }, []);
+
+  React.useEffect(() => {
+    closeOpenDropdowns();
+  }, [pathname, closeOpenDropdowns]);
+
   if (isIsolatedSurvey) return null;
 
   return (
     <header className="top-nav">
       <div className="top-nav-inner">
         <div className="brand">Abundant CRM</div>
-        <nav aria-label="Primary navigation" className="top-nav-links">
+        <nav ref={navRef} aria-label="Primary navigation" className="top-nav-links">
           <Link href="/" className="top-nav-link">
             Home
           </Link>
@@ -38,7 +53,12 @@ export function AppHeader({
                   {PIPELINE_COMPANY_TYPE_OPTIONS.map((option) => {
                     const href = option.value === "STARTUP" ? "/pipeline" : `/pipeline?companyType=${option.value}`;
                     return (
-                      <Link key={option.value} href={href} className="top-nav-dropdown-link">
+                      <Link
+                        key={option.value}
+                        href={href}
+                        className="top-nav-dropdown-link"
+                        onClick={closeOpenDropdowns}
+                      >
                         {option.label}
                       </Link>
                     );
@@ -54,23 +74,34 @@ export function AppHeader({
               <Link href="/companies" className="top-nav-link">
                 Companies
               </Link>
-              <Link href="/workbench" className="top-nav-link">
-                Workbench (beta)
-              </Link>
               <details className="top-nav-dropdown">
                 <summary className="top-nav-link">Tests</summary>
                 <div className="top-nav-dropdown-menu">
-                  <Link href="/tests" className="top-nav-dropdown-link">
+                  <Link href="/tests" className="top-nav-dropdown-link" onClick={closeOpenDropdowns}>
                     All Tests
                   </Link>
-                  <Link href="/tests/snov-contact-lookup" className="top-nav-dropdown-link">
+                  <Link href="/tests/snov-contact-lookup" className="top-nav-dropdown-link" onClick={closeOpenDropdowns}>
                     Snov Contact Lookup
                   </Link>
-                  <Link href="/tests/zoom-webinar-import" className="top-nav-dropdown-link">
-                    Zoom Webinar Import
-                  </Link>
-                  <Link href="/tests/bookyourdata-contact-lookup" className="top-nav-dropdown-link">
+              <Link href="/tests/zoom-webinar-import" className="top-nav-dropdown-link" onClick={closeOpenDropdowns}>
+                Zoom Webinar Import
+              </Link>
+              <Link
+                href="/tests/transcript-member-insights"
+                className="top-nav-dropdown-link"
+                onClick={closeOpenDropdowns}
+              >
+                Transcript Member Insights
+              </Link>
+              <Link
+                href="/tests/bookyourdata-contact-lookup"
+                className="top-nav-dropdown-link"
+                onClick={closeOpenDropdowns}
+              >
                     BookYourData Contact Lookup
+                  </Link>
+                  <Link href="/workbench" className="top-nav-dropdown-link" onClick={closeOpenDropdowns}>
+                    Workbench (beta)
                   </Link>
                 </div>
               </details>

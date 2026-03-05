@@ -1,6 +1,11 @@
 "use client";
 
 import * as React from "react";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import { debugDateLog } from "@/lib/date-debug";
+
+type DateInputDebugContext = string | Record<string, unknown>;
 
 type DateInputFieldProps = {
   value: string;
@@ -11,7 +16,17 @@ type DateInputFieldProps = {
   disabled?: boolean;
   min?: string;
   max?: string;
+  className?: string;
+  debugContext?: DateInputDebugContext;
 };
+
+function normalizeDebugContext(context?: DateInputDebugContext) {
+  if (!context) return {};
+  if (typeof context === "string") {
+    return { debugContext: context };
+  }
+  return context;
+}
 
 function pad(value: number) {
   return String(value).padStart(2, "0");
@@ -34,7 +49,26 @@ function toIsoDate(year: number, month: number, day: number) {
   return `${year}-${pad(month)}-${pad(day)}`;
 }
 
-export function normalizeDateValue(raw: string) {
+function parseIsoDate(value: string) {
+  const normalized = normalizeDateValue(value);
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const iso = toIsoDate(year, month, day);
+  if (!iso) return null;
+
+  return new Date(year, month - 1, day);
+}
+
+function formatIsoDateLocal(value: Date) {
+  return toIsoDate(value.getFullYear(), value.getMonth() + 1, value.getDate()) || "";
+}
+
+export function normalizeDateValue(raw: unknown) {
+  if (typeof raw !== "string") return "";
   const value = raw.trim();
   if (!value) return "";
 
@@ -57,45 +91,95 @@ export function normalizeDateValue(raw: string) {
     return value;
   }
 
-  return toIsoDate(parsed.getUTCFullYear(), parsed.getUTCMonth() + 1, parsed.getUTCDate()) || value;
+  return toIsoDate(parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate()) || value;
 }
 
 export function DateInputField({
   value,
   onChange,
+  placeholder,
   onKeyDown,
   autoFocus = false,
   disabled = false,
   min,
-  max
+  max,
+  className,
+  debugContext
 }: DateInputFieldProps) {
-  const [draft, setDraft] = React.useState(normalizeDateValue(value));
+  const debugFields = React.useMemo(() => normalizeDebugContext(debugContext), [debugContext]);
+  const selected = React.useMemo(() => parseIsoDate(value), [value]);
+  const minDate = React.useMemo(() => (min ? parseIsoDate(min) || undefined : undefined), [min]);
+  const maxDate = React.useMemo(() => (max ? parseIsoDate(max) || undefined : undefined), [max]);
 
-  React.useEffect(() => {
-    setDraft(normalizeDateValue(value));
-  }, [value]);
+  const commitRawValue = React.useCallback((raw: unknown) => {
+      const normalized = normalizeDateValue(raw);
+      debugDateLog("date-input-field.commit-raw", {
+        raw,
+        normalized,
+        ...debugFields
+      });
+      if (typeof raw !== "string" || !raw.trim()) {
+        onChange("");
+        return;
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+        onChange(normalized);
+      }
+    },
+    [debugFields, onChange]
+  );
 
   return (
-    <input
-      type="date"
-      value={draft}
-      onChange={(event) => {
-        const next = normalizeDateValue(event.target.value);
-        setDraft(next);
-        onChange(next);
+    <DatePicker
+      selected={selected}
+      onChange={(nextDate: Date | null) => {
+        if (!nextDate) {
+          debugDateLog("date-input-field.select", {
+            value,
+            next: null,
+            timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+            selectedMode: "clear",
+            ...debugFields
+          });
+          onChange("");
+          return;
+        }
+        const iso = formatIsoDateLocal(nextDate);
+        debugDateLog("date-input-field.select", {
+          value,
+          selected: nextDate.toISOString(),
+          selectedLocal: nextDate.toLocaleString(),
+          next: iso,
+          timezoneOffsetMinutes: nextDate.getTimezoneOffset(),
+          ...debugFields
+        });
+        if (iso) {
+          onChange(iso);
+        }
+      }}
+      onChangeRaw={(event) => {
+        if (!event || !event.target) return;
+        const target = event.target as HTMLInputElement;
+        commitRawValue(target.value);
       }}
       onBlur={(event) => {
-        const next = normalizeDateValue(event.target.value);
-        if (next !== draft) {
-          setDraft(next);
-        }
-        onChange(next);
+        const target = event.target as HTMLInputElement;
+        commitRawValue(target.value);
       }}
-      onKeyDown={onKeyDown}
+      dateFormat="yyyy-MM-dd"
+      placeholderText={placeholder}
+      onKeyDown={(event) => {
+        if (!onKeyDown) return;
+        onKeyDown(event as unknown as React.KeyboardEvent<HTMLInputElement>);
+      }}
       autoFocus={autoFocus}
       disabled={disabled}
-      min={min}
-      max={max}
+      minDate={minDate}
+      maxDate={maxDate}
+      className={className}
+      calendarClassName="app-date-picker-calendar"
+      popperClassName="app-date-picker-popper"
+      showPopperArrow={false}
       aria-label="Date"
     />
   );

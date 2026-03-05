@@ -4,6 +4,9 @@ import * as React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { PipelineOpportunityDetailView } from "./pipeline-opportunity-detail";
 import { RichTextArea } from "./rich-text-area";
+import { DateInputField } from "./date-input-field";
+import { parseDateInput, toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
+import { createDateDebugContext, debugDateLog, dateDebugHeaders } from "@/lib/date-debug";
 import {
   PIPELINE_BOARD_COLUMNS,
   PIPELINE_COMPANY_TYPE_OPTIONS,
@@ -42,6 +45,9 @@ type PipelineBoardItem = {
   declineReason: IntakeDeclineReason | null;
   leadSource: string;
   nextStep: string;
+  ventureStudioContractExecutedAt: string | null;
+  screeningWebinarDate1At: string | null;
+  screeningWebinarDate2At: string | null;
   ventureLikelihoodPercent: number | null;
   ventureExpectedCloseDate: string | null;
   noteCount: number;
@@ -67,6 +73,9 @@ type IntakeDraft = {
 
 type CardMetaDraft = {
   nextStep: string;
+  ventureStudioContractExecutedAt: string;
+  screeningWebinarDate1At: string;
+  screeningWebinarDate2At: string;
   ventureLikelihoodPercent: string;
   ventureExpectedCloseDate: string;
 };
@@ -76,6 +85,9 @@ type EditingField =
   | "declineReason"
   | "leadSource"
   | "nextStep"
+  | "ventureStudioContractExecutedAt"
+  | "screeningWebinarDate1At"
+  | "screeningWebinarDate2At"
   | "ventureLikelihoodPercent"
   | "ventureExpectedCloseDate";
 
@@ -91,6 +103,35 @@ type NoteModalState = {
   draft: string;
   saving: boolean;
 };
+
+function compareUpdatedAt(
+  clientUpdatedAt: string | null | undefined,
+  serverUpdatedAt: string | null | undefined
+) {
+  if (!serverUpdatedAt) {
+    return {
+      clientUpdatedAt: clientUpdatedAt || null,
+      parsedClientUpdatedAt: null,
+      serverUpdatedAt: null,
+      isClientBehindServer: null,
+      serverAheadMs: null
+    };
+  }
+
+  const parsedClient = clientUpdatedAt ? new Date(clientUpdatedAt) : null;
+  const parsedClientMs = parsedClient && Number.isNaN(parsedClient.getTime()) ? null : parsedClient?.getTime() || null;
+  const parsedServer = new Date(serverUpdatedAt);
+  const parsedServerMs = Number.isNaN(parsedServer.getTime()) ? null : parsedServer.getTime();
+
+  return {
+    clientUpdatedAt: clientUpdatedAt || null,
+    parsedClientUpdatedAt: parsedClientMs ? new Date(parsedClientMs).toISOString() : null,
+    serverUpdatedAt,
+    isClientBehindServer: parsedClientMs !== null && parsedServerMs !== null ? parsedClientMs < parsedServerMs : null,
+    serverAheadMs:
+      parsedClientMs !== null && parsedServerMs !== null ? parsedServerMs - parsedClientMs : null
+  };
+}
 
 const intakeDeclineReasonOptions: Array<{ value: IntakeDeclineReason | ""; label: string }> = [
   { value: "", label: "Not declined" },
@@ -109,17 +150,13 @@ const intakeDeclineReasonOptions: Array<{ value: IntakeDeclineReason | ""; label
 ];
 
 function toDateInputValue(value: string | null | undefined) {
-  if (!value) return "";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toISOString().slice(0, 10);
+  return formatDateInputValue(value);
 }
 
 function toDateDisplayValue(value: string | null | undefined) {
   if (!value) return "Click to set";
-  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "Click to set";
+  const parsed = parseDateInput(value);
+  if (!parsed || Number.isNaN(parsed.getTime())) return "Click to set";
   return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
@@ -157,6 +194,9 @@ function intakeDraftFromItem(item: PipelineBoardItem): IntakeDraft {
 function cardMetaDraftFromItem(item: PipelineBoardItem): CardMetaDraft {
   return {
     nextStep: item.nextStep || "",
+    ventureStudioContractExecutedAt: toDateInputValue(item.ventureStudioContractExecutedAt),
+    screeningWebinarDate1At: toDateInputValue(item.screeningWebinarDate1At),
+    screeningWebinarDate2At: toDateInputValue(item.screeningWebinarDate2At),
     ventureLikelihoodPercent: item.ventureLikelihoodPercent === null ? "" : String(item.ventureLikelihoodPercent),
     ventureExpectedCloseDate: toDateInputValue(item.ventureExpectedCloseDate)
   };
@@ -198,6 +238,8 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const undoTimeoutRef = React.useRef<number | null>(null);
   const suppressLeadSourceBlurRef = React.useRef(false);
+  const cardCommitSequenceById = React.useRef<Record<string, number>>({});
+  const intakeCommitSequenceById = React.useRef<Record<string, number>>({});
   const companyTypeView = React.useMemo(
     () => PIPELINE_COMPANY_TYPE_OPTIONS.find((entry) => entry.value === companyType) || PIPELINE_COMPANY_TYPE_OPTIONS[0],
     [companyType]
@@ -306,6 +348,43 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
       const currentItem = items.find((item) => item.id === itemId);
       if (!currentItem) return;
 
+      const requestSequence = (intakeCommitSequenceById.current[itemId] || 0) + 1;
+      intakeCommitSequenceById.current[itemId] = requestSequence;
+      const requestStartMs = Date.now();
+      const debugContext = createDateDebugContext("pipeline-kanban.intake-commit", itemId);
+      const headers = {
+        ...dateDebugHeaders("pipeline-kanban.intake-commit", itemId),
+        "Content-Type": "application/json"
+      };
+      headers["x-date-debug-seq"] = String(requestSequence);
+      if (currentItem.updatedAt) {
+        headers["x-date-debug-client-updated-at"] = currentItem.updatedAt;
+      }
+      if (debugContext) {
+        headers["x-date-debug-request-id"] = debugContext.requestId;
+        headers["x-date-debug-session-id"] = debugContext.sessionId;
+        headers["x-date-debug-scope"] = debugContext.scope;
+        headers["x-date-debug-item-id"] = itemId;
+      }
+      debugDateLog("pipeline-kanban.intake-commit-request", {
+        itemId,
+        debugRequestId: debugContext?.requestId,
+        requestSequence,
+        durationMs: 0,
+        clientUpdatedAt: currentItem.updatedAt,
+        clientUpdatedAtParsed: compareUpdatedAt(currentItem.updatedAt, null).parsedClientUpdatedAt,
+        currentItem: {
+          intakeScheduledAt: currentItem.intakeScheduledAt,
+          declineReason: currentItem.declineReason,
+          leadSource: currentItem.leadSource
+        },
+        requestPayload: {
+          intakeScheduledAt: nextDraft.intakeScheduledAt || null,
+          declineReason: nextDraft.declineReason || null,
+          leadSource: nextDraft.leadSource
+        }
+      });
+
       setSavingIntakeById((current) => ({ ...current, [itemId]: true }));
       setStatus(null);
       setIntakeDraftsById((current) => ({ ...current, [itemId]: nextDraft }));
@@ -316,7 +395,8 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
                 ...item,
                 intakeScheduledAt: nextDraft.intakeScheduledAt || null,
                 declineReason: nextDraft.declineReason || null,
-                leadSource: nextDraft.leadSource
+                leadSource: nextDraft.leadSource,
+                updatedAt: currentItem.updatedAt
               }
             : item
         )
@@ -325,7 +405,7 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
       try {
         const res = await fetch(`/api/pipeline/opportunities/${itemId}/intake`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({
             intakeScheduledAt: nextDraft.intakeScheduledAt || null,
             declineReason: nextDraft.declineReason || null,
@@ -333,6 +413,18 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
           })
         });
         const payload = await res.json();
+        const latestSequence = intakeCommitSequenceById.current[itemId] || requestSequence;
+        if (latestSequence !== requestSequence) {
+          debugDateLog("pipeline-kanban.intake-commit-stale-response", {
+            itemId,
+            debugRequestId: debugContext?.requestId,
+            requestSequence,
+            latestSequence,
+            durationMs: Date.now() - requestStartMs,
+            responseServerSequence: payload._dateDebug?.requestSequence ?? null
+          });
+          return;
+        }
         if (!res.ok) throw new Error(payload.error || "Failed to update intake field");
 
         const updatedItem = payload.item as
@@ -344,12 +436,30 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
               phase: PipelinePhase;
               phaseLabel: string;
               column: PipelineBoardColumn | null;
+              updatedAt?: string | null;
             }
           | undefined;
 
         if (!updatedItem) {
           throw new Error("Invalid intake update response");
         }
+
+        debugDateLog("pipeline-kanban.intake-commit-response", {
+          itemId,
+          debugRequestId: debugContext?.requestId,
+          requestSequence,
+          latestSequence,
+          durationMs: Date.now() - requestStartMs,
+          responseServerSequence: payload._dateDebug?.requestSequence ?? null,
+          serverUpdatedAt: updatedItem.updatedAt || null,
+          serverDebug: payload._dateDebug || null,
+          clientServerState: compareUpdatedAt(currentItem.updatedAt, updatedItem.updatedAt || null),
+          response: {
+            intakeScheduledAt: updatedItem.intakeScheduledAt,
+            declineReason: updatedItem.declineReason,
+            leadSource: updatedItem.leadSource
+          }
+        });
 
         if (!updatedItem.column) {
           setItems((current) => current.filter((item) => item.id !== itemId));
@@ -389,10 +499,11 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
                   intakeScheduledAt: updatedItem.intakeScheduledAt,
                   declineReason: updatedItem.declineReason,
                   leadSource: updatedItem.leadSource || "",
-                  phase: updatedItem.phase,
-                  phaseLabel: updatedItem.phaseLabel,
-                  column: updatedColumn
-                }
+                phase: updatedItem.phase,
+                phaseLabel: updatedItem.phaseLabel,
+                column: updatedColumn,
+                updatedAt: updatedItem.updatedAt || item.updatedAt
+              }
               : item
           )
         );
@@ -405,6 +516,31 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
           }
         }));
       } catch (error) {
+        const latestSequence = intakeCommitSequenceById.current[itemId] || 0;
+        if (latestSequence !== requestSequence) {
+          debugDateLog("pipeline-kanban.intake-commit-stale-error", {
+            itemId,
+            debugRequestId: debugContext?.requestId,
+            requestSequence,
+            latestSequence,
+            durationMs: Date.now() - requestStartMs,
+            error: error instanceof Error ? error.message : String(error),
+            responseStatus: "ignored_stale_error"
+          });
+          return;
+        }
+        debugDateLog("pipeline-kanban.intake-commit-error", {
+          itemId,
+          debugRequestId: debugContext?.requestId,
+          requestSequence,
+          durationMs: Date.now() - requestStartMs,
+          error: error instanceof Error ? error.message : String(error),
+          requestPayload: {
+            intakeScheduledAt: nextDraft.intakeScheduledAt || null,
+            declineReason: nextDraft.declineReason || null,
+            leadSource: nextDraft.leadSource
+          }
+        });
         setStatus({
           kind: "error",
           text: error instanceof Error ? error.message : "Failed to update intake field"
@@ -430,12 +566,83 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
   );
 
   const commitCardMetaDraft = React.useCallback(
-    async (itemId: string, nextDraft: CardMetaDraft, previousDraft: CardMetaDraft) => {
+    async (itemId: string, nextDraft: CardMetaDraft, previousDraft?: CardMetaDraft) => {
       const currentItem = items.find((item) => item.id === itemId);
       if (!currentItem) return;
+      const resolvedPreviousDraft = previousDraft || cardMetaDraftFromItem(currentItem);
 
       const nextLikelihood = toNullableNumber(nextDraft.ventureLikelihoodPercent);
+      const nextContractExecutedDate = nextDraft.ventureStudioContractExecutedAt || null;
+      const nextScreeningWebinarDate1 = nextDraft.screeningWebinarDate1At || null;
+      const nextScreeningWebinarDate2 = nextDraft.screeningWebinarDate2At || null;
       const nextExpectedDate = nextDraft.ventureExpectedCloseDate || null;
+      const previousLikelihood = toNullableNumber(resolvedPreviousDraft.ventureLikelihoodPercent);
+      const changed = {
+        nextStep: nextDraft.nextStep !== resolvedPreviousDraft.nextStep,
+        ventureStudioContractExecutedAt:
+          nextContractExecutedDate !== (resolvedPreviousDraft.ventureStudioContractExecutedAt || null),
+        screeningWebinarDate1At: nextScreeningWebinarDate1 !== (resolvedPreviousDraft.screeningWebinarDate1At || null),
+        screeningWebinarDate2At: nextScreeningWebinarDate2 !== (resolvedPreviousDraft.screeningWebinarDate2At || null),
+        ventureExpectedCloseDate: nextExpectedDate !== (resolvedPreviousDraft.ventureExpectedCloseDate || null),
+        ventureLikelihoodPercent: nextLikelihood !== previousLikelihood
+      };
+      const requestPayload: Partial<{
+        nextStep: string;
+        ventureStudioContractExecutedAt: string | null;
+        screeningWebinarDate1At: string | null;
+        screeningWebinarDate2At: string | null;
+        ventureLikelihoodPercent: number | null;
+        ventureExpectedCloseDate: string | null;
+      }> = {};
+      if (changed.nextStep) requestPayload.nextStep = nextDraft.nextStep;
+      if (changed.ventureStudioContractExecutedAt) requestPayload.ventureStudioContractExecutedAt = nextContractExecutedDate;
+      if (changed.screeningWebinarDate1At) requestPayload.screeningWebinarDate1At = nextScreeningWebinarDate1;
+      if (changed.screeningWebinarDate2At) requestPayload.screeningWebinarDate2At = nextScreeningWebinarDate2;
+      if (changed.ventureLikelihoodPercent) requestPayload.ventureLikelihoodPercent = nextLikelihood;
+      if (changed.ventureExpectedCloseDate) requestPayload.ventureExpectedCloseDate = nextExpectedDate;
+      const debugContext = createDateDebugContext("pipeline-kanban.card-commit", itemId);
+      const requestStartMs = Date.now();
+
+      if (Object.keys(requestPayload).length === 0) {
+        return;
+      }
+
+      const requestSequence = (cardCommitSequenceById.current[itemId] || 0) + 1;
+      cardCommitSequenceById.current[itemId] = requestSequence;
+      const headers = {
+        ...dateDebugHeaders("pipeline-kanban.card-commit", itemId),
+        "Content-Type": "application/json"
+      };
+      headers["x-date-debug-seq"] = String(requestSequence);
+      if (currentItem.updatedAt) {
+        headers["x-date-debug-client-updated-at"] = currentItem.updatedAt;
+      }
+      if (debugContext) {
+        headers["x-date-debug-request-id"] = debugContext.requestId;
+        headers["x-date-debug-session-id"] = debugContext.sessionId;
+        headers["x-date-debug-scope"] = debugContext.scope;
+        headers["x-date-debug-item-id"] = itemId;
+      }
+      debugDateLog("pipeline-kanban.card-commit-request", {
+        itemId,
+        debugRequestId: debugContext?.requestId,
+        requestSequence,
+        durationMs: 0,
+        clientUpdatedAt: currentItem.updatedAt,
+        clientUpdatedAtParsed: compareUpdatedAt(currentItem.updatedAt, null).parsedClientUpdatedAt,
+        currentItem: {
+          nextStep: currentItem.nextStep,
+          ventureStudioContractExecutedAt: currentItem.ventureStudioContractExecutedAt,
+          screeningWebinarDate1At: currentItem.screeningWebinarDate1At,
+          screeningWebinarDate2At: currentItem.screeningWebinarDate2At,
+          ventureExpectedCloseDate: currentItem.ventureExpectedCloseDate,
+          ventureLikelihoodPercent: currentItem.ventureLikelihoodPercent
+        },
+        previousDraft: resolvedPreviousDraft,
+        nextDraft,
+        changed,
+        requestPayload
+      });
 
       setSavingCardById((current) => ({ ...current, [itemId]: true }));
       setStatus(null);
@@ -446,6 +653,9 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
             ? {
                 ...item,
                 nextStep: nextDraft.nextStep,
+                ventureStudioContractExecutedAt: nextContractExecutedDate,
+                screeningWebinarDate1At: nextScreeningWebinarDate1,
+                screeningWebinarDate2At: nextScreeningWebinarDate2,
                 ventureLikelihoodPercent: nextLikelihood,
                 ventureExpectedCloseDate: nextExpectedDate
               }
@@ -456,30 +666,109 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
       try {
         const res = await fetch(`/api/pipeline/opportunities/${itemId}/card`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            nextStep: nextDraft.nextStep,
-            ventureLikelihoodPercent: nextLikelihood,
-            ventureExpectedCloseDate: nextExpectedDate
-          })
+          headers,
+          body: JSON.stringify(requestPayload)
         });
-        const payload = await res.json();
-        if (!res.ok) throw new Error(payload.error || "Failed to update card");
+        const responsePayload = await res.json();
+        if (!res.ok) throw new Error(responsePayload.error || "Failed to update card");
+        const latestSequence = cardCommitSequenceById.current[itemId] || requestSequence;
+        const isLatestRequest = latestSequence === requestSequence;
+        if (!isLatestRequest) {
+          debugDateLog("pipeline-kanban.card-commit-stale-response", {
+            itemId,
+            debugRequestId: debugContext?.requestId,
+            requestSequence,
+            latestSequence,
+            durationMs: Date.now() - requestStartMs,
+            responseServerSequence: responsePayload?._dateDebug?.requestSequence ?? null
+          });
+          return;
+        }
 
-        const updated = payload.item as
+        const updated = responsePayload.item as
           | {
               nextStep: string;
+              ventureStudioContractExecutedAt: string | null;
+              screeningWebinarDate1At: string | null;
+              screeningWebinarDate2At: string | null;
               ventureLikelihoodPercent: number | null;
               ventureExpectedCloseDate: string | null;
               phase: PipelinePhase;
               phaseLabel: string;
               column: PipelineBoardColumn | null;
+              updatedAt?: string | null;
             }
           | undefined;
 
         if (!updated) {
           throw new Error("Invalid card update response");
         }
+        debugDateLog("pipeline-kanban.card-commit-response", {
+          itemId,
+          debugRequestId: debugContext?.requestId,
+          requestSequence,
+          latestSequence,
+          durationMs: Date.now() - requestStartMs,
+          serverUpdatedAt: updated.updatedAt || null,
+          serverDebug: responsePayload._dateDebug || null,
+          clientServerState: compareUpdatedAt(currentItem.updatedAt, updated.updatedAt || null),
+          requestPayload,
+          response: {
+            nextStep: updated.nextStep,
+            ventureStudioContractExecutedAt: updated.ventureStudioContractExecutedAt,
+            screeningWebinarDate1At: updated.screeningWebinarDate1At,
+            screeningWebinarDate2At: updated.screeningWebinarDate2At,
+            ventureExpectedCloseDate: updated.ventureExpectedCloseDate,
+            ventureLikelihoodPercent: updated.ventureLikelihoodPercent,
+            column: updated.column
+          },
+          dateDelta: {
+            nextStep: {
+              requested: requestPayload.nextStep ?? null,
+              persisted: updated.nextStep,
+              changed: changed.nextStep
+            },
+            ventureStudioContractExecutedAt: {
+              requested: requestPayload.ventureStudioContractExecutedAt,
+              persisted: updated.ventureStudioContractExecutedAt,
+              matched:
+                requestPayload.ventureStudioContractExecutedAt === undefined ||
+                toDateInputValue(requestPayload.ventureStudioContractExecutedAt) ===
+                toDateInputValue(updated.ventureStudioContractExecutedAt)
+            },
+            screeningWebinarDate1At: {
+              requested: requestPayload.screeningWebinarDate1At,
+              persisted: updated.screeningWebinarDate1At,
+              matched:
+                requestPayload.screeningWebinarDate1At === undefined ||
+                toDateInputValue(requestPayload.screeningWebinarDate1At) ===
+                toDateInputValue(updated.screeningWebinarDate1At)
+            },
+            screeningWebinarDate2At: {
+              requested: requestPayload.screeningWebinarDate2At,
+              persisted: updated.screeningWebinarDate2At,
+              matched:
+                requestPayload.screeningWebinarDate2At === undefined ||
+                toDateInputValue(requestPayload.screeningWebinarDate2At) ===
+                toDateInputValue(updated.screeningWebinarDate2At)
+            },
+            ventureExpectedCloseDate: {
+              requested: requestPayload.ventureExpectedCloseDate,
+              persisted: updated.ventureExpectedCloseDate,
+              matched:
+                requestPayload.ventureExpectedCloseDate === undefined ||
+                toDateInputValue(requestPayload.ventureExpectedCloseDate) ===
+                toDateInputValue(updated.ventureExpectedCloseDate)
+            },
+            ventureLikelihoodPercent: {
+              requested: requestPayload.ventureLikelihoodPercent,
+              persisted: updated.ventureLikelihoodPercent,
+              matched:
+                requestPayload.ventureLikelihoodPercent === undefined ||
+                requestPayload.ventureLikelihoodPercent === updated.ventureLikelihoodPercent
+            }
+          }
+        });
 
         if (!updated.column) {
           setItems((current) => current.filter((item) => item.id !== itemId));
@@ -503,11 +792,15 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
               ? {
                   ...item,
                   nextStep: updated.nextStep || "",
+                  ventureStudioContractExecutedAt: updated.ventureStudioContractExecutedAt,
+                  screeningWebinarDate1At: updated.screeningWebinarDate1At,
+                  screeningWebinarDate2At: updated.screeningWebinarDate2At,
                   ventureLikelihoodPercent: updated.ventureLikelihoodPercent,
                   ventureExpectedCloseDate: updated.ventureExpectedCloseDate,
                   phase: updated.phase,
                   phaseLabel: updated.phaseLabel,
-                  column: updatedColumn
+                  column: updatedColumn,
+                  updatedAt: updated.updatedAt || item.updatedAt
                 }
               : item
           )
@@ -516,26 +809,53 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
           ...current,
           [itemId]: {
             nextStep: updated.nextStep || "",
+            ventureStudioContractExecutedAt: toDateInputValue(updated.ventureStudioContractExecutedAt),
+            screeningWebinarDate1At: toDateInputValue(updated.screeningWebinarDate1At),
+            screeningWebinarDate2At: toDateInputValue(updated.screeningWebinarDate2At),
             ventureLikelihoodPercent:
               updated.ventureLikelihoodPercent === null ? "" : String(updated.ventureLikelihoodPercent),
             ventureExpectedCloseDate: toDateInputValue(updated.ventureExpectedCloseDate)
           }
         }));
       } catch (error) {
+        const latestSequence = cardCommitSequenceById.current[itemId] || 0;
+        if (latestSequence !== requestSequence) {
+          debugDateLog("pipeline-kanban.card-commit-stale-error", {
+            itemId,
+            debugRequestId: debugContext?.requestId,
+            requestSequence,
+            latestSequence,
+            durationMs: Date.now() - requestStartMs,
+            error: error instanceof Error ? error.message : error,
+            responseStatus: "ignored_stale_error"
+          });
+          return;
+        }
+        debugDateLog("pipeline-kanban.card-commit-error", {
+          itemId,
+          debugRequestId: debugContext?.requestId,
+          error: error instanceof Error ? error.message : error,
+          requestSequence,
+          durationMs: Date.now() - requestStartMs,
+          requestPayload
+        });
         setStatus({
           kind: "error",
           text: error instanceof Error ? error.message : "Failed to update card"
         });
-        setCardMetaDraftsById((current) => ({ ...current, [itemId]: previousDraft }));
+        setCardMetaDraftsById((current) => ({ ...current, [itemId]: resolvedPreviousDraft }));
         setItems((current) =>
           current.map((item) =>
             item.id === itemId
               ? {
-                  ...item,
-                  nextStep: previousDraft.nextStep,
-                  ventureLikelihoodPercent: toNullableNumber(previousDraft.ventureLikelihoodPercent),
-                  ventureExpectedCloseDate: previousDraft.ventureExpectedCloseDate || null
-                }
+                ...item,
+                nextStep: resolvedPreviousDraft.nextStep,
+                ventureStudioContractExecutedAt: resolvedPreviousDraft.ventureStudioContractExecutedAt || null,
+                screeningWebinarDate1At: resolvedPreviousDraft.screeningWebinarDate1At || null,
+                screeningWebinarDate2At: resolvedPreviousDraft.screeningWebinarDate2At || null,
+                ventureLikelihoodPercent: toNullableNumber(resolvedPreviousDraft.ventureLikelihoodPercent),
+                ventureExpectedCloseDate: resolvedPreviousDraft.ventureExpectedCloseDate || null
+              }
               : item
           )
         );
@@ -855,40 +1175,39 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
                           )}
                         </div>
 
+                        <div className="pipeline-inline-field pipeline-inline-field--date">
+                          <span className="pipeline-inline-label">Intake Decision Date</span>
+                          {isEditing(item.id, "intakeDate") ? (
+                            <DateInputField
+                              value={intakeDraft.intakeScheduledAt}
+                              className="pipeline-inline-input"
+                              debugContext={{ scope: "pipeline-kanban.intakeDate", itemId: item.id, field: "intakeScheduledAt" }}
+                              onChange={(nextValue) => {
+                                const nextDraft: IntakeDraft = {
+                                  ...intakeDraft,
+                                  intakeScheduledAt: nextValue
+                                };
+                                setEditingField(null);
+                                void commitIntakeDraft(item.id, nextDraft, intakeDraftFromItem(item));
+                              }}
+                              autoFocus
+                            />
+                          ) : (
+                            <a
+                              href="#"
+                              className="pipeline-inline-link"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setEditingField({ itemId: item.id, field: "intakeDate" });
+                              }}
+                            >
+                              {toDateDisplayValue(item.intakeScheduledAt)}
+                            </a>
+                          )}
+                        </div>
+
                         {item.column === "INTAKE" ? (
                           <>
-                            <div className="pipeline-inline-field">
-                              <span className="pipeline-inline-label">Intake Date</span>
-                              {isEditing(item.id, "intakeDate") ? (
-                                <input
-                                  type="date"
-                                  className="pipeline-inline-input"
-                                  value={intakeDraft.intakeScheduledAt}
-                                  onChange={(event) => {
-                                    const nextDraft: IntakeDraft = {
-                                      ...intakeDraft,
-                                      intakeScheduledAt: event.target.value
-                                    };
-                                    setEditingField(null);
-                                    void commitIntakeDraft(item.id, nextDraft, intakeDraftFromItem(item));
-                                  }}
-                                  onBlur={() => setEditingField(null)}
-                                  autoFocus
-                                />
-                              ) : (
-                                <a
-                                  href="#"
-                                  className="pipeline-inline-link"
-                                  onClick={(event) => {
-                                    event.preventDefault();
-                                    setEditingField({ itemId: item.id, field: "intakeDate" });
-                                  }}
-                                >
-                                  {toDateDisplayValue(item.intakeScheduledAt)}
-                                </a>
-                              )}
-                            </div>
-
                             <div className="pipeline-inline-field">
                               <span className="pipeline-inline-label">Decline Reason</span>
                               {isEditing(item.id, "declineReason") ? (
@@ -1012,10 +1331,137 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
                           </>
                         ) : null}
 
+                        {item.column !== "INTAKE" ? (
+                          <>
+                            <div className="pipeline-inline-field pipeline-inline-field--date">
+                              <span className="pipeline-inline-label">VS Contract Executed</span>
+                              {isEditing(item.id, "ventureStudioContractExecutedAt") ? (
+                                <DateInputField
+                                  value={cardMetaDraft.ventureStudioContractExecutedAt}
+                                  className="pipeline-inline-input"
+                                  debugContext={{
+                                    scope: "pipeline-kanban.cardMetaDate",
+                                    itemId: item.id,
+                                    field: "ventureStudioContractExecutedAt"
+                                  }}
+                                  onChange={(nextValue) => {
+                                    const nextDraft: CardMetaDraft = {
+                                      ...cardMetaDraft,
+                                      ventureStudioContractExecutedAt: nextValue
+                                    };
+                                    debugDateLog("pipeline-kanban.date-field-change", {
+                                      itemId: item.id,
+                                      field: "ventureStudioContractExecutedAt",
+                                      next: nextValue,
+                                      previous: cardMetaDraft.ventureStudioContractExecutedAt
+                                    });
+                                    setEditingField(null);
+                                    void commitCardMetaDraft(item.id, nextDraft, cardMetaDraftFromItem(item));
+                                  }}
+                                  autoFocus
+                                />
+                              ) : (
+                                <a
+                                  href="#"
+                                  className="pipeline-inline-link"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    setEditingField({ itemId: item.id, field: "ventureStudioContractExecutedAt" });
+                                  }}
+                                >
+                                  {toDateDisplayValue(item.ventureStudioContractExecutedAt)}
+                                </a>
+                              )}
+                            </div>
+
+                            <div className="pipeline-inline-field pipeline-inline-field--date">
+                              <span className="pipeline-inline-label pipeline-inline-label--nowrap">Screening Webinar 1</span>
+                              {isEditing(item.id, "screeningWebinarDate1At") ? (
+                                <DateInputField
+                                  value={cardMetaDraft.screeningWebinarDate1At}
+                                  className="pipeline-inline-input"
+                                  debugContext={{
+                                    scope: "pipeline-kanban.cardMetaDate",
+                                    itemId: item.id,
+                                    field: "screeningWebinarDate1At"
+                                  }}
+                                  onChange={(nextValue) => {
+                                    const nextDraft: CardMetaDraft = {
+                                      ...cardMetaDraft,
+                                      screeningWebinarDate1At: nextValue
+                                    };
+                                    debugDateLog("pipeline-kanban.date-field-change", {
+                                      itemId: item.id,
+                                      field: "screeningWebinarDate1At",
+                                      next: nextValue,
+                                      previous: cardMetaDraft.screeningWebinarDate1At
+                                    });
+                                    setEditingField(null);
+                                    void commitCardMetaDraft(item.id, nextDraft, cardMetaDraftFromItem(item));
+                                  }}
+                                  autoFocus
+                                />
+                              ) : (
+                                <a
+                                  href="#"
+                                  className="pipeline-inline-link"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    setEditingField({ itemId: item.id, field: "screeningWebinarDate1At" });
+                                  }}
+                                >
+                                  {toDateDisplayValue(item.screeningWebinarDate1At)}
+                                </a>
+                              )}
+                            </div>
+
+                            <div className="pipeline-inline-field pipeline-inline-field--date">
+                              <span className="pipeline-inline-label pipeline-inline-label--nowrap">Screening Webinar 2</span>
+                              {isEditing(item.id, "screeningWebinarDate2At") ? (
+                                <DateInputField
+                                  value={cardMetaDraft.screeningWebinarDate2At}
+                                  className="pipeline-inline-input"
+                                  debugContext={{
+                                    scope: "pipeline-kanban.cardMetaDate",
+                                    itemId: item.id,
+                                    field: "screeningWebinarDate2At"
+                                  }}
+                                  onChange={(nextValue) => {
+                                    const nextDraft: CardMetaDraft = {
+                                      ...cardMetaDraft,
+                                      screeningWebinarDate2At: nextValue
+                                    };
+                                    debugDateLog("pipeline-kanban.date-field-change", {
+                                      itemId: item.id,
+                                      field: "screeningWebinarDate2At",
+                                      next: nextValue,
+                                      previous: cardMetaDraft.screeningWebinarDate2At
+                                    });
+                                    setEditingField(null);
+                                    void commitCardMetaDraft(item.id, nextDraft, cardMetaDraftFromItem(item));
+                                  }}
+                                  autoFocus
+                                />
+                              ) : (
+                                <a
+                                  href="#"
+                                  className="pipeline-inline-link"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    setEditingField({ itemId: item.id, field: "screeningWebinarDate2At" });
+                                  }}
+                                >
+                                  {toDateDisplayValue(item.screeningWebinarDate2At)}
+                                </a>
+                              )}
+                            </div>
+                          </>
+                        ) : null}
+
                         {item.column === "VENTURE_STUDIO_CONTRACT_EVALUATION" ? (
                           <>
                             <div className="pipeline-inline-field">
-                              <span className="pipeline-inline-label">Likelihood to Close (%)</span>
+                              <span className="pipeline-inline-label pipeline-inline-label--nowrap">Likelihood</span>
                               {isEditing(item.id, "ventureLikelihoodPercent") ? (
                                 <input
                                   type="number"
@@ -1071,22 +1517,31 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
                               )}
                             </div>
 
-                            <div className="pipeline-inline-field">
+                            <div className="pipeline-inline-field pipeline-inline-field--date">
                               <span className="pipeline-inline-label">Expected Close Date</span>
                               {isEditing(item.id, "ventureExpectedCloseDate") ? (
-                                <input
-                                  type="date"
-                                  className="pipeline-inline-input"
+                                <DateInputField
                                   value={cardMetaDraft.ventureExpectedCloseDate}
-                                  onChange={(event) => {
+                                  className="pipeline-inline-input"
+                                  debugContext={{
+                                    scope: "pipeline-kanban.cardMetaDate",
+                                    itemId: item.id,
+                                    field: "ventureExpectedCloseDate"
+                                  }}
+                                  onChange={(nextValue) => {
                                     const nextDraft: CardMetaDraft = {
                                       ...cardMetaDraft,
-                                      ventureExpectedCloseDate: event.target.value
+                                      ventureExpectedCloseDate: nextValue
                                     };
+                                    debugDateLog("pipeline-kanban.date-field-change", {
+                                      itemId: item.id,
+                                      field: "ventureExpectedCloseDate",
+                                      next: nextValue,
+                                      previous: cardMetaDraft.ventureExpectedCloseDate
+                                    });
                                     setEditingField(null);
                                     void commitCardMetaDraft(item.id, nextDraft, cardMetaDraftFromItem(item));
                                   }}
-                                  onBlur={() => setEditingField(null)}
                                   autoFocus
                                 />
                               ) : (

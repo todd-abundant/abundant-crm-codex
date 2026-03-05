@@ -25,6 +25,8 @@ Enterprise CRM + workflow web app for a seed-stage digital health venture firm.
 
 ## Quick start (recommended)
 
+New to this repo? Start here first: [`docs/codex-quickstart.md`](docs/codex-quickstart.md)
+
 1. Start Postgres (Docker option):
 
 ```bash

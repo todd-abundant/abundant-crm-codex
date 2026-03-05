@@ -28,6 +28,15 @@ export default function TestsHomePage() {
               </span>
             </div>
           </Link>
+          <Link className="list-row" href="/tests/transcript-member-insights">
+            <div className="list-row-main">
+              <strong>Transcript Member Insights</strong>
+              <span className="muted">
+                Extract member questions/comments from webinar transcripts, classify sentiment + themes, and save
+                selected insights into screening feedback.
+              </span>
+            </div>
+          </Link>
           <Link className="list-row" href="/tests/bookyourdata-contact-lookup">
             <div className="list-row-main">
               <strong>BookYourData Contact Lookup</strong>

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { parseDateInput } from "@/lib/date-parse";
 
 function normalizeDueAt(value?: string | null) {
   if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
+  const parsed = parseDateInput(value);
+  if (!parsed) return null;
   return parsed;
 }
 

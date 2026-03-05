@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { DateInputField } from "./date-input-field";
+import { parseDateInput, toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
 
 type EntityPath = "health-systems" | "co-investors" | "companies";
 
@@ -23,16 +25,18 @@ type EntityDocumentsPaneProps = {
 };
 
 function formatDate(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString("en-US");
+  return parseDateForDisplay(value);
 }
 
 function toDateInputValue(value: string | null | undefined) {
-  if (!value) return "";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toISOString().slice(0, 10);
+  return formatDateInputValue(value);
+}
+
+function parseDateForDisplay(value: string | null | undefined) {
+  if (!value) return value ?? "";
+  const parsed = parseDateInput(value);
+  if (!parsed || Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString("en-US");
 }
 
 export function EntityDocumentsPane({ entityPath, entityId, onStatus }: EntityDocumentsPaneProps) {
@@ -249,10 +253,9 @@ export function EntityDocumentsPane({ entityPath, entityId, onStatus }: EntityDo
                     </div>
                     <div>
                       <label>Uploaded Date</label>
-                      <input
-                        type="date"
+                      <DateInputField
                         value={editingUploadedAt}
-                        onChange={(event) => setEditingUploadedAt(event.target.value)}
+                        onChange={setEditingUploadedAt}
                       />
                     </div>
                     <div>
@@ -329,10 +332,9 @@ export function EntityDocumentsPane({ entityPath, entityId, onStatus }: EntityDo
             </div>
             <div>
               <label>Uploaded Date</label>
-              <input
-                type="date"
+              <DateInputField
                 value={newUploadedAt}
-                onChange={(event) => setNewUploadedAt(event.target.value)}
+                onChange={setNewUploadedAt}
               />
             </div>
             <div>

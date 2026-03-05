@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { normalizeCompanyDocumentUrl } from "@/lib/company-document-links";
+import { parseDateInput } from "@/lib/date-parse";
+import { getDateDebugContextFromRequest, shouldLogDateRequest } from "@/lib/date-debug";
 
 const pipelinePhaseSchema = z.enum([
   "INTAKE",
@@ -97,6 +99,8 @@ const pipelineUpdateSchema = z.object({
   intakeDecisionAt: z.string().optional().nullable(),
   intakeDecisionNotes: z.string().optional().nullable(),
   ventureStudioContractExecutedAt: z.string().optional().nullable(),
+  screeningWebinarDate1At: z.string().optional().nullable(),
+  screeningWebinarDate2At: z.string().optional().nullable(),
   targetLoiCount: z.number().int().min(1).max(50).default(3),
   s1Invested: z.boolean().default(false),
   s1InvestmentAt: z.string().optional().nullable(),
@@ -110,15 +114,77 @@ const pipelineUpdateSchema = z.object({
 });
 
 function toNullableDate(value?: string | null) {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed;
+  return parseDateInput(value);
 }
 
 function toNullableString(value?: string | null) {
   const trimmed = (value || "").trim();
   return trimmed || null;
+}
+
+function hasDateField(input: unknown, field: string) {
+  if (!input || typeof input !== "object") return false;
+  return Object.prototype.hasOwnProperty.call(input, field);
+}
+
+function debugDateValueRaw(value: Date | null | undefined) {
+  if (!value) return null;
+  return {
+    iso: value.toISOString(),
+    date: value.toISOString().slice(0, 10),
+    tzOffsetMinutes: value.getTimezoneOffset()
+  };
+}
+
+function parseWarningCandidates(raw: string | null | undefined, parsed: Date | null | undefined) {
+  const trimmed = (raw || "").trim();
+  if (!trimmed) return null;
+  return {
+    raw: trimmed,
+    parsed: debugDateValueRaw(parsed)
+  };
+}
+
+function debugClientUpdatedAtComparison(
+  clientUpdatedAt: string | null | undefined,
+  serverUpdatedAt: Date | null | undefined
+) {
+  if (!clientUpdatedAt) {
+    return {
+      clientUpdatedAt: null,
+      parsedClientUpdatedAt: null,
+      serverUpdatedAt: serverUpdatedAt?.toISOString() || null,
+      isClientBehindServer: null,
+      serverAheadMs: null
+    };
+  }
+
+  const parsedClientUpdatedAt = new Date(clientUpdatedAt);
+  const validParsed = Number.isNaN(parsedClientUpdatedAt.getTime()) ? null : parsedClientUpdatedAt;
+  return {
+    clientUpdatedAt,
+    parsedClientUpdatedAt: validParsed ? validParsed.toISOString() : null,
+    serverUpdatedAt: serverUpdatedAt?.toISOString() || null,
+    isClientBehindServer: validParsed && serverUpdatedAt ? validParsed.getTime() < serverUpdatedAt.getTime() : null,
+    serverAheadMs:
+      validParsed && serverUpdatedAt ? serverUpdatedAt.getTime() - parsedClientUpdatedAt.getTime() : null
+  };
+}
+
+function debugDateValue(value: Date | null | undefined) {
+  if (!value) return null;
+  return {
+    iso: value.toISOString(),
+    date: value.toISOString().slice(0, 10),
+    tzOffsetMinutes: value.getTimezoneOffset()
+  };
+}
+
+function formatDateForDebug(value: Date | null | undefined) {
+  if (!value) return null;
+  const month = `${value.getMonth() + 1}`.padStart(2, "0");
+  const date = `${value.getDate()}`.padStart(2, "0");
+  return `${value.getFullYear()}-${month}-${date}`;
 }
 
 function inferDefaultPhaseFromCompany(company: {
@@ -194,11 +260,14 @@ function buildPipelinePayload(company: CompanyPipelineView) {
       intakeDecisionAt: company.intakeScheduledAt,
       intakeDecisionNotes: null,
       ventureStudioContractExecutedAt: null,
+      screeningWebinarDate1At: null,
+      screeningWebinarDate2At: null,
       targetLoiCount: 3,
       s1Invested: false,
       s1InvestmentAt: null,
       s1InvestmentAmountUsd: null,
       portfolioAddedAt: null,
+      updatedAt: null,
       documents: [],
       opportunities: [],
       screeningEvents: [],
@@ -215,11 +284,14 @@ function buildPipelinePayload(company: CompanyPipelineView) {
     intakeDecisionAt: company.pipeline.intakeDecisionAt,
     intakeDecisionNotes: company.pipeline.intakeDecisionNotes,
     ventureStudioContractExecutedAt: company.pipeline.ventureStudioContractExecutedAt,
+    screeningWebinarDate1At: company.pipeline.screeningWebinarDate1At,
+    screeningWebinarDate2At: company.pipeline.screeningWebinarDate2At,
     targetLoiCount: company.pipeline.targetLoiCount,
     s1Invested: company.pipeline.s1Invested,
     s1InvestmentAt: company.pipeline.s1InvestmentAt,
     s1InvestmentAmountUsd: company.pipeline.s1InvestmentAmountUsd,
     portfolioAddedAt: company.pipeline.portfolioAddedAt,
+    updatedAt: company.pipeline.updatedAt.toISOString(),
     documents: company.documents,
     opportunities: company.opportunities,
     screeningEvents: company.screeningEvents,
@@ -259,40 +331,133 @@ export async function PATCH(
     const { id } = await context.params;
     const body = await request.json();
     const input = pipelineUpdateSchema.parse(body);
+    const shouldDebug = shouldLogDateRequest(request);
+    const debugContext = getDateDebugContextFromRequest(request);
+    const dateFieldPresence = {
+      intakeDecisionAt: hasDateField(body, "intakeDecisionAt"),
+      ventureStudioContractExecutedAt: hasDateField(body, "ventureStudioContractExecutedAt"),
+      screeningWebinarDate1At: hasDateField(body, "screeningWebinarDate1At"),
+      screeningWebinarDate2At: hasDateField(body, "screeningWebinarDate2At"),
+      s1InvestmentAt: hasDateField(body, "s1InvestmentAt"),
+      portfolioAddedAt: hasDateField(body, "portfolioAddedAt")
+    };
 
-    const companyExists = await prisma.company.findUnique({ where: { id }, select: { id: true } });
-    if (!companyExists) {
+    const intakeDecisionAt = toNullableDate(input.intakeDecisionAt);
+    const ventureStudioContractExecutedAt = toNullableDate(input.ventureStudioContractExecutedAt);
+    const screeningWebinarDate1At = toNullableDate(input.screeningWebinarDate1At);
+    const screeningWebinarDate2At = toNullableDate(input.screeningWebinarDate2At);
+    const s1InvestmentAt = toNullableDate(input.s1InvestmentAt);
+    const portfolioAddedAt = toNullableDate(input.portfolioAddedAt);
+
+    const pipelineCreatePayload = {
+      phase: input.phase,
+      intakeDecision: input.intakeDecision,
+      intakeDecisionAt,
+      intakeDecisionNotes: toNullableString(input.intakeDecisionNotes),
+      ventureStudioContractExecutedAt,
+      screeningWebinarDate1At,
+      screeningWebinarDate2At,
+      targetLoiCount: input.targetLoiCount,
+      s1Invested: input.s1Invested,
+      s1InvestmentAt,
+      s1InvestmentAmountUsd: input.s1InvestmentAmountUsd ?? null,
+      portfolioAddedAt
+    };
+
+    const pipelineUpdatePayload = {
+      phase: input.phase,
+      intakeDecision: input.intakeDecision,
+      intakeDecisionAt,
+      intakeDecisionNotes: toNullableString(input.intakeDecisionNotes),
+      ventureStudioContractExecutedAt,
+      screeningWebinarDate1At,
+      screeningWebinarDate2At,
+      targetLoiCount: input.targetLoiCount,
+      s1Invested: input.s1Invested,
+      s1InvestmentAt,
+      s1InvestmentAmountUsd: input.s1InvestmentAmountUsd ?? null,
+      portfolioAddedAt
+    };
+
+    if (shouldDebug) {
+      const parseWarnings = {
+        intakeDecisionAt: parseWarningCandidates(input.intakeDecisionAt, intakeDecisionAt),
+        ventureStudioContractExecutedAt: parseWarningCandidates(
+          input.ventureStudioContractExecutedAt,
+          ventureStudioContractExecutedAt
+        ),
+        screeningWebinarDate1At: parseWarningCandidates(input.screeningWebinarDate1At, screeningWebinarDate1At),
+        screeningWebinarDate2At: parseWarningCandidates(input.screeningWebinarDate2At, screeningWebinarDate2At),
+        s1InvestmentAt: parseWarningCandidates(input.s1InvestmentAt, s1InvestmentAt),
+        portfolioAddedAt: parseWarningCandidates(input.portfolioAddedAt, portfolioAddedAt)
+      };
+
+      console.log("[date-debug] api.company.pipeline.update.input", {
+        ...debugContext,
+        id,
+        dateFieldPresence,
+        parseWarnings,
+        body,
+        parsed: {
+          intakeDecisionAt: dateFieldPresence.intakeDecisionAt ? input.intakeDecisionAt : undefined,
+          ventureStudioContractExecutedAt: dateFieldPresence.ventureStudioContractExecutedAt
+            ? input.ventureStudioContractExecutedAt
+            : undefined,
+          screeningWebinarDate1At: dateFieldPresence.screeningWebinarDate1At ? input.screeningWebinarDate1At : undefined,
+          screeningWebinarDate2At: dateFieldPresence.screeningWebinarDate2At ? input.screeningWebinarDate2At : undefined,
+          s1InvestmentAt: dateFieldPresence.s1InvestmentAt ? input.s1InvestmentAt : undefined,
+          portfolioAddedAt: dateFieldPresence.portfolioAddedAt ? input.portfolioAddedAt : undefined
+        }
+      });
+
+      if (
+        Object.values(parseWarnings).some(
+          (warning): warning is { raw: string; parsed: { iso: string; date: string; tzOffsetMinutes: number } | null } =>
+            !!warning && warning.raw.length > 0 && warning.parsed === null
+        )
+      ) {
+        console.log("[date-debug] api.company.pipeline.update.parse-warning", {
+          ...debugContext,
+          id,
+          parseWarnings
+        });
+      }
+    }
+
+    const company = await prisma.company.findUnique({ where: { id }, include: { pipeline: true } });
+    if (!company) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
+    }
+
+    if (shouldDebug) {
+      const preUpdateClientState = debugClientUpdatedAtComparison(
+        debugContext?.clientUpdatedAt || null,
+        company.pipeline?.updatedAt || null
+      );
+
+      console.log("[date-debug] api.company.pipeline.update.before-transaction", {
+        ...debugContext,
+        id,
+        clientUpdatedAtComparison: preUpdateClientState,
+        existingPipeline: company.pipeline
+            ? {
+              updatedAt: company.pipeline.updatedAt.toISOString(),
+              intakeDecisionAt: formatDateForDebug(company.pipeline.intakeDecisionAt),
+              ventureStudioContractExecutedAt: formatDateForDebug(company.pipeline.ventureStudioContractExecutedAt),
+              screeningWebinarDate1At: formatDateForDebug(company.pipeline.screeningWebinarDate1At),
+              screeningWebinarDate2At: formatDateForDebug(company.pipeline.screeningWebinarDate2At),
+              s1InvestmentAt: formatDateForDebug(company.pipeline.s1InvestmentAt),
+              portfolioAddedAt: formatDateForDebug(company.pipeline.portfolioAddedAt)
+            }
+          : null
+      });
     }
 
     const pipeline = await prisma.$transaction(async (tx) => {
       await tx.companyPipeline.upsert({
         where: { companyId: id },
-        create: {
-          companyId: id,
-          phase: input.phase,
-          intakeDecision: input.intakeDecision,
-          intakeDecisionAt: toNullableDate(input.intakeDecisionAt),
-          intakeDecisionNotes: toNullableString(input.intakeDecisionNotes),
-          ventureStudioContractExecutedAt: toNullableDate(input.ventureStudioContractExecutedAt),
-          targetLoiCount: input.targetLoiCount,
-          s1Invested: input.s1Invested,
-          s1InvestmentAt: toNullableDate(input.s1InvestmentAt),
-          s1InvestmentAmountUsd: input.s1InvestmentAmountUsd ?? null,
-          portfolioAddedAt: toNullableDate(input.portfolioAddedAt)
-        },
-        update: {
-          phase: input.phase,
-          intakeDecision: input.intakeDecision,
-          intakeDecisionAt: toNullableDate(input.intakeDecisionAt),
-          intakeDecisionNotes: toNullableString(input.intakeDecisionNotes),
-          ventureStudioContractExecutedAt: toNullableDate(input.ventureStudioContractExecutedAt),
-          targetLoiCount: input.targetLoiCount,
-          s1Invested: input.s1Invested,
-          s1InvestmentAt: toNullableDate(input.s1InvestmentAt),
-          s1InvestmentAmountUsd: input.s1InvestmentAmountUsd ?? null,
-          portfolioAddedAt: toNullableDate(input.portfolioAddedAt)
-        }
+        create: { companyId: id, ...pipelineCreatePayload },
+        update: pipelineUpdatePayload
       });
 
       await tx.companyDocument.deleteMany({ where: { companyId: id } });
@@ -426,11 +591,115 @@ export async function PATCH(
       });
     });
 
+    if (shouldDebug) {
+      const savedPipeline = pipeline.pipeline;
+      const postUpdateClientState = debugClientUpdatedAtComparison(
+        debugContext?.clientUpdatedAt || null,
+        savedPipeline?.updatedAt || null
+      );
+      console.log("[date-debug] api.company.pipeline.update.after-transaction", {
+        ...debugContext,
+        id,
+        postUpdateClientState,
+        requestPresence: dateFieldPresence,
+        payload: {
+          intakeDecisionAt: debugDateValue(intakeDecisionAt),
+          ventureStudioContractExecutedAt: debugDateValue(ventureStudioContractExecutedAt),
+          screeningWebinarDate1At: debugDateValue(screeningWebinarDate1At),
+          screeningWebinarDate2At: debugDateValue(screeningWebinarDate2At),
+          s1InvestmentAt: debugDateValue(s1InvestmentAt),
+          portfolioAddedAt: debugDateValue(portfolioAddedAt)
+        },
+        before: {
+          intakeDecisionAt: formatDateForDebug(company.pipeline?.intakeDecisionAt || null),
+          ventureStudioContractExecutedAt: formatDateForDebug(company.pipeline?.ventureStudioContractExecutedAt || null),
+          screeningWebinarDate1At: formatDateForDebug(company.pipeline?.screeningWebinarDate1At || null),
+          screeningWebinarDate2At: formatDateForDebug(company.pipeline?.screeningWebinarDate2At || null),
+          s1InvestmentAt: formatDateForDebug(company.pipeline?.s1InvestmentAt || null),
+          portfolioAddedAt: formatDateForDebug(company.pipeline?.portfolioAddedAt || null)
+        },
+          after: {
+            updatedAt: savedPipeline?.updatedAt?.toISOString() ?? null,
+            intakeDecisionAt: formatDateForDebug(savedPipeline?.intakeDecisionAt || null),
+            ventureStudioContractExecutedAt: formatDateForDebug(savedPipeline?.ventureStudioContractExecutedAt || null),
+            screeningWebinarDate1At: formatDateForDebug(savedPipeline?.screeningWebinarDate1At || null),
+            screeningWebinarDate2At: formatDateForDebug(savedPipeline?.screeningWebinarDate2At || null),
+            s1InvestmentAt: formatDateForDebug(savedPipeline?.s1InvestmentAt || null),
+            portfolioAddedAt: formatDateForDebug(savedPipeline?.portfolioAddedAt || null)
+        },
+        delta: {
+          intakeDecisionAt: {
+            requested: dateFieldPresence.intakeDecisionAt ? input.intakeDecisionAt : undefined,
+            persisted: formatDateForDebug(savedPipeline?.intakeDecisionAt || null)
+          },
+          ventureStudioContractExecutedAt: {
+            requested: dateFieldPresence.ventureStudioContractExecutedAt ? input.ventureStudioContractExecutedAt : undefined,
+            persisted: formatDateForDebug(savedPipeline?.ventureStudioContractExecutedAt || null),
+            matched:
+              !dateFieldPresence.ventureStudioContractExecutedAt ||
+              formatDateForDebug(toNullableDate(input.ventureStudioContractExecutedAt)) ===
+                formatDateForDebug(savedPipeline?.ventureStudioContractExecutedAt || null)
+          },
+          screeningWebinarDate1At: {
+            requested: dateFieldPresence.screeningWebinarDate1At ? input.screeningWebinarDate1At : undefined,
+            persisted: formatDateForDebug(savedPipeline?.screeningWebinarDate1At || null),
+            matched:
+              !dateFieldPresence.screeningWebinarDate1At ||
+              formatDateForDebug(toNullableDate(input.screeningWebinarDate1At)) ===
+                formatDateForDebug(savedPipeline?.screeningWebinarDate1At || null)
+          },
+          screeningWebinarDate2At: {
+            requested: dateFieldPresence.screeningWebinarDate2At ? input.screeningWebinarDate2At : undefined,
+            persisted: formatDateForDebug(savedPipeline?.screeningWebinarDate2At || null),
+            matched:
+              !dateFieldPresence.screeningWebinarDate2At ||
+              formatDateForDebug(toNullableDate(input.screeningWebinarDate2At)) ===
+                formatDateForDebug(savedPipeline?.screeningWebinarDate2At || null)
+          },
+          s1InvestmentAt: {
+            requested: dateFieldPresence.s1InvestmentAt ? input.s1InvestmentAt : undefined,
+            persisted: formatDateForDebug(savedPipeline?.s1InvestmentAt || null),
+            matched:
+              !dateFieldPresence.s1InvestmentAt ||
+              formatDateForDebug(toNullableDate(input.s1InvestmentAt)) ===
+                formatDateForDebug(savedPipeline?.s1InvestmentAt || null)
+          },
+          portfolioAddedAt: {
+            requested: dateFieldPresence.portfolioAddedAt ? input.portfolioAddedAt : undefined,
+            persisted: formatDateForDebug(savedPipeline?.portfolioAddedAt || null),
+            matched:
+              !dateFieldPresence.portfolioAddedAt ||
+              formatDateForDebug(toNullableDate(input.portfolioAddedAt)) ===
+                formatDateForDebug(savedPipeline?.portfolioAddedAt || null)
+          }
+        }
+      });
+    }
+
     if (!pipeline) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ pipeline: buildPipelinePayload(pipeline) });
+    const response = {
+      pipeline: buildPipelinePayload(pipeline),
+      _dateDebug: debugContext
+        ? {
+            requestId: debugContext.requestId,
+            requestSequence: debugContext.requestSequence ?? null,
+            clientUpdatedAt: debugContext.clientUpdatedAt,
+            clientUpdatedAtParsed: debugClientUpdatedAtComparison(
+              debugContext.clientUpdatedAt || null,
+              pipeline.pipeline?.updatedAt || null
+            ).parsedClientUpdatedAt,
+            serverUpdatedAt: pipeline.pipeline?.updatedAt ? pipeline.pipeline.updatedAt.toISOString() : null,
+            scope: debugContext.scope,
+            sessionId: debugContext.sessionId,
+            itemId: debugContext.itemId
+          }
+        : undefined
+    };
+
+    return NextResponse.json(response);
   } catch (error) {
     console.error("update_company_pipeline_error", error);
     return NextResponse.json({ error: "Failed to save pipeline" }, { status: 400 });

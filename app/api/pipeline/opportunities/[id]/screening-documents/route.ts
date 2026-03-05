@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { parseDateInput } from "@/lib/date-parse";
 
 const screeningDocumentSchema = z.object({
   healthSystemId: z.string().min(1),
@@ -17,8 +18,8 @@ function toNullableString(value?: string) {
 
 function parseUploadedAt(value?: string) {
   if (!value) return new Date();
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  const parsed = parseDateInput(value);
+  return parsed || new Date();
 }
 
 export async function POST(

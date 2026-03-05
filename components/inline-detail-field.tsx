@@ -3,6 +3,9 @@
 import * as React from "react";
 import { DateInputField, normalizeDateValue } from "./date-input-field";
 import { normalizeRichText, RichTextArea } from "./rich-text-area";
+import { debugDateLog } from "@/lib/date-debug";
+
+type DateFieldDebugContext = string | Record<string, unknown>;
 
 type SelectOption = {
   value: string;
@@ -18,6 +21,7 @@ type TextFieldProps = {
   placeholder?: string;
   emptyText?: string;
   multiline?: false;
+  dateDebugContext?: DateFieldDebugContext;
 };
 
 type NoteInsightPayload = {
@@ -273,7 +277,8 @@ export function InlineTextField({
   onSave,
   inputType = "text",
   placeholder,
-  emptyText = emptyDisplayDefault
+  emptyText = emptyDisplayDefault,
+  dateDebugContext
 }: Omit<TextFieldProps, "kind">) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(value);
@@ -287,6 +292,15 @@ export function InlineTextField({
  const commit = (nextValue: string) => {
     setEditing(false);
     if (nextValue !== value) {
+      if (inputType === "date") {
+        debugDateLog("inline-text-field.save-date", {
+          label,
+          previous: value,
+          next: nextValue,
+          rawNormalized: nextValue === normalizeDateValue(nextValue) ? nextValue : normalizeDateValue(nextValue),
+          dateDebugContext
+        });
+      }
       onSave(nextValue);
     }
   };
@@ -309,6 +323,7 @@ export function InlineTextField({
             <DateInputField
               value={draft}
               onChange={setDraft}
+              debugContext={dateDebugContext}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();

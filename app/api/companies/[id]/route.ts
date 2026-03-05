@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { companyUpdateSchema } from "@/lib/schemas";
+import { parseDateInput } from "@/lib/date-parse";
 
 function toNullableDate(value?: string | null) {
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  return parseDateInput(value);
 }
 
 function toNullableNumber(value: unknown) {
@@ -42,8 +41,12 @@ export async function PATCH(
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
 
-    const intakeScheduledAt = toNullableDate(input.intakeScheduledAt);
-    const screeningEvaluationAt = parseStatusChange(input.intakeStatus, existing.intakeStatus, existing.screeningEvaluationAt?.toISOString());
+    const intakeScheduledAt = parseDateInput(input.intakeScheduledAt);
+    const screeningEvaluationAt = parseStatusChange(
+      input.intakeStatus,
+      existing.intakeStatus,
+      existing.screeningEvaluationAt?.toISOString()
+    );
     const spinOutOwnershipPercent =
       input.companyType === "SPIN_OUT" ? toNullableNumber(input.spinOutOwnershipPercent) : null;
 

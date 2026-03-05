@@ -14,6 +14,7 @@ import { AddRelationshipModal } from "./add-relationship-modal";
 import { EntityDocumentsPane } from "./entity-documents-pane";
 import { EntityNotesPane } from "./entity-notes-pane";
 import { RichTextArea } from "./rich-text-area";
+import { toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
 
 type SearchCandidate = {
   name: string;
@@ -265,10 +266,7 @@ function formatLocation(record: {
 }
 
 function toDateInputValue(value: string | null | undefined) {
-  if (!value) return "";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toISOString().slice(0, 10);
+  return formatDateInputValue(value);
 }
 
 function normalizeForMatch(value?: string | null) {

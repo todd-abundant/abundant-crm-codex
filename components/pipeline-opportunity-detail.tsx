@@ -12,7 +12,7 @@ import {
 } from "@/lib/pipeline-opportunities";
 import { EntityLookupInput } from "./entity-lookup-input";
 import { ScreeningSurveySessionSelector } from "./screening-survey-session-selector";
-import { InlineTextField, InlineTextareaField } from "./inline-detail-field";
+import { InlineSelectField, InlineTextField, InlineTextareaField } from "./inline-detail-field";
 import { normalizeRichText, RichTextArea } from "./rich-text-area";
 import {
   inferGoogleDocumentTitle,
@@ -29,6 +29,8 @@ import {
   type MarketLandscapeCellKey,
   type MarketLandscapePayload
 } from "@/lib/market-landscape";
+import { parseDateInput, toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
+import { createDateDebugContext, debugDateLog, dateDebugHeaders } from "@/lib/date-debug";
 
 type ScreeningStatus = "NOT_STARTED" | "PENDING" | "NEGOTIATING" | "SIGNED" | "DECLINED";
 type ScreeningAttendanceStatus = "INVITED" | "ATTENDED" | "DECLINED" | "NO_SHOW";
@@ -141,8 +143,13 @@ type PipelineOpportunityDetail = {
   phaseLabel: string;
   column: PipelineBoardColumn | null;
   isScreeningStage: boolean;
+  intakeDecisionAt: string | null;
+  ventureStudioContractExecutedAt: string | null;
+  screeningWebinarDate1At: string | null;
+  screeningWebinarDate2At: string | null;
   ventureLikelihoodPercent: number | null;
   ventureExpectedCloseDate: string | null;
+  updatedAt: string | null;
   opportunities: Array<{
     id: string;
     title: string;
@@ -185,17 +192,43 @@ type IntakeMaterialsSubTab =
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "Not set";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "Not set";
+  const parsed = parseDateInput(value);
+  if (!parsed || Number.isNaN(parsed.getTime())) return "Not set";
   return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
 function toDateInputValue(value: string | null | undefined) {
-  if (!value) return "";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toISOString().slice(0, 10);
+  return formatDateInputValue(value);
+}
+
+function compareUpdatedAt(
+  clientUpdatedAt: string | null | undefined,
+  serverUpdatedAt: string | null | undefined
+) {
+  if (!serverUpdatedAt) {
+    return {
+      clientUpdatedAt: clientUpdatedAt || null,
+      parsedClientUpdatedAt: null,
+      serverUpdatedAt: null,
+      isClientBehindServer: null,
+      serverAheadMs: null
+    };
+  }
+
+  const parsedClient = clientUpdatedAt ? new Date(clientUpdatedAt) : null;
+  const parsedServer = new Date(serverUpdatedAt);
+  const parsedClientMs = parsedClient && Number.isNaN(parsedClient.getTime()) ? null : parsedClient?.getTime() || null;
+  const parsedServerMs = Number.isNaN(parsedServer.getTime()) ? null : parsedServer.getTime();
+
+  return {
+    clientUpdatedAt: clientUpdatedAt || null,
+    parsedClientUpdatedAt: parsedClientMs ? new Date(parsedClientMs).toISOString() : null,
+    serverUpdatedAt,
+    isClientBehindServer:
+      parsedClientMs !== null && parsedServerMs !== null ? parsedClientMs < parsedServerMs : null,
+    serverAheadMs:
+      parsedClientMs !== null && parsedServerMs !== null ? parsedServerMs - parsedClientMs : null
+  };
 }
 
 function escapeHtml(value: string) {
@@ -800,10 +833,16 @@ export function PipelineOpportunityDetailView({
   const [savingAtAGlanceFieldByKey, setSavingAtAGlanceFieldByKey] = React.useState<Record<string, boolean>>({});
   const [isGeneratingIntakeReport, setIsGeneratingIntakeReport] = React.useState(false);
   const [lastGenerateStatus, setLastGenerateStatus] = React.useState<string | null>(null);
+  const [intakeReportGenerationMode, setIntakeReportGenerationMode] = React.useState<
+    "generate" | "recreate" | null
+  >(null);
+  const [intakeReportGenerationStartedAt, setIntakeReportGenerationStartedAt] = React.useState<number | null>(null);
+  const [intakeReportElapsedSeconds, setIntakeReportElapsedSeconds] = React.useState(0);
   const [newNoteDraft, setNewNoteDraft] = React.useState("");
   const [addingNote, setAddingNote] = React.useState(false);
   const [showAddNoteModal, setShowAddNoteModal] = React.useState(false);
   const [showAddDocumentModal, setShowAddDocumentModal] = React.useState(false);
+  const pipelineCardUpdateSequenceRef = React.useRef(0);
   const descriptionPlainText = React.useMemo(() => richTextToPlainText(item?.description), [item?.description]);
 
   const currentIntakeDocument = (item?.documents || [])
@@ -850,6 +889,22 @@ export function PipelineOpportunityDetailView({
     if (!currentIntakeDocumentId) return;
     void loadMarketLandscapeOption1();
   }, [shouldLoadMarketLandscapeOption1, currentIntakeDocumentId, loadMarketLandscapeOption1]);
+
+  React.useEffect(() => {
+    if (!isGeneratingIntakeReport || !intakeReportGenerationStartedAt) {
+      setIntakeReportElapsedSeconds(0);
+      return;
+    }
+
+    const updateElapsed = () => {
+      const elapsed = Math.max(0, Math.floor((Date.now() - intakeReportGenerationStartedAt) / 1000));
+      setIntakeReportElapsedSeconds(elapsed);
+    };
+
+    updateElapsed();
+    const intervalId = window.setInterval(updateElapsed, 250);
+    return () => window.clearInterval(intervalId);
+  }, [isGeneratingIntakeReport, intakeReportGenerationStartedAt]);
 
   const loadItem = React.useCallback(async () => {
     setLoading(true);
@@ -1559,6 +1614,539 @@ export function PipelineOpportunityDetailView({
     previewWindow.document.close();
   }
 
+  function openPreviewWindow({
+    pageTitle,
+    eyebrow,
+    title,
+    subtitleHtml,
+    contentHtml,
+    extraStyles = ""
+  }: {
+    pageTitle: string;
+    eyebrow: string;
+    title: string;
+    subtitleHtml?: string;
+    contentHtml: string;
+    extraStyles?: string;
+  }) {
+    if (!item) return;
+
+    const logoUrl = `${window.location.origin}/icon.svg`;
+    const generatedAt = new Date().toLocaleString(undefined, {
+      month: "long",
+      day: "numeric",
+      year: "numeric"
+    });
+
+    const previewWindow = window.open("", "_blank", "width=1400,height=980");
+    if (!previewWindow) {
+      setStatus({ kind: "error", text: "Preview was blocked. Please allow pop-ups for this site." });
+      return;
+    }
+
+    previewWindow.document.open();
+    previewWindow.document.write(
+      `<!doctype html>
+      <html lang="en">
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>${pageTitle}</title>
+          <style>
+            :root {
+              --text-main: #112238;
+              --text-muted: #42546b;
+              --line: #d9e3f0;
+              --brand: #193f60;
+              --paper: #fff;
+            }
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              padding: 24px;
+              font-family: Arial, Helvetica, sans-serif;
+              color: var(--text-main);
+              background: #f6f9fc;
+            }
+            .preview-slide {
+              max-width: 1280px;
+              margin: 0 auto;
+              background: var(--paper);
+              border: 1px solid #e3ecf7;
+              border-radius: 14px;
+              box-shadow: 0 24px 48px rgba(20, 39, 61, 0.08);
+              min-height: calc(100vh - 48px);
+              display: flex;
+              flex-direction: column;
+            }
+            .preview-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              gap: 16px;
+              border-bottom: 1px solid var(--line);
+              padding: 18px 24px;
+            }
+            .preview-brand {
+              display: flex;
+              align-items: center;
+              gap: 10px;
+            }
+            .preview-brand img {
+              width: 46px;
+              height: 46px;
+              border-radius: 10px;
+              border: 1px solid var(--line);
+            }
+            .preview-eyebrow {
+              font-size: 11px;
+              letter-spacing: 0.11em;
+              text-transform: uppercase;
+              font-weight: 700;
+              color: #4f6b89;
+              margin: 0 0 4px;
+            }
+            .preview-title {
+              margin: 0;
+              font-size: 18px;
+              letter-spacing: 0.02em;
+            }
+            .preview-title strong {
+              color: var(--brand);
+            }
+            .preview-body {
+              padding: 16px 24px 24px;
+              flex: 1;
+              display: grid;
+              align-content: start;
+              gap: 12px;
+            }
+            .preview-subtitle {
+              margin: 0;
+              color: var(--text-muted);
+            }
+            .preview-meta {
+              margin: 2px 0 0;
+              font-size: 12px;
+              color: var(--text-muted);
+            }
+            .preview-content {
+              display: grid;
+              gap: 16px;
+            }
+            .preview-table {
+              width: 100%;
+              border-collapse: collapse;
+              border: 1px solid var(--line);
+              table-layout: fixed;
+              font-size: 12px;
+            }
+            .preview-table th,
+            .preview-table td {
+              border: 1px solid var(--line);
+              text-align: left;
+              vertical-align: top;
+              padding: 8px 10px;
+              white-space: normal;
+              overflow-wrap: anywhere;
+              word-break: break-word;
+            }
+            .preview-table th {
+              background: #f4f8fc;
+              text-transform: uppercase;
+              font-size: 10px;
+              letter-spacing: 0.04em;
+              color: #5f7390;
+            }
+            .preview-card {
+              border: 1px solid var(--line);
+              border-radius: 10px;
+              padding: 12px;
+              background: #fbfdff;
+            }
+            .preview-card h3 {
+              margin: 0 0 8px;
+              display: flex;
+              justify-content: space-between;
+              align-items: baseline;
+              gap: 8px;
+              font-size: 14px;
+            }
+            .preview-card h3 span {
+              font-size: 12px;
+              color: var(--text-muted);
+              font-weight: 400;
+            }
+            .preview-rich-text p,
+            .preview-rich-text ul,
+            .preview-rich-text ol {
+              margin: 0 0 8px;
+            }
+            .preview-rich-text p:last-child,
+            .preview-rich-text ul:last-child,
+            .preview-rich-text ol:last-child {
+              margin-bottom: 0;
+            }
+            .preview-inline-list {
+              margin: 0;
+              padding-left: 16px;
+              display: grid;
+              gap: 4px;
+            }
+            .preview-empty {
+              color: #8495ab;
+              font-style: italic;
+              margin: 0;
+            }
+            .preview-note {
+              margin: 0;
+              color: var(--text-muted);
+              font-size: 11px;
+            }
+            .preview-footer {
+              margin-top: auto;
+              border-top: 1px solid var(--line);
+              padding: 10px 24px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              gap: 12px;
+              font-size: 11px;
+              color: #71829a;
+            }
+            .preview-footer .logo {
+              display: inline-flex;
+              align-items: center;
+              gap: 8px;
+            }
+            .preview-footer .logo img {
+              width: 16px;
+              height: 16px;
+              border-radius: 4px;
+              border: 1px solid #d5deec;
+            }
+            ${extraStyles}
+          </style>
+        </head>
+        <body>
+          <div class="preview-slide">
+            <header class="preview-header">
+              <div class="preview-brand">
+                <img src="${logoUrl}" alt="Abundant logo" />
+                <div>
+                  <p class="preview-eyebrow">${eyebrow}</p>
+                  <h1 class="preview-title"><strong>${title}</strong></h1>
+                </div>
+              </div>
+              <p class="preview-meta">Generated ${escapeHtml(generatedAt)}</p>
+            </header>
+            <main class="preview-body">
+              ${subtitleHtml ? `<p class="preview-subtitle">${subtitleHtml}</p>` : ""}
+              <div class="preview-content">
+                ${contentHtml}
+              </div>
+            </main>
+            <footer class="preview-footer">
+              <div class="logo">
+                <img src="${logoUrl}" alt="Abundant logo" />
+                <span>Abundant CRM</span>
+              </div>
+              <span>© ${new Date().getFullYear()} Abundant. All rights reserved.</span>
+            </footer>
+          </div>
+        </body>
+      </html>`
+    );
+    previewWindow.document.close();
+  }
+
+  function openAtAGlancePreview() {
+    if (!item) return;
+
+    const rowsHtml = atAGlanceFields
+      .map((field) => {
+        const valueMarkup = normalizeRichText(field.value.trim());
+        return `
+          <tr>
+            <th>${escapeHtml(field.label)}</th>
+            <td class="preview-rich-text">
+              ${valueMarkup || `<p class="preview-empty">No content entered.</p>`}
+            </td>
+          </tr>`;
+      })
+      .join("");
+
+    openPreviewWindow({
+      pageTitle: `At-A-Glance Preview - ${escapeHtml(item.name)}`,
+      eyebrow: "Intake Assessment",
+      title: "At-A-Glance / Intake Card",
+      subtitleHtml: `Company: <strong>${escapeHtml(item.name)}</strong> &nbsp;&nbsp;|&nbsp;&nbsp; Location: <strong>${escapeHtml(item.location || "Location unavailable")}</strong>`,
+      contentHtml: `
+        <table class="preview-table preview-at-a-glance-table">
+          <colgroup>
+            <col />
+            <col />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Section</th>
+              <th>Content</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      `,
+      extraStyles: `
+        .preview-at-a-glance-table col:first-child { width: 24%; }
+        .preview-at-a-glance-table col:nth-child(2) { width: 76%; }
+      `
+    });
+  }
+
+  function openScreeningStatusPreview() {
+    if (!item) return;
+
+    const statusColorByValue: Record<ScreeningStatus, string> = {
+      NOT_STARTED: "#64748b",
+      PENDING: "#f59e0b",
+      NEGOTIATING: "#16a34a",
+      SIGNED: "#16a34a",
+      DECLINED: "#dc2626"
+    };
+
+    const rowsHtml = item.screening.healthSystems
+      .map((entry) => {
+        const attendees = uniqueIndividuals(entry);
+        const attendedCount = entry.participants.filter((participant) => participant.attendanceStatus === "ATTENDED").length;
+        const relevantFeedback =
+          relevantFeedbackDraftByHealthSystemId[entry.healthSystemId] ?? entry.relevantFeedback ?? "";
+        const statusUpdate = statusUpdateDraftByHealthSystemId[entry.healthSystemId] ?? entry.statusUpdate ?? "";
+        const attendeesMarkup =
+          attendees.length > 0
+            ? `<ul class="preview-inline-list">${attendees
+                .map((person) => `<li>${escapeHtml(person.label)}</li>`)
+                .join("")}</ul>`
+            : `<p class="preview-empty">No attendees listed.</p>`;
+
+        return `
+          <tr>
+            <td>${escapeHtml(entry.healthSystemName)}</td>
+            <td>${attendedCount > 0 ? escapeHtml(String(attendedCount)) : "NA"}</td>
+            <td>
+              <span class="preview-status-chip">
+                <span class="preview-status-dot" style="background:${statusColorByValue[entry.status]}"></span>
+                ${escapeHtml(statusMeta(entry.status).label)}
+              </span>
+            </td>
+            <td>${attendeesMarkup}</td>
+            <td>${escapeHtml(relevantFeedback.trim() || "No relevant feedback entered.")}</td>
+            <td>${escapeHtml(statusUpdate.trim() || "No status update entered.")}</td>
+          </tr>`;
+      })
+      .join("");
+
+    openPreviewWindow({
+      pageTitle: `Screening Status Matrix Preview - ${escapeHtml(item.name)}`,
+      eyebrow: "Screening Materials",
+      title: "Status Matrix / Alliance Screening",
+      subtitleHtml: `Company: <strong>${escapeHtml(item.name)}</strong> &nbsp;&nbsp;|&nbsp;&nbsp; Alliance Members: <strong>${escapeHtml(String(item.screening.healthSystems.length))}</strong>`,
+      contentHtml: `
+        <table class="preview-table preview-screening-status-table">
+          <colgroup>
+            <col />
+            <col />
+            <col />
+            <col />
+            <col />
+            <col />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Organization</th>
+              <th>Attend? (#)</th>
+              <th>Preliminary Interest</th>
+              <th>Attendees</th>
+              <th>Relevant Feedback + Next Steps</th>
+              <th>Status Update</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml || `<tr><td colspan="6"><p class="preview-empty">No alliance health systems configured.</p></td></tr>`}
+          </tbody>
+        </table>
+      `,
+      extraStyles: `
+        .preview-screening-status-table col:first-child { width: 16%; }
+        .preview-screening-status-table col:nth-child(2) { width: 8%; }
+        .preview-screening-status-table col:nth-child(3) { width: 15%; }
+        .preview-screening-status-table col:nth-child(4) { width: 18%; }
+        .preview-screening-status-table col:nth-child(5) { width: 21%; }
+        .preview-screening-status-table col:nth-child(6) { width: 22%; }
+        .preview-status-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          font-weight: 700;
+        }
+        .preview-status-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 999px;
+        }
+      `
+    });
+  }
+
+  function openScreeningQuantitativePreview() {
+    if (!item) return;
+
+    const sectionMarkup = quantitativeSlideSections
+      .map((section) => {
+        const rowsMarkup = section.rows
+          .map((row) => {
+            const responseMarkup =
+              row.responses.length > 0
+                ? `<ul class="preview-inline-list">
+                    ${row.responses
+                      .map((response) => {
+                        const contactLabel = response.contactTitle
+                          ? `${response.contactName} (${response.contactTitle})`
+                          : response.contactName;
+                        return `<li>${escapeHtml(contactLabel)} - ${escapeHtml(response.institution)}: ${response.score.toFixed(1)}</li>`;
+                      })
+                      .join("")}
+                  </ul>`
+                : `<p class="preview-empty">No numeric responses.</p>`;
+
+            return `
+              <tr>
+                <td>
+                  ${escapeHtml(row.metric)}
+                  ${
+                    row.isUnmapped
+                      ? `<p class="preview-note">Legacy question text (not in configured question set).</p>`
+                      : ""
+                  }
+                </td>
+                <td>${row.averageScore === null ? "N/A" : row.averageScore.toFixed(1)}</td>
+                <td>${escapeHtml(String(row.responseCount))}</td>
+                <td>${responseMarkup}</td>
+              </tr>`;
+          })
+          .join("");
+
+        return `
+          <section class="preview-card">
+            <h3>
+              ${escapeHtml(section.category)}
+              <span>${section.categoryAverageScore === null ? "Category avg: N/A" : `Category avg: ${section.categoryAverageScore.toFixed(1)}`}</span>
+            </h3>
+            <table class="preview-table preview-quant-table">
+              <colgroup>
+                <col />
+                <col />
+                <col />
+                <col />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Question</th>
+                  <th>Avg</th>
+                  <th>Responses</th>
+                  <th>Response Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsMarkup}
+              </tbody>
+            </table>
+          </section>`;
+      })
+      .join("");
+
+    const institutionsSummary =
+      quantitativeRespondingInstitutions.length === 0
+        ? "No responding institutions captured yet."
+        : quantitativeRespondingInstitutions.join(", ");
+
+    openPreviewWindow({
+      pageTitle: `Quantitative Screening Preview - ${escapeHtml(item.name)}`,
+      eyebrow: "Screening Materials",
+      title: "Quantitative / Alliance Screening",
+      subtitleHtml: `Company: <strong>${escapeHtml(item.name)}</strong> &nbsp;&nbsp;|&nbsp;&nbsp; Responding Institutions: <strong>${escapeHtml(String(quantitativeRespondingInstitutions.length))}</strong>`,
+      contentHtml: `${
+        sectionMarkup || `<p class="preview-empty">No quantitative feedback captured yet.</p>`
+      }<p class="preview-note">Responding institutions: ${escapeHtml(institutionsSummary)}</p>`,
+      extraStyles: `
+        .preview-quant-table col:first-child { width: 38%; }
+        .preview-quant-table col:nth-child(2) { width: 8%; }
+        .preview-quant-table col:nth-child(3) { width: 10%; }
+        .preview-quant-table col:nth-child(4) { width: 44%; }
+      `
+    });
+  }
+
+  function openScreeningQualitativePreview() {
+    if (!item) return;
+
+    const rowsHtml = allQualitativeFeedbackEntries
+      .map((feedback) => {
+        const detailMarkup = normalizeRichText(feedback.feedback.trim());
+        const contactLabel = feedback.contactTitle
+          ? `${feedback.contactName} (${feedback.contactTitle})`
+          : feedback.contactName;
+
+        return `
+          <tr>
+            <td>${escapeHtml(feedback.theme)}</td>
+            <td class="preview-rich-text">${detailMarkup || `<p class="preview-empty">No detail entered.</p>`}</td>
+            <td>
+              ${escapeHtml((feedback.category || "Key Theme").trim())}<br />
+              ${escapeHtml(feedback.healthSystemName)}<br />
+              ${escapeHtml(contactLabel)}
+            </td>
+            <td>${escapeHtml(sentimentLabel(feedback.sentiment))}</td>
+          </tr>`;
+      })
+      .join("");
+
+    openPreviewWindow({
+      pageTitle: `Qualitative Screening Preview - ${escapeHtml(item.name)}`,
+      eyebrow: "Screening Materials",
+      title: "Qualitative / Alliance Screening",
+      subtitleHtml: `Company: <strong>${escapeHtml(item.name)}</strong> &nbsp;&nbsp;|&nbsp;&nbsp; Entries: <strong>${escapeHtml(String(allQualitativeFeedbackEntries.length))}</strong>`,
+      contentHtml: `
+        <table class="preview-table preview-qualitative-table">
+          <colgroup>
+            <col />
+            <col />
+            <col />
+            <col />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Theme</th>
+              <th>Detail</th>
+              <th>Source</th>
+              <th>Sentiment</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml || `<tr><td colspan="4"><p class="preview-empty">No qualitative feedback captured yet.</p></td></tr>`}
+          </tbody>
+        </table>
+      `,
+      extraStyles: `
+        .preview-qualitative-table col:first-child { width: 20%; }
+        .preview-qualitative-table col:nth-child(2) { width: 42%; }
+        .preview-qualitative-table col:nth-child(3) { width: 28%; }
+        .preview-qualitative-table col:nth-child(4) { width: 10%; }
+      `
+    });
+  }
+
   function updateMarketLandscapeCardField(
     cardKey: MarketLandscapeCellKey,
     field: "title" | "overview" | "businessModel" | "strengths" | "gaps" | "vendors",
@@ -1668,44 +2256,227 @@ export function PipelineOpportunityDetailView({
   }
 
   async function updatePipelineCardMeta(input: {
+    intakeDecisionAt?: string | null;
+    ventureStudioContractExecutedAt?: string | null;
+    screeningWebinarDate1At?: string | null;
+    screeningWebinarDate2At?: string | null;
     ventureLikelihoodPercent?: number | null;
     ventureExpectedCloseDate?: string | null;
   }) {
     if (!item) return;
+    const requestPayload = { ...input };
+    const requestSequence = pipelineCardUpdateSequenceRef.current + 1;
+    pipelineCardUpdateSequenceRef.current = requestSequence;
+    const requestStartMs = Date.now();
+    const requestHas = {
+      intakeDecisionAt: Object.prototype.hasOwnProperty.call(input, "intakeDecisionAt"),
+      ventureStudioContractExecutedAt: Object.prototype.hasOwnProperty.call(input, "ventureStudioContractExecutedAt"),
+      screeningWebinarDate1At: Object.prototype.hasOwnProperty.call(input, "screeningWebinarDate1At"),
+      screeningWebinarDate2At: Object.prototype.hasOwnProperty.call(input, "screeningWebinarDate2At"),
+      ventureExpectedCloseDate: Object.prototype.hasOwnProperty.call(input, "ventureExpectedCloseDate"),
+      ventureLikelihoodPercent: Object.prototype.hasOwnProperty.call(input, "ventureLikelihoodPercent")
+    };
+    const debugContext = createDateDebugContext("pipeline-opportunity-detail.update", item.id);
+    const headers = {
+      ...dateDebugHeaders("pipeline-opportunity-detail.update", item.id),
+      "Content-Type": "application/json"
+    };
+    headers["x-date-debug-seq"] = String(requestSequence);
+    if (item.updatedAt) {
+      headers["x-date-debug-client-updated-at"] = item.updatedAt;
+    }
+    if (debugContext) {
+      headers["x-date-debug-request-id"] = debugContext.requestId;
+      headers["x-date-debug-session-id"] = debugContext.sessionId;
+      headers["x-date-debug-scope"] = debugContext.scope;
+      headers["x-date-debug-item-id"] = item.id;
+    }
     setStatus(null);
+    debugDateLog("pipeline-opportunity-detail.update-request", {
+      itemId: item.id,
+      debugRequestId: debugContext?.requestId,
+      requestSequence,
+      durationMs: 0,
+      clientUpdatedAt: item.updatedAt || null,
+      clientUpdatedAtParsed: compareUpdatedAt(item.updatedAt, null).parsedClientUpdatedAt,
+      requestHas,
+      requestPayload,
+      currentDates: {
+        intakeDecisionAt: item.intakeDecisionAt,
+        ventureStudioContractExecutedAt: item.ventureStudioContractExecutedAt,
+        screeningWebinarDate1At: item.screeningWebinarDate1At,
+        screeningWebinarDate2At: item.screeningWebinarDate2At,
+        ventureExpectedCloseDate: item.ventureExpectedCloseDate,
+        ventureLikelihoodPercent: item.ventureLikelihoodPercent
+      }
+    });
 
     try {
       const res = await fetch(`/api/pipeline/opportunities/${item.id}/card`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(input)
       });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || "Failed to update pipeline status.");
+      const returnedItem = payload.item;
+      const latestSequence = pipelineCardUpdateSequenceRef.current;
+      if (latestSequence !== requestSequence) {
+        debugDateLog("pipeline-opportunity-detail.update-stale-response", {
+          itemId: item.id,
+          debugRequestId: debugContext?.requestId,
+          requestSequence,
+          latestSequence,
+          durationMs: Date.now() - requestStartMs,
+          responseServerSequence: payload._dateDebug?.requestSequence ?? null
+        });
+        return;
+      }
+      const responseDates = {
+        intakeDecisionAt: returnedItem?.intakeDecisionAt ?? null,
+        ventureStudioContractExecutedAt: returnedItem?.ventureStudioContractExecutedAt ?? null,
+        screeningWebinarDate1At: returnedItem?.screeningWebinarDate1At ?? null,
+        screeningWebinarDate2At: returnedItem?.screeningWebinarDate2At ?? null,
+        ventureExpectedCloseDate: returnedItem?.ventureExpectedCloseDate ?? null,
+        ventureLikelihoodPercent: returnedItem?.ventureLikelihoodPercent ?? null
+      };
+      const responseUpdatedAt = typeof returnedItem?.updatedAt === "string" ? returnedItem.updatedAt : null;
+      const serverClientState = compareUpdatedAt(item.updatedAt, responseUpdatedAt);
+      debugDateLog("pipeline-opportunity-detail.update-response", {
+        itemId: item.id,
+        debugRequestId: debugContext?.requestId,
+        requestSequence,
+        latestSequence,
+        durationMs: Date.now() - requestStartMs,
+        responseServerSequence: payload._dateDebug?.requestSequence ?? null,
+        requestPayload,
+        response: responseDates,
+        serverUpdatedAt: responseUpdatedAt,
+        serverClientState,
+        responseMismatch: {
+          intakeDecisionAt: requestHas.intakeDecisionAt
+            ? {
+                requested: requestPayload.intakeDecisionAt,
+                persisted: responseDates.intakeDecisionAt,
+                matched:
+                  toDateInputValue(responseDates.intakeDecisionAt) ===
+                  toDateInputValue(requestPayload.intakeDecisionAt)
+              }
+            : null,
+          ventureStudioContractExecutedAt: requestHas.ventureStudioContractExecutedAt
+            ? {
+                requested: requestPayload.ventureStudioContractExecutedAt,
+                persisted: responseDates.ventureStudioContractExecutedAt,
+                matched:
+                  toDateInputValue(responseDates.ventureStudioContractExecutedAt) ===
+                  toDateInputValue(requestPayload.ventureStudioContractExecutedAt)
+              }
+            : null,
+          screeningWebinarDate1At: requestHas.screeningWebinarDate1At
+            ? {
+                requested: requestPayload.screeningWebinarDate1At,
+                persisted: responseDates.screeningWebinarDate1At,
+                matched:
+                  toDateInputValue(responseDates.screeningWebinarDate1At) ===
+                  toDateInputValue(requestPayload.screeningWebinarDate1At)
+              }
+            : null,
+          screeningWebinarDate2At: requestHas.screeningWebinarDate2At
+            ? {
+                requested: requestPayload.screeningWebinarDate2At,
+                persisted: responseDates.screeningWebinarDate2At,
+                matched:
+                  toDateInputValue(responseDates.screeningWebinarDate2At) ===
+                  toDateInputValue(requestPayload.screeningWebinarDate2At)
+              }
+            : null,
+          ventureExpectedCloseDate: requestHas.ventureExpectedCloseDate
+            ? {
+                requested: requestPayload.ventureExpectedCloseDate,
+                persisted: responseDates.ventureExpectedCloseDate,
+                matched:
+                  toDateInputValue(responseDates.ventureExpectedCloseDate) ===
+                  toDateInputValue(requestPayload.ventureExpectedCloseDate)
+              }
+            : null,
+          ventureLikelihoodPercent: requestHas.ventureLikelihoodPercent
+            ? {
+                requested: requestPayload.ventureLikelihoodPercent,
+                persisted: responseDates.ventureLikelihoodPercent,
+                matched: requestPayload.ventureLikelihoodPercent === responseDates.ventureLikelihoodPercent
+              }
+            : null
+        }
+      });
 
+      const updatedIntakeDecisionDate =
+        typeof returnedItem?.intakeDecisionAt === "string" || returnedItem?.intakeDecisionAt === null
+          ? (returnedItem?.intakeDecisionAt ?? null)
+          : input.intakeDecisionAt ?? item.intakeDecisionAt;
+      const updatedVentureStudioContractExecutedAt =
+        typeof returnedItem?.ventureStudioContractExecutedAt === "string" ||
+        returnedItem?.ventureStudioContractExecutedAt === null
+          ? (returnedItem?.ventureStudioContractExecutedAt ?? null)
+          : input.ventureStudioContractExecutedAt ?? item.ventureStudioContractExecutedAt;
+      const updatedScreeningWebinarDate1At =
+        typeof returnedItem?.screeningWebinarDate1At === "string" ||
+        returnedItem?.screeningWebinarDate1At === null
+          ? (returnedItem?.screeningWebinarDate1At ?? null)
+          : input.screeningWebinarDate1At ?? item.screeningWebinarDate1At;
+      const updatedScreeningWebinarDate2At =
+        typeof returnedItem?.screeningWebinarDate2At === "string" ||
+        returnedItem?.screeningWebinarDate2At === null
+          ? (returnedItem?.screeningWebinarDate2At ?? null)
+          : input.screeningWebinarDate2At ?? item.screeningWebinarDate2At;
       const updatedLikelihood =
-        payload.item?.ventureLikelihoodPercent === null || Number.isInteger(payload.item?.ventureLikelihoodPercent)
-          ? (payload.item?.ventureLikelihoodPercent ?? null)
+        returnedItem?.ventureLikelihoodPercent === null || Number.isInteger(returnedItem?.ventureLikelihoodPercent)
+          ? (returnedItem?.ventureLikelihoodPercent ?? null)
           : input.ventureLikelihoodPercent ?? item.ventureLikelihoodPercent;
       const updatedCloseDate =
-        typeof payload.item?.ventureExpectedCloseDate === "string" || payload.item?.ventureExpectedCloseDate === null
-          ? (payload.item?.ventureExpectedCloseDate ?? null)
+        typeof returnedItem?.ventureExpectedCloseDate === "string" || returnedItem?.ventureExpectedCloseDate === null
+          ? (returnedItem?.ventureExpectedCloseDate ?? null)
           : input.ventureExpectedCloseDate ?? item.ventureExpectedCloseDate;
 
       setItem((current) =>
         current
           ? {
               ...current,
+              intakeDecisionAt: updatedIntakeDecisionDate,
+              ventureStudioContractExecutedAt: updatedVentureStudioContractExecutedAt,
+              screeningWebinarDate1At: updatedScreeningWebinarDate1At,
+              screeningWebinarDate2At: updatedScreeningWebinarDate2At,
               ventureLikelihoodPercent: updatedLikelihood,
-              ventureExpectedCloseDate: updatedCloseDate
+              ventureExpectedCloseDate: updatedCloseDate,
+              updatedAt: responseUpdatedAt || current.updatedAt
             }
           : current
       );
       setStatus({ kind: "ok", text: "Pipeline status updated." });
     } catch (error) {
+      const latestSequence = pipelineCardUpdateSequenceRef.current;
+      if (latestSequence !== requestSequence) {
+        debugDateLog("pipeline-opportunity-detail.update-stale-error", {
+          itemId: item.id,
+          debugRequestId: debugContext?.requestId,
+          requestSequence,
+          latestSequence,
+          durationMs: Date.now() - requestStartMs,
+          error: error instanceof Error ? error.message : String(error),
+          responseStatus: "ignored_stale_error"
+        });
+        return;
+      }
       setStatus({
         kind: "error",
         text: error instanceof Error ? error.message : "Failed to update pipeline status."
+      });
+      debugDateLog("pipeline-opportunity-detail.update-error", {
+        itemId: item.id,
+        debugRequestId: debugContext?.requestId,
+        requestSequence,
+        durationMs: Date.now() - requestStartMs,
+        input,
+        error: error instanceof Error ? error.message : String(error)
       });
     }
   }
@@ -1736,6 +2507,12 @@ export function PipelineOpportunityDetailView({
   async function saveVentureExpectedCloseDate(nextValue: string) {
     if (!item) return;
     const trimmed = nextValue.trim();
+    debugDateLog("pipeline-opportunity-detail.save-field-request", {
+      itemId: item.id,
+      field: "ventureExpectedCloseDate",
+      nextValue: trimmed,
+      currentValue: item.ventureExpectedCloseDate
+    });
     if (!trimmed) {
       if (!item.ventureExpectedCloseDate) return;
       await updatePipelineCardMeta({ ventureExpectedCloseDate: null });
@@ -1743,6 +2520,83 @@ export function PipelineOpportunityDetailView({
     }
     if (item.ventureExpectedCloseDate && toDateInputValue(item.ventureExpectedCloseDate) === trimmed) return;
     await updatePipelineCardMeta({ ventureExpectedCloseDate: trimmed });
+  }
+
+  async function saveIntakeDecisionDate(nextValue: string) {
+    if (!item) return;
+    const trimmed = nextValue.trim();
+    debugDateLog("pipeline-opportunity-detail.save-field-request", {
+      itemId: item.id,
+      field: "intakeDecisionAt",
+      nextValue: trimmed,
+      currentValue: item.intakeDecisionAt
+    });
+    if (!trimmed) {
+      if (!item.intakeDecisionAt) return;
+      await updatePipelineCardMeta({ intakeDecisionAt: null });
+      return;
+    }
+    if (item.intakeDecisionAt && toDateInputValue(item.intakeDecisionAt) === trimmed) return;
+    await updatePipelineCardMeta({ intakeDecisionAt: trimmed });
+  }
+
+  async function saveVentureStudioContractExecutedDate(nextValue: string) {
+    if (!item) return;
+    const trimmed = nextValue.trim();
+    debugDateLog("pipeline-opportunity-detail.save-field-request", {
+      itemId: item.id,
+      field: "ventureStudioContractExecutedAt",
+      nextValue: trimmed,
+      currentValue: item.ventureStudioContractExecutedAt
+    });
+    if (!trimmed) {
+      if (!item.ventureStudioContractExecutedAt) return;
+      await updatePipelineCardMeta({ ventureStudioContractExecutedAt: null });
+      return;
+    }
+    if (
+      item.ventureStudioContractExecutedAt &&
+      toDateInputValue(item.ventureStudioContractExecutedAt) === trimmed
+    ) {
+      return;
+    }
+    await updatePipelineCardMeta({ ventureStudioContractExecutedAt: trimmed });
+  }
+
+  async function saveScreeningWebinarDate1(nextValue: string) {
+    if (!item) return;
+    const trimmed = nextValue.trim();
+    debugDateLog("pipeline-opportunity-detail.save-field-request", {
+      itemId: item.id,
+      field: "screeningWebinarDate1At",
+      nextValue: trimmed,
+      currentValue: item.screeningWebinarDate1At
+    });
+    if (!trimmed) {
+      if (!item.screeningWebinarDate1At) return;
+      await updatePipelineCardMeta({ screeningWebinarDate1At: null });
+      return;
+    }
+    if (item.screeningWebinarDate1At && toDateInputValue(item.screeningWebinarDate1At) === trimmed) return;
+    await updatePipelineCardMeta({ screeningWebinarDate1At: trimmed });
+  }
+
+  async function saveScreeningWebinarDate2(nextValue: string) {
+    if (!item) return;
+    const trimmed = nextValue.trim();
+    debugDateLog("pipeline-opportunity-detail.save-field-request", {
+      itemId: item.id,
+      field: "screeningWebinarDate2At",
+      nextValue: trimmed,
+      currentValue: item.screeningWebinarDate2At
+    });
+    if (!trimmed) {
+      if (!item.screeningWebinarDate2At) return;
+      await updatePipelineCardMeta({ screeningWebinarDate2At: null });
+      return;
+    }
+    if (item.screeningWebinarDate2At && toDateInputValue(item.screeningWebinarDate2At) === trimmed) return;
+    await updatePipelineCardMeta({ screeningWebinarDate2At: trimmed });
   }
 
   async function addPipelineNote() {
@@ -2211,6 +3065,9 @@ export function PipelineOpportunityDetailView({
       return;
     }
 
+    setIntakeReportGenerationMode(force ? "recreate" : "generate");
+    setIntakeReportGenerationStartedAt(Date.now());
+    setIntakeReportElapsedSeconds(0);
     setIsGeneratingIntakeReport(true);
     setStatus(null);
     setLastGenerateStatus(force ? "Recreating intake report..." : "Generating intake report...");
@@ -2272,6 +3129,9 @@ export function PipelineOpportunityDetailView({
       setLastGenerateStatus(null);
     } finally {
       setIsGeneratingIntakeReport(false);
+      setIntakeReportGenerationMode(null);
+      setIntakeReportGenerationStartedAt(null);
+      setIntakeReportElapsedSeconds(0);
     }
   }
 
@@ -2372,6 +3232,24 @@ export function PipelineOpportunityDetailView({
     if (right !== left) return right - left;
     return b.id.localeCompare(a.id);
   });
+  const intakeReportProgressLabel =
+    intakeReportGenerationMode === "recreate" ? "Recreating Intake Document" : "Generating Intake Document";
+  const intakeReportProgressIndicator = isGeneratingIntakeReport ? (
+    <div className="intake-report-progress" role="status" aria-live="polite">
+      <div className="intake-report-progress-header">
+        <span className="status-pill running">{intakeReportProgressLabel}</span>
+        <span className="muted">{`Working... ${intakeReportElapsedSeconds}s`}</span>
+      </div>
+      <div
+        className="progress-track intake-report-progress-track"
+        role="progressbar"
+        aria-label={intakeReportProgressLabel}
+        aria-busy="true"
+      >
+        <div className="progress-indicator intake-report-progress-indicator" />
+      </div>
+    </div>
+  ) : null;
 
   const quantitativeSlideSectionsResult = (() => {
     type QuantitativeResponseAggregate = {
@@ -2628,37 +3506,35 @@ export function PipelineOpportunityDetailView({
             <h2>Pipeline Status</h2>
             <div className="row">
               <div>
-                <label>Current Stage</label>
-                <select
-                  value={item.column || ""}
-                  onChange={(event) => {
-                    const nextColumn = event.target.value as PipelineBoardColumn;
-                    if (nextColumn) {
+                <InlineSelectField
+                  label="Current Stage"
+                  value={item.column || mapPhaseToBoardColumn(item.phase) || "INTAKE"}
+                  options={PIPELINE_BOARD_COLUMNS.map((column) => ({
+                    value: column.key,
+                    label: column.label
+                  }))}
+                  onSave={(nextValue) => {
+                    const nextColumn = nextValue as PipelineBoardColumn;
+                    if (!savingPhase) {
                       void updateColumn(nextColumn);
                     }
                   }}
-                  disabled={savingPhase}
-                >
-                  <option value="" disabled>
-                    Select stage
-                  </option>
-                  {PIPELINE_BOARD_COLUMNS.map((column) => (
-                    <option key={column.key} value={column.key}>
-                      {column.label}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
               <div>
-                <label>Pipeline Phase</label>
-                <input value={item.phaseLabel} readOnly />
+                <div className="inline-edit-field pipeline-status-readonly-field">
+                  <label>Pipeline Phase</label>
+                  <div className="pipeline-status-readonly-value">{item.phaseLabel || "Not set"}</div>
+                </div>
               </div>
             </div>
 
             <div className="row">
               <div>
-                <label>Website</label>
-                <input value={item.website || ""} readOnly />
+                <div className="inline-edit-field pipeline-status-readonly-field">
+                  <label>Website</label>
+                  <div className="pipeline-status-readonly-value">{item.website || "Not set"}</div>
+                </div>
               </div>
               <div>
                 <InlineTextField
@@ -2674,19 +3550,78 @@ export function PipelineOpportunityDetailView({
                 />
               </div>
             </div>
-            <div className="detail-section">
+            <div className="row">
+              <div>
+                <InlineTextField
+                  label="Intake Decision Date"
+                  value={toDateInputValue(item.intakeDecisionAt)}
+                  inputType="date"
+                  dateDebugContext={{ scope: "pipeline-opportunity-detail.date", itemId: item.id, field: "intakeDecisionAt" }}
+                  onSave={(nextValue) => void saveIntakeDecisionDate(nextValue)}
+                />
+              </div>
+              <div>
+                <InlineTextField
+                  label="VS Contract Executed"
+                  value={toDateInputValue(item.ventureStudioContractExecutedAt)}
+                  inputType="date"
+                  dateDebugContext={{
+                    scope: "pipeline-opportunity-detail.date",
+                    itemId: item.id,
+                    field: "ventureStudioContractExecutedAt"
+                  }}
+                  onSave={(nextValue) => void saveVentureStudioContractExecutedDate(nextValue)}
+                />
+              </div>
+            </div>
+            {item.column !== "INTAKE" ? (
+              <div className="row">
+                <div>
+                  <InlineTextField
+                    label="Screening Webinar Date 1"
+                    value={toDateInputValue(item.screeningWebinarDate1At)}
+                    inputType="date"
+                    dateDebugContext={{
+                      scope: "pipeline-opportunity-detail.date",
+                      itemId: item.id,
+                      field: "screeningWebinarDate1At"
+                    }}
+                    onSave={(nextValue) => void saveScreeningWebinarDate1(nextValue)}
+                  />
+                </div>
+                <div>
+                  <InlineTextField
+                    label="Screening Webinar Date 2"
+                    value={toDateInputValue(item.screeningWebinarDate2At)}
+                    inputType="date"
+                    dateDebugContext={{
+                      scope: "pipeline-opportunity-detail.date",
+                      itemId: item.id,
+                      field: "screeningWebinarDate2At"
+                    }}
+                    onSave={(nextValue) => void saveScreeningWebinarDate2(nextValue)}
+                  />
+                </div>
+              </div>
+            ) : null}
+            <div className="pipeline-status-single-field">
               <InlineTextField
                 label="Estimated Close Date"
                 value={toDateInputValue(item.ventureExpectedCloseDate)}
                 inputType="date"
+                dateDebugContext={{
+                  scope: "pipeline-opportunity-detail.date",
+                  itemId: item.id,
+                  field: "ventureExpectedCloseDate"
+                }}
                 onSave={(nextValue) => void saveVentureExpectedCloseDate(nextValue)}
               />
             </div>
 
             {descriptionPlainText ? (
-              <div className="detail-section">
+              <div className="pipeline-status-stacked-field">
                 <label>Description</label>
-                <textarea value={descriptionPlainText} readOnly />
+                <div className="pipeline-status-description-scroll">{descriptionPlainText}</div>
               </div>
             ) : null}
           </>
@@ -2736,6 +3671,11 @@ export function PipelineOpportunityDetailView({
         {activeIntakeDetailTab === "intake-materials" && activeIntakeMaterialsTab === "at-a-glance" ? (
           <>
             <h2>At-A-Glance</h2>
+            <div className="actions" style={{ marginTop: 0 }}>
+              <button className="secondary small" type="button" onClick={openAtAGlancePreview}>
+                Preview Format
+              </button>
+            </div>
             <p className="muted">Capture concise intake framing using markdown-style formatting.</p>
             <div className="detail-section">
               {atAGlanceFields.map((field) => (
@@ -2761,6 +3701,11 @@ export function PipelineOpportunityDetailView({
         {activeIntakeDetailTab === "intake-materials" && activeIntakeMaterialsTab === "venture-studio-criteria" ? (
           <>
             <h2>Venture Studio Criteria</h2>
+            <div className="actions" style={{ marginTop: 0 }}>
+              <button className="secondary small" type="button" onClick={openVentureStudioCriteriaPreview}>
+                Preview Format
+              </button>
+            </div>
             <p className="muted">Capture each fixed criterion with an assessment and rationale.</p>
             <div className="venture-studio-criteria-table-wrap">
               <table className="venture-studio-criteria-table">
@@ -2837,9 +3782,6 @@ export function PipelineOpportunityDetailView({
                 disabled={savingVentureStudioCriteria}
               >
                 {savingVentureStudioCriteria ? "Saving..." : "Save Venture Studio Criteria"}
-              </button>
-              <button className="secondary" type="button" onClick={() => void openVentureStudioCriteriaPreview()}>
-                Preview Format
               </button>
             </div>
             <div className="venture-studio-criteria-footnote">
@@ -3179,10 +4121,11 @@ export function PipelineOpportunityDetailView({
                   onClick={() => void generateIntakeReport(false)}
                   disabled={isGeneratingIntakeReport}
                 >
-                  Generate Intake Document
+                  {isGeneratingIntakeReport ? "Generating..." : "Generate Intake Document"}
                 </button>
               )}
             </div>
+            {intakeReportProgressIndicator}
 
             {marketLandscapeOption1Error ? <p className="muted">{marketLandscapeOption1Error}</p> : null}
 
@@ -3275,7 +4218,7 @@ export function PipelineOpportunityDetailView({
                     onClick={() => void generateIntakeReport(true)}
                     disabled={isGeneratingIntakeReport}
                   >
-                    Recreate Intake Document
+                    {isGeneratingIntakeReport ? "Recreating..." : "Recreate Intake Document"}
                   </button>
                 </>
               ) : (
@@ -3285,11 +4228,12 @@ export function PipelineOpportunityDetailView({
                   onClick={() => void generateIntakeReport(false)}
                   disabled={isGeneratingIntakeReport}
                 >
-                  Generate Intake Document
+                  {isGeneratingIntakeReport ? "Generating..." : "Generate Intake Document"}
                 </button>
               )}
             </div>
-            {lastGenerateStatus ? <p className="muted">{lastGenerateStatus}</p> : null}
+            {intakeReportProgressIndicator}
+            {lastGenerateStatus && !isGeneratingIntakeReport ? <p className="muted">{lastGenerateStatus}</p> : null}
             {sortedDocuments.length === 0 ? <p className="muted">No company-level documents.</p> : null}
             <div className="pipeline-doc-list">
               {sortedDocuments.map((document) => (
@@ -3343,8 +4287,14 @@ export function PipelineOpportunityDetailView({
           </div>
 
           {screeningDetailView === "status" ? (
-            <div className="screening-overview-table-wrap">
-              <table className="screening-overview-table">
+            <>
+              <div className="actions" style={{ marginTop: 0 }}>
+                <button className="secondary small" type="button" onClick={openScreeningStatusPreview}>
+                  Preview Format
+                </button>
+              </div>
+              <div className="screening-overview-table-wrap">
+                <table className="screening-overview-table">
                 <thead>
                   <tr>
                     <th scope="col">Organization</th>
@@ -3515,6 +4465,7 @@ export function PipelineOpportunityDetailView({
                 </tbody>
               </table>
             </div>
+            </>
           ) : null}
 
           {screeningDetailView === "quantitative" || screeningDetailView === "qualitative" ? (
@@ -3552,6 +4503,9 @@ export function PipelineOpportunityDetailView({
                       </p>
                     </div>
                     <div className="actions">
+                      <button className="secondary small" type="button" onClick={openScreeningQuantitativePreview}>
+                        Preview Format
+                      </button>
                       <button
                         className="secondary small"
                         type="button"
@@ -3768,6 +4722,9 @@ export function PipelineOpportunityDetailView({
                     >
                       Add Qualitative Feedback
                     </a>
+                    <button className="secondary small" type="button" onClick={openScreeningQualitativePreview}>
+                      Preview Format
+                    </button>
                   </div>
 
                   {showQualitativePreview ? (

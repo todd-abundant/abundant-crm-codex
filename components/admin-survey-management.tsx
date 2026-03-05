@@ -2090,9 +2090,8 @@ export function AdminSurveyManagement() {
                           const question = sessionDraft.questions[globalQuestionIndex];
                           return (
                             <div key={`${question.questionId}-${globalQuestionIndex}`} className="admin-survey-question-row">
-                              <p className="admin-survey-question-order">{questionIndexWithinCategory + 1}</p>
                               <div className="admin-survey-question-fields">
-                                <label>Question ({question.scaleMin}-{question.scaleMax})</label>
+                                <label>Question {questionIndexWithinCategory + 1}</label>
                                 <input
                                   value={question.prompt}
                                   onChange={(event) =>
@@ -2590,9 +2589,8 @@ export function AdminSurveyManagement() {
                           const question = templateLibraryDraft.questions[globalQuestionIndex];
                           return (
                             <div key={`${question.questionId}-${globalQuestionIndex}`} className="admin-survey-question-row">
-                              <p className="admin-survey-question-order">{questionIndexWithinCategory + 1}</p>
                               <div className="admin-survey-question-fields">
-                                <label>Question ({question.scaleMin}-{question.scaleMax})</label>
+                                <label>Question {questionIndexWithinCategory + 1}</label>
                                 <input
                                   value={question.prompt}
                                   onChange={(event) =>

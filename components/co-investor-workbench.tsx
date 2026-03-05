@@ -12,6 +12,7 @@ import { AddContactModal } from "./add-contact-modal";
 import { EntityDocumentsPane } from "./entity-documents-pane";
 import { EntityNotesPane } from "./entity-notes-pane";
 import { RichTextArea } from "./rich-text-area";
+import { parseDateInput, toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
 
 type SearchCandidate = {
   name: string;
@@ -246,16 +247,13 @@ function formatUsd(value: string | number | null | undefined) {
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "-";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
+  const parsed = parseDateInput(value);
+  if (!parsed || Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleDateString("en-US");
 }
 
 function toDateInputValue(value: string | null | undefined) {
-  if (!value) return "";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toISOString().slice(0, 10);
+  return formatDateInputValue(value);
 }
 
 function getNextOpenAction(actions: NextActionItem[]) {
@@ -922,7 +920,7 @@ export function CoInvestorWorkbench() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title,
-          dueAt: newActionDueAt ? new Date(newActionDueAt).toISOString() : null
+          dueAt: newActionDueAt || null
         })
       });
 
@@ -1094,7 +1092,7 @@ export function CoInvestorWorkbench() {
           nextActionId,
           title,
           ownerName: editingNextActionOwner.trim() || null,
-          dueAt: editingNextActionDueAt ? new Date(editingNextActionDueAt).toISOString() : null
+          dueAt: editingNextActionDueAt || null
         })
       });
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { companyInputSchema } from "@/lib/schemas";
+import { parseDateInput } from "@/lib/date-parse";
 
 function parseMoney(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
@@ -10,9 +11,7 @@ function parseMoney(value: unknown) {
 }
 
 function parseDate(value?: string | null) {
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  return parseDateInput(value);
 }
 
 function toNullableString(value?: string | null) {

@@ -251,6 +251,26 @@ main {
   gap: 12px;
 }
 
+.health-system-workbench-layout {
+  align-items: stretch;
+  min-height: calc(100vh - 250px);
+}
+
+.health-system-list-panel,
+.health-system-detail-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.health-system-panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  max-height: calc(100vh - 250px);
+  padding-right: 2px;
+}
+
 .panel {
   background: var(--colorSurface);
   border-radius: var(--radiusCard);
@@ -1084,6 +1104,53 @@ a {
   color: #ffffff;
 }
 
+.health-system-head-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.health-system-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.health-system-logo-input {
+  display: none;
+}
+
+.health-system-logo-preview {
+  width: auto;
+  height: 40px;
+  object-fit: contain;
+  object-position: center;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 8px;
+  padding: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  flex: 0 0 auto;
+}
+
+.health-system-logo-preview-placeholder {
+  width: 64px;
+  height: 40px;
+  flex: 0 0 auto;
+  border: 1px dashed rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.76rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.health-system-logo-help {
+  margin: -4px 0 10px;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1583,11 +1650,48 @@ a {
   width: 100%;
 }
 
+.inline-date-edit .react-datepicker-wrapper,
+.inline-date-edit .react-datepicker__input-container {
+  display: block;
+  width: 100%;
+}
+
 .inline-edit-field input:focus,
 .inline-edit-field select:focus,
 .inline-edit-field textarea:focus {
   border-color: #7da7d2;
   box-shadow: 0 0 0 2px rgba(125, 167, 210, 0.18);
+}
+
+.app-date-picker-popper {
+  z-index: 60;
+}
+
+.app-date-picker-calendar {
+  font-family: var(--fontFamily);
+  border: 1px solid #c6d8ea;
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(10, 30, 60, 0.18);
+}
+
+.app-date-picker-calendar .react-datepicker__header {
+  background: #f7fbff;
+  border-bottom: 1px solid #d6e4f2;
+}
+
+.app-date-picker-calendar .react-datepicker__day-name,
+.app-date-picker-calendar .react-datepicker__current-month {
+  color: #31455b;
+}
+
+.app-date-picker-calendar .react-datepicker__day--selected,
+.app-date-picker-calendar .react-datepicker__day--keyboard-selected {
+  background: #0a2f5a;
+  color: #ffffff;
+}
+
+.app-date-picker-calendar .react-datepicker__day:hover {
+  background: #dbe8f7;
 }
 
 .pipeline-at-a-glance-field + .pipeline-at-a-glance-field {
@@ -1733,6 +1837,11 @@ select {
 @media (max-width: 920px) {
   .grid {
     grid-template-columns: 1fr;
+  }
+
+  .health-system-workbench-layout,
+  .health-system-panel-scroll {
+    max-height: none;
   }
 
   .inline-edit-field {
@@ -2529,6 +2638,31 @@ select {
   gap: 8px;
 }
 
+.intake-report-progress {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.intake-report-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.intake-report-progress-header .muted {
+  margin: 0;
+}
+
+.intake-report-progress-track {
+  width: min(420px, 100%);
+}
+
+.intake-report-progress-indicator {
+  width: 40%;
+}
+
 .pipeline-intake-fields {
   display: grid;
   gap: 4px;
@@ -2551,6 +2685,10 @@ select {
   line-height: 1.2;
 }
 
+.pipeline-inline-label--nowrap {
+  white-space: nowrap;
+}
+
 .pipeline-inline-link {
   border: 0;
   background: transparent;
@@ -2568,6 +2706,21 @@ select {
   min-width: 0;
   overflow-wrap: anywhere;
   display: inline-block;
+}
+
+.pipeline-inline-field .react-datepicker-wrapper {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pipeline-inline-field .react-datepicker__input-container {
+  display: block;
+  width: 100%;
+}
+
+.pipeline-inline-field--date .pipeline-inline-link,
+.pipeline-inline-field--date .pipeline-inline-input {
+  text-align: right;
 }
 
 .pipeline-inline-link:hover,
@@ -2715,6 +2868,40 @@ select {
 
 .pipeline-detail-tab-panel {
   min-height: clamp(560px, 68vh, 820px);
+}
+
+.pipeline-status-readonly-field {
+  align-items: flex-start;
+}
+
+.pipeline-status-readonly-value {
+  min-height: 30px;
+  padding: 4px 6px;
+  line-height: 1.35;
+  color: var(--colorTextPrimary);
+  overflow-wrap: anywhere;
+}
+
+.pipeline-status-single-field {
+  margin-top: 12px;
+}
+
+.pipeline-status-stacked-field {
+  margin-top: 12px;
+}
+
+.pipeline-status-stacked-field > label {
+  margin-bottom: 6px;
+}
+
+.pipeline-status-description-scroll {
+  min-height: 220px;
+  max-height: clamp(260px, 42vh, 460px);
+  overflow-y: auto;
+  padding: 2px 0;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  color: var(--colorTextPrimary);
 }
 
 .pipeline-note-backdrop {
@@ -4240,22 +4427,11 @@ select {
 
 .admin-survey-question-row {
   display: grid;
-  grid-template-columns: 30px 1fr;
-  gap: 10px;
+  gap: 8px;
   border: 1px solid #d8e2ef;
   border-radius: 10px;
   padding: 10px;
   background: #ffffff;
-}
-
-.admin-survey-question-order {
-  margin: 0;
-  font-weight: 700;
-  color: #334155;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 8px;
 }
 
 .admin-survey-question-fields {

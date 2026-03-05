@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { normalizeCompanyDocumentUrl } from "@/lib/company-document-links";
+import { parseDateInput } from "@/lib/date-parse";
 
 const companyDocumentSchema = z.object({
   type: z
@@ -28,8 +29,8 @@ function toNullableString(value?: string | null) {
 
 function parseUploadedAt(value?: string | null) {
   if (!value) return new Date();
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return new Date();
+  const parsed = parseDateInput(value);
+  if (!parsed) return new Date();
   return parsed;
 }
 

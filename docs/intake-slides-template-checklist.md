@@ -2,7 +2,7 @@
 
 Your Intake Report generator is wired and expects a Google Slides template ID to be set in:
 - `GOOGLE_INTAKE_SLIDES_TEMPLATE_ID`
-- Active signed-in Google user session (with Drive + Slides OAuth scopes)
+- `GOOGLE_DOCS_SERVICE_ACCOUNT_JSON` (service account JSON with Drive + Slides access)
 
 The PDF you shared was not converted into a built template file in this repository; this setup guide helps you create that deck in Google Slides and keep it production-ready.
 
@@ -13,9 +13,9 @@ The PDF you shared was not converted into a built template file in this reposito
 - Keep one clear section for each token group to avoid accidental replacement conflicts.
 
 ## 2) Required permissions
-- Give the signed-in user editor access to the template in Drive.
-- Ensure sharing allows the app to read/copy the template and edit the copied report.
-- If your Google workspace supports Shared Drives, place output in a Shared Drive folder to avoid individual-user My Drive quota issues.
+- Give the service account from `GOOGLE_DOCS_SERVICE_ACCOUNT_JSON` access to the template in Drive.
+- Ensure the service account can read/copy the template and edit copied reports.
+- Place output in a Shared Drive folder to avoid individual-user My Drive quota issues.
 - Optional: place the template in a dedicated folder and set `GOOGLE_INTAKE_SLIDES_FOLDER_ID`.
 
 ## 3) Configure template ID in Drive URL
@@ -33,14 +33,14 @@ The PDF you shared was not converted into a built template file in this reposito
 - If you see: `storage quota has been exceeded` during copy, move report output into a Shared Drive:
   - In Google Drive create/open a Shared Drive folder for Intake reports.
   - Set `GOOGLE_INTAKE_SLIDES_FOLDER_ID=<folder-id>`
-  - Ensure the signed-in user has write access to that shared drive folder.
+  - Ensure the service account has write access to that shared drive folder.
   - Regenerate reports. If quota already hit, manually remove old generated reports first.
 - On `force=true` regeneration, the API automatically deletes prior `INTAKE_REPORT` documents for that company from Drive before creating the new report.
 
-## 4.1) Re-auth after OAuth scope change
-- If Intake generation reports missing Google Drive authorization/scopes:
-  - Sign out of the app.
-  - Sign back in via Google OAuth.
+## 4.1) Service account access checks
+- If Intake generation reports missing Google Drive authorization or permissions:
+  - Verify `GOOGLE_DOCS_SERVICE_ACCOUNT_JSON` is configured correctly.
+  - Ensure the service account has access to both template and destination folder.
   - Retry generation.
 
 ## 5) Validate with one test generation

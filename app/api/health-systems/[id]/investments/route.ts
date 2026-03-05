@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { parseDateInput } from "@/lib/date-parse";
 
 const createRequestSchema = z.object({
   companyId: z.string().min(1),
@@ -30,15 +31,11 @@ function trimOrNull(value?: string | null) {
 }
 
 function parseDate(value?: string | null) {
-  const trimmed = value?.trim();
-  if (trimmed === undefined || trimmed === null) return null;
-  if (trimmed === "") return null;
-
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) {
+  if (!value) return null;
+  const parsed = parseDateInput(value);
+  if (!parsed) {
     throw new Error("Investment date is invalid");
   }
-
   return parsed;
 }
 
@@ -78,9 +75,9 @@ function buildInvestmentUpdatePayload(
 }
 
 function toParsedDate(value?: string | null) {
-  if (value === undefined || value === null || value.trim() === "") return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
+  if (!value) return null;
+  const parsed = parseDateInput(value);
+  if (!parsed) {
     throw new Error("Investment date is invalid");
   }
   return parsed;

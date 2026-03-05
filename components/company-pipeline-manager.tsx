@@ -11,6 +11,8 @@ import {
   readFileAsDataUrl,
   toDateInputString
 } from "@/lib/company-document-links";
+import { toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
+import { createDateDebugContext, dateDebugHeaders, debugDateLog } from "@/lib/date-debug";
 
 type PipelinePhase =
   | "INTAKE"
@@ -130,6 +132,9 @@ type PipelineDraft = {
   intakeDecisionAt: string;
   intakeDecisionNotes: string;
   ventureStudioContractExecutedAt: string;
+  screeningWebinarDate1At: string;
+  screeningWebinarDate2At: string;
+  updatedAt: string;
   targetLoiCount: string;
   s1Invested: boolean;
   s1InvestmentAt: string;
@@ -225,10 +230,7 @@ const companyDocumentUploadAccept =
 const companyDocumentMaxSizeMb = Math.round(MAX_COMPANY_DOCUMENT_FILE_BYTES / (1024 * 1024));
 
 function toDateInputValue(value: unknown) {
-  if (!value) return "";
-  const parsed = new Date(String(value));
-  if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toISOString().slice(0, 10);
+  return formatDateInputValue(String(value).trim());
 }
 
 function toText(value: unknown) {
@@ -241,6 +243,35 @@ function parseNullableNumber(value: string) {
   if (!normalized) return null;
   const numeric = Number(normalized);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function compareUpdatedAt(
+  clientUpdatedAt: string | null | undefined,
+  serverUpdatedAt: string | null | undefined
+) {
+  if (!serverUpdatedAt) {
+    return {
+      clientUpdatedAt: clientUpdatedAt || null,
+      parsedClientUpdatedAt: null,
+      serverUpdatedAt: null,
+      isClientBehindServer: null,
+      serverAheadMs: null
+    };
+  }
+
+  const parsedClient = clientUpdatedAt ? new Date(clientUpdatedAt) : null;
+  const parsedClientMs = parsedClient && Number.isNaN(parsedClient.getTime()) ? null : parsedClient?.getTime() || null;
+  const parsedServer = new Date(serverUpdatedAt);
+  const parsedServerMs = Number.isNaN(parsedServer.getTime()) ? null : parsedServer.getTime();
+
+  return {
+    clientUpdatedAt: clientUpdatedAt || null,
+    parsedClientUpdatedAt: parsedClientMs ? new Date(parsedClientMs).toISOString() : null,
+    serverUpdatedAt,
+    isClientBehindServer: parsedClientMs !== null && parsedServerMs !== null ? parsedClientMs < parsedServerMs : null,
+    serverAheadMs:
+      parsedClientMs !== null && parsedServerMs !== null ? parsedServerMs - parsedClientMs : null
+  };
 }
 
 function asObject(value: unknown): Record<string, unknown> {
@@ -324,21 +355,21 @@ function emptyFundraiseInvestor(): FundraiseInvestorDraft {
   };
 }
 
-function emptyFundraise(): FundraiseDraft {
-  return {
-    roundLabel: "",
-    status: "PLANNED",
-    totalAmountUsd: "",
-    s1InvestmentUsd: "",
-    announcedAt: "",
-    closedAt: "",
-    notes: "",
-    investors: []
-  };
-}
+  function emptyFundraise(): FundraiseDraft {
+    return {
+      roundLabel: "",
+      status: "PLANNED",
+      totalAmountUsd: "",
+      s1InvestmentUsd: "",
+      announcedAt: "",
+      closedAt: "",
+      notes: "",
+      investors: []
+    };
+  }
 
 function hydratePipelineDraft(input: unknown): PipelineDraft {
-  const payload = asObject(input);
+    const payload = asObject(input);
 
   return {
     phase: (payload.phase as PipelinePhase) || "INTAKE",
@@ -346,11 +377,14 @@ function hydratePipelineDraft(input: unknown): PipelineDraft {
     intakeDecisionAt: toDateInputValue(payload.intakeDecisionAt),
     intakeDecisionNotes: toText(payload.intakeDecisionNotes),
     ventureStudioContractExecutedAt: toDateInputValue(payload.ventureStudioContractExecutedAt),
+    screeningWebinarDate1At: toDateInputValue(payload.screeningWebinarDate1At),
+    screeningWebinarDate2At: toDateInputValue(payload.screeningWebinarDate2At),
     targetLoiCount: toText(payload.targetLoiCount || "3"),
     s1Invested: Boolean(payload.s1Invested),
     s1InvestmentAt: toDateInputValue(payload.s1InvestmentAt),
     s1InvestmentAmountUsd: toText(payload.s1InvestmentAmountUsd),
     portfolioAddedAt: toDateInputValue(payload.portfolioAddedAt),
+    updatedAt: toText(payload.updatedAt),
     documents: asArray(payload.documents).map((item) => {
       const entry = asObject(item);
       return {
@@ -436,6 +470,8 @@ function serializePipelineDraft(draft: PipelineDraft) {
     intakeDecisionAt: draft.intakeDecisionAt || null,
     intakeDecisionNotes: draft.intakeDecisionNotes || null,
     ventureStudioContractExecutedAt: draft.ventureStudioContractExecutedAt || null,
+    screeningWebinarDate1At: draft.screeningWebinarDate1At || null,
+    screeningWebinarDate2At: draft.screeningWebinarDate2At || null,
     targetLoiCount: Math.max(1, Math.round(Number(draft.targetLoiCount) || 3)),
     s1Invested: draft.s1Invested,
     s1InvestmentAt: draft.s1InvestmentAt || null,
@@ -534,6 +570,7 @@ export function CompanyPipelineManager({
   const [googleDocumentDraft, setGoogleDocumentDraft] = React.useState<GoogleDocumentDraft>(() =>
     emptyGoogleDocumentDraft()
   );
+  const saveSequenceRef = React.useRef(0);
 
   React.useEffect(() => {
     setHealthSystemOptions(healthSystems);
@@ -613,6 +650,7 @@ export function CompanyPipelineManager({
     const parsed = Number(draft.targetLoiCount);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 3;
   }, [draft]);
+  const showExtendedPipelineSections = false;
 
   function updateDraft(patch: Partial<PipelineDraft>) {
     setDraft((current) => {
@@ -764,22 +802,214 @@ export function CompanyPipelineManager({
 
     setSaving(true);
     setStatus(null);
+    const debugContext = createDateDebugContext("company-pipeline-manager.save", companyId);
+    const requestPayload = serializePipelineDraft(draft);
+    const requestSequence = saveSequenceRef.current + 1;
+    saveSequenceRef.current = requestSequence;
+    const requestStartMs = Date.now();
+    const requestHas = {
+      intakeDecisionAt: Object.prototype.hasOwnProperty.call(requestPayload, "intakeDecisionAt"),
+      ventureStudioContractExecutedAt: Object.prototype.hasOwnProperty.call(
+        requestPayload,
+        "ventureStudioContractExecutedAt"
+      ),
+      screeningWebinarDate1At: Object.prototype.hasOwnProperty.call(
+        requestPayload,
+        "screeningWebinarDate1At"
+      ),
+      screeningWebinarDate2At: Object.prototype.hasOwnProperty.call(
+        requestPayload,
+        "screeningWebinarDate2At"
+      ),
+      s1InvestmentAt: Object.prototype.hasOwnProperty.call(requestPayload, "s1InvestmentAt"),
+      portfolioAddedAt: Object.prototype.hasOwnProperty.call(requestPayload, "portfolioAddedAt")
+    };
+    const headers = {
+      ...dateDebugHeaders("company-pipeline-manager.save", companyId),
+      "Content-Type": "application/json"
+    };
+    headers["x-date-debug-seq"] = String(requestSequence);
+    if (draft.updatedAt) {
+      headers["x-date-debug-client-updated-at"] = draft.updatedAt;
+    }
+    if (debugContext) {
+      headers["x-date-debug-request-id"] = debugContext.requestId;
+      headers["x-date-debug-session-id"] = debugContext.sessionId;
+      headers["x-date-debug-scope"] = debugContext.scope;
+      headers["x-date-debug-item-id"] = companyId;
+    }
+    debugDateLog("company-pipeline-manager.save-request", {
+      companyId,
+      debugRequestId: debugContext?.requestId,
+      requestHas,
+      requestSequence,
+      durationMs: 0,
+      clientUpdatedAt: draft.updatedAt || null,
+      clientUpdatedAtParsed: compareUpdatedAt(draft.updatedAt, null).parsedClientUpdatedAt,
+      datePayloadHas: requestHas,
+      current: {
+        intakeDecisionAt: requestPayload.intakeDecisionAt,
+        ventureStudioContractExecutedAt: requestPayload.ventureStudioContractExecutedAt,
+        screeningWebinarDate1At: requestPayload.screeningWebinarDate1At,
+        screeningWebinarDate2At: requestPayload.screeningWebinarDate2At,
+        s1InvestmentAt: requestPayload.s1InvestmentAt,
+        portfolioAddedAt: requestPayload.portfolioAddedAt
+      },
+      payloadDates: {
+        intakeDecisionAt: requestPayload.intakeDecisionAt,
+        ventureStudioContractExecutedAt: requestPayload.ventureStudioContractExecutedAt,
+        screeningWebinarDate1At: requestPayload.screeningWebinarDate1At,
+        screeningWebinarDate2At: requestPayload.screeningWebinarDate2At,
+        s1InvestmentAt: requestPayload.s1InvestmentAt,
+        portfolioAddedAt: requestPayload.portfolioAddedAt
+      }
+    });
 
     try {
       const res = await fetch(`/api/companies/${companyId}/pipeline`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(serializePipelineDraft(draft))
+        headers,
+        body: JSON.stringify(requestPayload)
       });
 
       const payload = (await res.json()) as { pipeline?: unknown; error?: string };
       if (!res.ok) {
         throw new Error(payload.error || "Failed to save pipeline");
       }
+      const latestSequence = saveSequenceRef.current;
+      if (latestSequence !== requestSequence) {
+        debugDateLog("company-pipeline-manager.save-stale-response", {
+          companyId,
+          debugRequestId: debugContext?.requestId,
+          requestSequence,
+          latestSequence,
+          durationMs: Date.now() - requestStartMs,
+          responseServerSequence: (payload as { _dateDebug?: { requestSequence?: number | null } })._dateDebug
+            ?.requestSequence
+        });
+        return;
+      }
+
+      const returnedPipeline = payload.pipeline as
+        | {
+            intakeDecisionAt?: string | null;
+            ventureStudioContractExecutedAt?: string | null;
+            screeningWebinarDate1At?: string | null;
+            screeningWebinarDate2At?: string | null;
+            s1InvestmentAt?: string | null;
+            portfolioAddedAt?: string | null;
+            updatedAt?: string | null;
+          }
+        | undefined;
+      const responseServerSequence = (payload as { _dateDebug?: { requestSequence?: number | null } })._dateDebug
+        ?.requestSequence;
+      const dateDebug = (payload as { _dateDebug?: { serverUpdatedAt?: string | null } })._dateDebug;
+      const serverUpdatedAt = returnedPipeline?.updatedAt ?? dateDebug?.serverUpdatedAt ?? null;
+      const responseUpdatedState = compareUpdatedAt(draft.updatedAt, serverUpdatedAt);
+      debugDateLog("company-pipeline-manager.save-response", {
+        companyId,
+        debugRequestId: debugContext?.requestId,
+        requestHas,
+        requestSequence,
+        durationMs: Date.now() - requestStartMs,
+        responseServerSequence,
+        serverDebug: dateDebug,
+        responseServerUpdatedAt: serverUpdatedAt,
+        responseClientState: responseUpdatedState,
+        requestPayload: {
+          intakeDecisionAt: requestPayload.intakeDecisionAt,
+          ventureStudioContractExecutedAt: requestPayload.ventureStudioContractExecutedAt,
+          screeningWebinarDate1At: requestPayload.screeningWebinarDate1At,
+          screeningWebinarDate2At: requestPayload.screeningWebinarDate2At,
+          s1InvestmentAt: requestPayload.s1InvestmentAt,
+          portfolioAddedAt: requestPayload.portfolioAddedAt
+        },
+        requestedDates: {
+          intakeDecisionAt: requestPayload.intakeDecisionAt,
+          ventureStudioContractExecutedAt: requestPayload.ventureStudioContractExecutedAt,
+          screeningWebinarDate1At: requestPayload.screeningWebinarDate1At,
+          screeningWebinarDate2At: requestPayload.screeningWebinarDate2At,
+          s1InvestmentAt: requestPayload.s1InvestmentAt,
+          portfolioAddedAt: requestPayload.portfolioAddedAt
+        },
+        returnedDates: {
+          intakeDecisionAt: returnedPipeline?.intakeDecisionAt ?? null,
+          ventureStudioContractExecutedAt: returnedPipeline?.ventureStudioContractExecutedAt ?? null,
+          screeningWebinarDate1At: returnedPipeline?.screeningWebinarDate1At ?? null,
+          screeningWebinarDate2At: returnedPipeline?.screeningWebinarDate2At ?? null,
+          s1InvestmentAt: returnedPipeline?.s1InvestmentAt ?? null,
+          portfolioAddedAt: returnedPipeline?.portfolioAddedAt ?? null
+        },
+        dateDelta: {
+          intakeDecisionAt: {
+            requested: requestHas.intakeDecisionAt ? requestPayload.intakeDecisionAt : null,
+            persisted: returnedPipeline?.intakeDecisionAt ?? null,
+            matched:
+              !requestHas.intakeDecisionAt ||
+              toDateInputValue(returnedPipeline?.intakeDecisionAt || null) ===
+              toDateInputValue(requestPayload.intakeDecisionAt || null)
+          },
+          ventureStudioContractExecutedAt: {
+            requested: requestHas.ventureStudioContractExecutedAt
+              ? requestPayload.ventureStudioContractExecutedAt
+              : null,
+            persisted: returnedPipeline?.ventureStudioContractExecutedAt ?? null,
+            matched:
+              !requestHas.ventureStudioContractExecutedAt ||
+              toDateInputValue(returnedPipeline?.ventureStudioContractExecutedAt || null) ===
+              toDateInputValue(requestPayload.ventureStudioContractExecutedAt || null)
+          },
+          screeningWebinarDate1At: {
+            requested: requestHas.screeningWebinarDate1At ? requestPayload.screeningWebinarDate1At : null,
+            persisted: returnedPipeline?.screeningWebinarDate1At ?? null,
+            matched:
+              !requestHas.screeningWebinarDate1At ||
+              toDateInputValue(returnedPipeline?.screeningWebinarDate1At || null) ===
+              toDateInputValue(requestPayload.screeningWebinarDate1At || null)
+          },
+          screeningWebinarDate2At: {
+            requested: requestHas.screeningWebinarDate2At ? requestPayload.screeningWebinarDate2At : null,
+            persisted: returnedPipeline?.screeningWebinarDate2At ?? null,
+            matched:
+              !requestHas.screeningWebinarDate2At ||
+              toDateInputValue(returnedPipeline?.screeningWebinarDate2At || null) ===
+              toDateInputValue(requestPayload.screeningWebinarDate2At || null)
+          },
+          s1InvestmentAt: {
+            requested: requestHas.s1InvestmentAt ? requestPayload.s1InvestmentAt : null,
+            persisted: returnedPipeline?.s1InvestmentAt ?? null,
+            matched:
+              !requestHas.s1InvestmentAt ||
+              toDateInputValue(returnedPipeline?.s1InvestmentAt || null) ===
+              toDateInputValue(requestPayload.s1InvestmentAt || null)
+          },
+          portfolioAddedAt: {
+            requested: requestHas.portfolioAddedAt ? requestPayload.portfolioAddedAt : null,
+            persisted: returnedPipeline?.portfolioAddedAt ?? null,
+            matched:
+              !requestHas.portfolioAddedAt ||
+              toDateInputValue(returnedPipeline?.portfolioAddedAt || null) ===
+              toDateInputValue(requestPayload.portfolioAddedAt || null)
+          }
+        }
+      });
 
       setDraft(hydratePipelineDraft(payload.pipeline));
       setStatus({ kind: "ok", text: "Pipeline saved." });
     } catch (error) {
+      const latestSequence = saveSequenceRef.current;
+      if (latestSequence !== requestSequence) {
+        debugDateLog("company-pipeline-manager.save-stale-error", {
+          companyId,
+          debugRequestId: debugContext?.requestId,
+          requestSequence,
+          latestSequence,
+          durationMs: Date.now() - requestStartMs,
+          error: error instanceof Error ? error.message : String(error),
+          responseStatus: "ignored_stale_error"
+        });
+        return;
+      }
       setStatus({
         kind: "error",
         text: error instanceof Error ? error.message : "Failed to save pipeline"
@@ -834,6 +1064,7 @@ export function CompanyPipelineManager({
           <label>Intake Decision Date</label>
           <DateInputField
             value={draft.intakeDecisionAt}
+            debugContext={{ scope: "company-pipeline-manager.date", companyId: companyId, field: "intakeDecisionAt" }}
             onChange={(nextValue) => updateDraft({ intakeDecisionAt: nextValue })}
           />
         </div>
@@ -851,33 +1082,30 @@ export function CompanyPipelineManager({
           <label>VS Contract Executed</label>
           <DateInputField
             value={draft.ventureStudioContractExecutedAt}
+            debugContext={{ scope: "company-pipeline-manager.date", companyId, field: "ventureStudioContractExecutedAt" }}
             onChange={(nextValue) => updateDraft({ ventureStudioContractExecutedAt: nextValue })}
           />
         </div>
         <div>
-          <label>S1 Investment Date</label>
+          <label>Screening Webinar Date 1</label>
           <DateInputField
-            value={draft.s1InvestmentAt}
-            onChange={(nextValue) => updateDraft({ s1InvestmentAt: nextValue })}
+            value={draft.screeningWebinarDate1At}
+            debugContext={{ scope: "company-pipeline-manager.date", companyId, field: "screeningWebinarDate1At" }}
+            onChange={(nextValue) => updateDraft({ screeningWebinarDate1At: nextValue })}
           />
         </div>
         <div>
-          <label>S1 Investment Amount (USD)</label>
-          <input
-            value={draft.s1InvestmentAmountUsd}
-            onChange={(event) => updateDraft({ s1InvestmentAmountUsd: event.target.value })}
-            placeholder="0"
-          />
-        </div>
-        <div>
-          <label>Portfolio Added Date</label>
+          <label>Screening Webinar Date 2</label>
           <DateInputField
-            value={draft.portfolioAddedAt}
-            onChange={(nextValue) => updateDraft({ portfolioAddedAt: nextValue })}
+            value={draft.screeningWebinarDate2At}
+            debugContext={{ scope: "company-pipeline-manager.date", companyId, field: "screeningWebinarDate2At" }}
+            onChange={(nextValue) => updateDraft({ screeningWebinarDate2At: nextValue })}
           />
         </div>
       </div>
 
+      {showExtendedPipelineSections ? (
+        <>
       <div className="detail-section">
         <label>
           <input
@@ -1676,6 +1904,8 @@ export function CompanyPipelineManager({
           </button>
         </div>
       </div>
+        </>
+      ) : null}
 
       <div className="actions">
         <button className="primary" type="button" onClick={savePipeline} disabled={saving}>

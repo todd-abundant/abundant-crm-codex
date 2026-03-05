@@ -2,8 +2,15 @@ const GOOGLE_DOC_HOSTNAMES = new Set(["docs.google.com", "drive.google.com"]);
 
 export const MAX_COMPANY_DOCUMENT_FILE_BYTES = 10 * 1024 * 1024;
 
+function toPaddedDatePart(value: number) {
+  return String(value).padStart(2, "0");
+}
+
 export function toDateInputString(value: Date = new Date()) {
-  return value.toISOString().slice(0, 10);
+  const localValue = new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  return `${localValue.getFullYear()}-${toPaddedDatePart(localValue.getMonth() + 1)}-${toPaddedDatePart(
+    localValue.getDate()
+  )}`;
 }
 
 export function normalizeCompanyDocumentUrl(value: string) {

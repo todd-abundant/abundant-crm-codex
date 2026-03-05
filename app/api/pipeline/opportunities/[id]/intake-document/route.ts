@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { getCurrentUser, readGoogleApiSession, setGoogleApiSession } from "@/lib/auth/server";
+import { getCurrentUser } from "@/lib/auth/server";
 import { marketLandscapePayloadFromRecord } from "@/lib/market-landscape";
 import { buildPipelineIntakeReportPayload } from "@/lib/pipeline-intake-report";
 import {
@@ -201,39 +201,13 @@ export async function POST(
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const googleApiSession = await readGoogleApiSession();
-    const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim();
-    const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
-    if (!googleClientId || !googleClientSecret) {
+    if (!process.env.GOOGLE_DOCS_SERVICE_ACCOUNT_JSON?.trim()) {
       return NextResponse.json(
         {
           error:
-            "Google OAuth client credentials are not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
+            "GOOGLE_DOCS_SERVICE_ACCOUNT_JSON is missing. Add a valid service-account JSON payload for report generation."
         },
         { status: 500 }
-      );
-    }
-    if (!googleApiSession || googleApiSession.userId !== user.id || !googleApiSession.accessToken) {
-      return NextResponse.json(
-        {
-          error:
-            "Google Drive authorization for this account is missing or expired. Sign out and sign back in, then retry report generation."
-        },
-        { status: 401 }
-      );
-    }
-
-    if (
-      googleApiSession.scope &&
-      (!googleApiSession.scope.includes("https://www.googleapis.com/auth/drive") ||
-        !googleApiSession.scope.includes("https://www.googleapis.com/auth/presentations"))
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Google Drive/Slides scopes are missing for your session. Sign out and sign back in to grant updated permissions."
-        },
-        { status: 401 }
       );
     }
 
@@ -346,14 +320,7 @@ export async function POST(
 
     if (input.force && existingReports.length > 0) {
       try {
-        await cleanupIntakeReportsOnDrive(existingReports.map((entry) => entry.url), {
-          mode: "user_oauth",
-          accessToken: googleApiSession.accessToken,
-          refreshToken: googleApiSession.refreshToken,
-          accessTokenExpiresAt: googleApiSession.accessTokenExpiresAt,
-          clientId: googleClientId,
-          clientSecret: googleClientSecret
-        });
+        await cleanupIntakeReportsOnDrive(existingReports.map((entry) => entry.url));
       } catch (error) {
         if (error instanceof IntakeSlidesGenerationError) {
           return NextResponse.json({ error: error.message }, { status: error.statusCode });
@@ -393,15 +360,7 @@ export async function POST(
       templateId,
       templateTitle: reportTitle,
       values,
-      userEmail: user.email,
-      auth: {
-        mode: "user_oauth",
-        accessToken: googleApiSession.accessToken,
-        refreshToken: googleApiSession.refreshToken,
-        accessTokenExpiresAt: googleApiSession.accessTokenExpiresAt,
-        clientId: googleClientId,
-        clientSecret: googleClientSecret
-      }
+      userEmail: user.email
     });
 
     const document = await prisma.$transaction(async (tx) => {
@@ -444,18 +403,6 @@ export async function POST(
       },
       { status: 201 }
     );
-
-    if (generated.oauthTokens) {
-      await setGoogleApiSession(response, {
-        userId: user.id,
-        email: user.email,
-        accessToken: generated.oauthTokens.accessToken,
-        refreshToken: generated.oauthTokens.refreshToken,
-        tokenType: googleApiSession.tokenType,
-        scope: googleApiSession.scope,
-        accessTokenExpiresAt: generated.oauthTokens.accessTokenExpiresAt
-      });
-    }
 
     return response;
   } catch (error) {
