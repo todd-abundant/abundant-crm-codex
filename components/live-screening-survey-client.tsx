@@ -19,6 +19,7 @@ type LiveSurveyQuestion = {
   category: string;
   prompt: string;
   instructions: string | null;
+  drivesScreeningOpportunity?: boolean;
   scaleMin: number;
   scaleMax: number;
 };

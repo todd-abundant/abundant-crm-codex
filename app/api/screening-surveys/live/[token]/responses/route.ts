@@ -7,6 +7,7 @@ import {
   upsertHealthSystemContactLink
 } from "@/lib/contact-resolution";
 import { inferQualitativeFeedbackFromImpression } from "@/lib/screening-qualitative-inference";
+import { generateOpportunityTitle } from "@/lib/opportunity-title";
 
 const submitResponseSchema = z
   .object({
@@ -53,6 +54,16 @@ function inferNameFromEmail(email: string) {
     .join(" ");
 }
 
+function appendTimestampedNote(existing: string | null | undefined, message: string) {
+  const trimmedMessage = message.trim();
+  if (!trimmedMessage) return existing || null;
+  const entry = `[${new Date().toISOString()}] ${trimmedMessage}`;
+  if (!existing || !existing.trim()) {
+    return entry;
+  }
+  return `${existing.trim()}\n\n${entry}`;
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ token: string }> }
@@ -77,6 +88,11 @@ export async function POST(
       const session = await tx.companyScreeningSurveySession.findUnique({
         where: { accessToken: token },
         include: {
+          company: {
+            select: {
+              name: true
+            }
+          },
           questions: {
             include: {
               question: {
@@ -305,16 +321,96 @@ export async function POST(
         }
       });
 
+      const triggerQuestion = session.questions.find((entry) => entry.drivesScreeningOpportunity);
+      let screeningOpportunityId: string | null = null;
+      if (triggerQuestion) {
+        const triggerAnswer = dedupedAnswers.get(triggerQuestion.id);
+        const triggerScore = triggerAnswer?.skipped ? null : triggerAnswer?.score ?? null;
+        if (triggerScore !== null && triggerScore >= 7) {
+          const openScreeningOpportunity = await tx.companyOpportunity.findFirst({
+            where: {
+              companyId: session.companyId,
+              healthSystemId: input.healthSystemId,
+              type: "SCREENING_LOI",
+              stage: {
+                notIn: ["CLOSED_WON", "CLOSED_LOST"]
+              }
+            },
+            orderBy: [{ updatedAt: "desc" }]
+          });
+
+          const note = `Auto-qualified via screening survey "${session.title}" with trigger score ${triggerScore}/10.`;
+          const nextLikelihood = Math.max(70, Math.min(100, Math.round(triggerScore * 10)));
+
+          if (openScreeningOpportunity) {
+            const updated = await tx.companyOpportunity.update({
+              where: { id: openScreeningOpportunity.id },
+              data: {
+                title: generateOpportunityTitle({
+                  companyName: session.company.name,
+                  healthSystemName: healthSystem.name,
+                  type: "SCREENING_LOI"
+                }),
+                likelihoodPercent:
+                  openScreeningOpportunity.likelihoodPercent === null
+                    ? nextLikelihood
+                    : Math.max(openScreeningOpportunity.likelihoodPercent, nextLikelihood),
+                notes: appendTimestampedNote(openScreeningOpportunity.notes, note)
+              }
+            });
+            screeningOpportunityId = updated.id;
+          } else {
+            const created = await tx.companyOpportunity.create({
+              data: {
+                companyId: session.companyId,
+                healthSystemId: input.healthSystemId,
+                type: "SCREENING_LOI",
+                title: generateOpportunityTitle({
+                  companyName: session.company.name,
+                  healthSystemName: healthSystem.name,
+                  type: "SCREENING_LOI"
+                }),
+                stage: "QUALIFICATION",
+                likelihoodPercent: nextLikelihood,
+                notes: appendTimestampedNote(null, note)
+              }
+            });
+            screeningOpportunityId = created.id;
+          }
+
+          if (!screeningOpportunityId) {
+            throw new Error("Failed to upsert screening opportunity.");
+          }
+
+          await tx.companyOpportunityContact.upsert({
+            where: {
+              opportunityId_contactId: {
+                opportunityId: screeningOpportunityId,
+                contactId
+              }
+            },
+            update: {},
+            create: {
+              opportunityId: screeningOpportunityId,
+              contactId,
+              role: "CONTRACTING_CONTACT"
+            }
+          });
+        }
+      }
+
       return {
         submissionId: submission.id,
-        qualitativeInferenceSource: inferredQualitative.source
+        qualitativeInferenceSource: inferredQualitative.source,
+        screeningOpportunityId
       };
     });
 
     return NextResponse.json({
       ok: true,
       submissionId: result.submissionId,
-      qualitativeInferenceSource: result.qualitativeInferenceSource
+      qualitativeInferenceSource: result.qualitativeInferenceSource,
+      screeningOpportunityId: result.screeningOpportunityId
     });
   } catch (error) {
     console.error("submit_live_screening_survey_response_error", error);

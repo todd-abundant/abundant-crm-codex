@@ -29,6 +29,7 @@ type SurveySessionQuestion = {
   category: string;
   prompt: string;
   instructions: string | null;
+  drivesScreeningOpportunity: boolean;
   scaleMin: number;
   scaleMax: number;
 };
@@ -91,6 +92,7 @@ type SurveyDraftQuestion = {
   category: string;
   prompt: string;
   instructions: string | null;
+  drivesScreeningOpportunity: boolean;
   scaleMin: number;
   scaleMax: number;
 };
@@ -228,7 +230,7 @@ function normalizeOptionalText(value: string | null | undefined) {
   return trimmed ? trimmed : "";
 }
 
-function orderedCategories(questions: SurveyDraftQuestion[]) {
+function orderedCategories<T extends { category: string }>(questions: T[]) {
   const order: string[] = [];
   for (const question of questions) {
     const category = normalizeCategory(question.category);
@@ -253,6 +255,7 @@ function toDraft(session: SurveySession): SurveySessionDraft {
         category: normalizeCategory(entry.category),
         prompt: entry.prompt,
         instructions: normalizeOptionalText(entry.instructions),
+        drivesScreeningOpportunity: Boolean(entry.drivesScreeningOpportunity),
         scaleMin: entry.scaleMin,
         scaleMax: entry.scaleMax
       }))
@@ -268,6 +271,7 @@ function normalizeDraftPayload(draft: SurveySessionDraft) {
       category: normalizeCategory(entry.category),
       prompt: entry.prompt.trim() || "Untitled question",
       instructions: normalizeOptionalText(entry.instructions),
+      drivesScreeningOpportunity: Boolean(entry.drivesScreeningOpportunity),
       displayOrder: index
     }))
   };
@@ -284,6 +288,7 @@ function normalizeSessionPayload(session: SurveySession) {
         category: normalizeCategory(entry.category),
         prompt: entry.prompt.trim() || "Untitled question",
         instructions: normalizeOptionalText(entry.instructions),
+        drivesScreeningOpportunity: Boolean(entry.drivesScreeningOpportunity),
         displayOrder: index
       }))
   };
@@ -325,7 +330,7 @@ function normalizeTemplateDraftPayload(draft: TemplateLibraryDraft) {
   };
 }
 
-function questionIndexesForCategory(questions: SurveyDraftQuestion[], category: string) {
+function questionIndexesForCategory<T extends { category: string }>(questions: T[], category: string) {
   const target = normalizeCategory(category);
   const indexes: number[] = [];
   for (let index = 0; index < questions.length; index += 1) {
@@ -336,10 +341,10 @@ function questionIndexesForCategory(questions: SurveyDraftQuestion[], category: 
   return indexes;
 }
 
-function insertQuestionIntoCategory(
-  questions: SurveyDraftQuestion[],
+function insertQuestionIntoCategory<T extends { category: string }>(
+  questions: T[],
   category: string,
-  question: SurveyDraftQuestion
+  question: T
 ) {
   const target = normalizeCategory(category);
   const indexes = questionIndexesForCategory(questions, target);
@@ -859,6 +864,7 @@ export function AdminSurveyManagement() {
           category: normalizeCategory(entry.category),
           prompt: entry.prompt.trim() || "Untitled question",
           instructions: normalizeOptionalText(entry.instructions),
+          drivesScreeningOpportunity: Boolean(entry.drivesScreeningOpportunity),
           displayOrder: index
         })) || [];
     const questionSetChanged = JSON.stringify(normalizedDraft.questions) !== JSON.stringify(existingQuestions);
@@ -1567,6 +1573,24 @@ export function AdminSurveyManagement() {
     });
   }
 
+  function setScreeningOpportunityDriver(index: number, enabled: boolean) {
+    setSessionDraft((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        questions: current.questions.map((question, questionIndex) => {
+          if (questionIndex === index) {
+            return { ...question, drivesScreeningOpportunity: enabled };
+          }
+          if (enabled && question.drivesScreeningOpportunity) {
+            return { ...question, drivesScreeningOpportunity: false };
+          }
+          return question;
+        })
+      };
+    });
+  }
+
   function moveQuestionWithinCategory(category: string, categoryIndex: number, direction: -1 | 1) {
     setSessionDraft((current) => {
       if (!current) return current;
@@ -1654,6 +1678,7 @@ export function AdminSurveyManagement() {
           category: normalizeCategory(category),
           prompt: question.prompt,
           instructions: normalizeOptionalText(question.instructions),
+          drivesScreeningOpportunity: false,
           scaleMin: question.scaleMin,
           scaleMax: question.scaleMax
         })
@@ -1715,6 +1740,7 @@ export function AdminSurveyManagement() {
             category: normalizeCategory(category),
             prompt: createdQuestion.prompt,
             instructions: normalizeOptionalText(createdQuestion.instructions),
+            drivesScreeningOpportunity: false,
             scaleMin: createdQuestion.scaleMin,
             scaleMax: createdQuestion.scaleMax
           })
@@ -2132,6 +2158,21 @@ export function AdminSurveyManagement() {
                                     })
                                   }
                                   rows={2}
+                                  disabled={questionEditingLocked}
+                                />
+                                <label htmlFor={`screening-opportunity-driver-${question.questionId}-${globalQuestionIndex}`}>
+                                  Auto-create Screening opportunity at score 7+
+                                </label>
+                                <input
+                                  id={`screening-opportunity-driver-${question.questionId}-${globalQuestionIndex}`}
+                                  type="checkbox"
+                                  checked={Boolean(question.drivesScreeningOpportunity)}
+                                  onChange={(event) =>
+                                    setScreeningOpportunityDriver(
+                                      globalQuestionIndex,
+                                      event.target.checked
+                                    )
+                                  }
                                   disabled={questionEditingLocked}
                                 />
                                 <div className="actions">

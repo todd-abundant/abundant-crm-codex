@@ -9,6 +9,7 @@ const companyDocumentSchema = z.object({
     .enum([
       "INTAKE_REPORT",
       "SCREENING_REPORT",
+      "OPPORTUNITY_REPORT",
       "TERM_SHEET",
       "VENTURE_STUDIO_CONTRACT",
       "LOI",

@@ -13,7 +13,7 @@ export default async function HomePage() {
       <section className="hero">
         <h1>Abundant CRM</h1>
         <p>
-          Central workspace for Health Systems, Co-Investors, and Companies with role-based access control.
+          Central workspace for entities, contacts, and pipeline workflows with role-based access control.
         </p>
       </section>
 

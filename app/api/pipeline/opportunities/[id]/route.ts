@@ -25,6 +25,13 @@ function toNumber(value: { toString(): string } | null | undefined) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function computeDurationDays(createdAt: Date, closedAt: Date | null) {
+  const startMs = createdAt.getTime();
+  const endMs = (closedAt || new Date()).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
+  return Math.floor((endMs - startMs) / (1000 * 60 * 60 * 24));
+}
+
 function normalizeQuantitativeQuestionKey(value: string | null | undefined) {
   return (value || "")
     .trim()
@@ -120,15 +127,23 @@ export async function GET(
       include: {
         pipeline: true,
         opportunities: {
-          where: {
-            stage: {
-              notIn: ["CLOSED_WON", "CLOSED_LOST"]
-            }
-          },
           orderBy: [{ updatedAt: "desc" }],
           include: {
             healthSystem: {
               select: { id: true, name: true }
+            },
+            contacts: {
+              include: {
+                contact: {
+                  select: {
+                    id: true,
+                    name: true,
+                    title: true,
+                    email: true
+                  }
+                }
+              },
+              orderBy: [{ createdAt: "asc" }]
             }
           }
         },
@@ -227,6 +242,7 @@ export async function GET(
       select: {
         id: true,
         note: true,
+        affiliations: true,
         createdAt: true,
         createdByName: true,
         createdByUser: {
@@ -604,12 +620,23 @@ export async function GET(
           type: opportunity.type,
           stage: opportunity.stage,
           amountUsd: opportunity.amountUsd,
+          contractPriceUsd: opportunity.contractPriceUsd,
+          durationDays: computeDurationDays(opportunity.createdAt, opportunity.closedAt),
           likelihoodPercent: opportunity.likelihoodPercent,
           nextSteps: opportunity.nextSteps,
           notes: opportunity.notes,
+          closeReason: opportunity.closeReason,
+          createdAt: opportunity.createdAt,
           estimatedCloseDate: opportunity.estimatedCloseDate,
+          closedAt: opportunity.closedAt,
           updatedAt: opportunity.updatedAt,
-          healthSystem: opportunity.healthSystem
+          healthSystem: opportunity.healthSystem,
+          contacts: opportunity.contacts.map((link) => ({
+            id: link.id,
+            role: link.role,
+            createdAt: link.createdAt,
+            contact: link.contact
+          }))
         })),
         documents: company.documents.map((document) => ({
           id: document.id,
@@ -622,6 +649,7 @@ export async function GET(
         notes: entityNotes.map((note) => ({
           id: note.id,
           note: note.note,
+          affiliations: Array.isArray(note.affiliations) ? note.affiliations : [],
           createdAt: note.createdAt,
           createdByName: note.createdByName || note.createdByUser?.name || note.createdByUser?.email || "Unknown user"
         })),

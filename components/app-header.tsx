@@ -20,20 +20,77 @@ export function AppHeader({
   showAdminTab: boolean;
 }) {
   const pathname = usePathname();
-  const navRef = React.useRef<HTMLElement | null>(null);
+  const closeTimerRef = React.useRef<number | null>(null);
+  const [openDropdownId, setOpenDropdownId] = React.useState<"entities" | "pipeline" | "tests" | null>(null);
   const isIsolatedSurvey = pathname.startsWith("/survey/live/");
 
-  const closeOpenDropdowns = React.useCallback(() => {
-    const nav = navRef.current;
-    if (!nav) return;
-    nav.querySelectorAll("details[open]").forEach((dropdown) => {
-      dropdown.removeAttribute("open");
-    });
+  const clearCloseTimer = React.useCallback(() => {
+    if (closeTimerRef.current === null) return;
+    window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
   }, []);
+
+  const closeOpenDropdowns = React.useCallback(() => {
+    clearCloseTimer();
+    setOpenDropdownId(null);
+  }, [clearCloseTimer]);
+
+  const openDropdown = React.useCallback(
+    (dropdownId: "entities" | "pipeline" | "tests") => {
+      clearCloseTimer();
+      setOpenDropdownId(dropdownId);
+    },
+    [clearCloseTimer]
+  );
+
+  const scheduleCloseDropdown = React.useCallback(
+    (dropdownId: "entities" | "pipeline" | "tests", delayMs = 140) => {
+      clearCloseTimer();
+      closeTimerRef.current = window.setTimeout(() => {
+        setOpenDropdownId((currentId) => (currentId === dropdownId ? null : currentId));
+        closeTimerRef.current = null;
+      }, delayMs);
+    },
+    [clearCloseTimer]
+  );
+
+  const toggleDropdown = React.useCallback(
+    (dropdownId: "entities" | "pipeline" | "tests") => {
+      clearCloseTimer();
+      setOpenDropdownId((currentId) => (currentId === dropdownId ? null : dropdownId));
+    },
+    [clearCloseTimer]
+  );
+
+  const handleDropdownBlur = React.useCallback(
+    (event: React.FocusEvent<HTMLElement>, dropdownId: "entities" | "pipeline" | "tests") => {
+      const nextTarget = event.relatedTarget as Node | null;
+      if (nextTarget && event.currentTarget.contains(nextTarget)) return;
+      scheduleCloseDropdown(dropdownId, 0);
+    },
+    [scheduleCloseDropdown]
+  );
+
+  const handleDropdownEscape = React.useCallback(
+    (event: React.KeyboardEvent<HTMLElement>, dropdownId: "entities" | "pipeline" | "tests") => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      scheduleCloseDropdown(dropdownId, 0);
+      const trigger = event.currentTarget.querySelector<HTMLButtonElement>(".top-nav-dropdown-toggle");
+      trigger?.focus();
+    },
+    [scheduleCloseDropdown]
+  );
 
   React.useEffect(() => {
     closeOpenDropdowns();
   }, [pathname, closeOpenDropdowns]);
+
+  React.useEffect(() => {
+    return () => {
+      clearCloseTimer();
+    };
+  }, [clearCloseTimer]);
 
   if (isIsolatedSurvey) return null;
 
@@ -41,15 +98,68 @@ export function AppHeader({
     <header className="top-nav">
       <div className="top-nav-inner">
         <div className="brand">Abundant CRM</div>
-        <nav ref={navRef} aria-label="Primary navigation" className="top-nav-links">
+        <nav aria-label="Primary navigation" className="top-nav-links">
           <Link href="/" className="top-nav-link">
             Home
           </Link>
           {showWorkbenchTabs ? (
             <>
-              <details className="top-nav-dropdown">
-                <summary className="top-nav-link">Pipeline</summary>
-                <div className="top-nav-dropdown-menu">
+              <div
+                className={`top-nav-dropdown ${openDropdownId === "entities" ? "open" : ""}`}
+                onMouseEnter={() => openDropdown("entities")}
+                onMouseLeave={() => scheduleCloseDropdown("entities")}
+                onFocusCapture={() => openDropdown("entities")}
+                onBlurCapture={(event) => handleDropdownBlur(event, "entities")}
+                onKeyDown={(event) => handleDropdownEscape(event, "entities")}
+              >
+                <button
+                  type="button"
+                  className="top-nav-link top-nav-dropdown-toggle"
+                  aria-expanded={openDropdownId === "entities"}
+                  aria-haspopup="true"
+                  onClick={() => toggleDropdown("entities")}
+                >
+                  <span>Entities</span>
+                  <span className="top-nav-dropdown-caret" aria-hidden="true">
+                    ▾
+                  </span>
+                </button>
+                <div className="top-nav-dropdown-menu" role="menu" aria-label="Entities">
+                  <Link href="/health-systems" className="top-nav-dropdown-link" role="menuitem" onClick={closeOpenDropdowns}>
+                    Health Systems
+                  </Link>
+                  <Link href="/co-investors" className="top-nav-dropdown-link" role="menuitem" onClick={closeOpenDropdowns}>
+                    Co-Investors
+                  </Link>
+                  <Link href="/contacts" className="top-nav-dropdown-link" role="menuitem" onClick={closeOpenDropdowns}>
+                    Contacts
+                  </Link>
+                  <Link href="/companies" className="top-nav-dropdown-link" role="menuitem" onClick={closeOpenDropdowns}>
+                    Companies
+                  </Link>
+                </div>
+              </div>
+              <div
+                className={`top-nav-dropdown ${openDropdownId === "pipeline" ? "open" : ""}`}
+                onMouseEnter={() => openDropdown("pipeline")}
+                onMouseLeave={() => scheduleCloseDropdown("pipeline")}
+                onFocusCapture={() => openDropdown("pipeline")}
+                onBlurCapture={(event) => handleDropdownBlur(event, "pipeline")}
+                onKeyDown={(event) => handleDropdownEscape(event, "pipeline")}
+              >
+                <button
+                  type="button"
+                  className="top-nav-link top-nav-dropdown-toggle"
+                  aria-expanded={openDropdownId === "pipeline"}
+                  aria-haspopup="true"
+                  onClick={() => toggleDropdown("pipeline")}
+                >
+                  <span>Pipeline</span>
+                  <span className="top-nav-dropdown-caret" aria-hidden="true">
+                    ▾
+                  </span>
+                </button>
+                <div className="top-nav-dropdown-menu" role="menu" aria-label="Pipeline">
                   {PIPELINE_COMPANY_TYPE_OPTIONS.map((option) => {
                     const href = option.value === "STARTUP" ? "/pipeline" : `/pipeline?companyType=${option.value}`;
                     return (
@@ -57,6 +167,7 @@ export function AppHeader({
                         key={option.value}
                         href={href}
                         className="top-nav-dropdown-link"
+                        role="menuitem"
                         onClick={closeOpenDropdowns}
                       >
                         {option.label}
@@ -64,47 +175,71 @@ export function AppHeader({
                     );
                   })}
                 </div>
-              </details>
-              <Link href="/health-systems" className="top-nav-link">
-                Health Systems
+              </div>
+              <Link href="/reports" className="top-nav-link">
+                Reports
               </Link>
-              <Link href="/co-investors" className="top-nav-link">
-                Co-Investors
-              </Link>
-              <Link href="/companies" className="top-nav-link">
-                Companies
-              </Link>
-              <details className="top-nav-dropdown">
-                <summary className="top-nav-link">Tests</summary>
-                <div className="top-nav-dropdown-menu">
-                  <Link href="/tests" className="top-nav-dropdown-link" onClick={closeOpenDropdowns}>
+              <div
+                className={`top-nav-dropdown ${openDropdownId === "tests" ? "open" : ""}`}
+                onMouseEnter={() => openDropdown("tests")}
+                onMouseLeave={() => scheduleCloseDropdown("tests")}
+                onFocusCapture={() => openDropdown("tests")}
+                onBlurCapture={(event) => handleDropdownBlur(event, "tests")}
+                onKeyDown={(event) => handleDropdownEscape(event, "tests")}
+              >
+                <button
+                  type="button"
+                  className="top-nav-link top-nav-dropdown-toggle"
+                  aria-expanded={openDropdownId === "tests"}
+                  aria-haspopup="true"
+                  onClick={() => toggleDropdown("tests")}
+                >
+                  <span>Tests</span>
+                  <span className="top-nav-dropdown-caret" aria-hidden="true">
+                    ▾
+                  </span>
+                </button>
+                <div className="top-nav-dropdown-menu" role="menu" aria-label="Tests">
+                  <Link href="/tests" className="top-nav-dropdown-link" role="menuitem" onClick={closeOpenDropdowns}>
                     All Tests
                   </Link>
-                  <Link href="/tests/snov-contact-lookup" className="top-nav-dropdown-link" onClick={closeOpenDropdowns}>
+                  <Link
+                    href="/tests/snov-contact-lookup"
+                    className="top-nav-dropdown-link"
+                    role="menuitem"
+                    onClick={closeOpenDropdowns}
+                  >
                     Snov Contact Lookup
                   </Link>
-              <Link href="/tests/zoom-webinar-import" className="top-nav-dropdown-link" onClick={closeOpenDropdowns}>
-                Zoom Webinar Import
-              </Link>
-              <Link
-                href="/tests/transcript-member-insights"
-                className="top-nav-dropdown-link"
-                onClick={closeOpenDropdowns}
-              >
-                Transcript Member Insights
-              </Link>
-              <Link
-                href="/tests/bookyourdata-contact-lookup"
-                className="top-nav-dropdown-link"
-                onClick={closeOpenDropdowns}
-              >
+                  <Link
+                    href="/tests/zoom-webinar-import"
+                    className="top-nav-dropdown-link"
+                    role="menuitem"
+                    onClick={closeOpenDropdowns}
+                  >
+                    Zoom Webinar Import
+                  </Link>
+                  <Link
+                    href="/tests/transcript-member-insights"
+                    className="top-nav-dropdown-link"
+                    role="menuitem"
+                    onClick={closeOpenDropdowns}
+                  >
+                    Transcript Member Insights
+                  </Link>
+                  <Link
+                    href="/tests/bookyourdata-contact-lookup"
+                    className="top-nav-dropdown-link"
+                    role="menuitem"
+                    onClick={closeOpenDropdowns}
+                  >
                     BookYourData Contact Lookup
                   </Link>
-                  <Link href="/workbench" className="top-nav-dropdown-link" onClick={closeOpenDropdowns}>
+                  <Link href="/workbench" className="top-nav-dropdown-link" role="menuitem" onClick={closeOpenDropdowns}>
                     Workbench (beta)
                   </Link>
                 </div>
-              </details>
+              </div>
             </>
           ) : null}
           {showAdminTab ? (

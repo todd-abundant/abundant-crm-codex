@@ -10,10 +10,12 @@ import {
   type PipelineBoardColumn,
   type PipelinePhase
 } from "@/lib/pipeline-opportunities";
+import { generateOpportunityTitle } from "@/lib/opportunity-title";
 import { EntityLookupInput } from "./entity-lookup-input";
 import { ScreeningSurveySessionSelector } from "./screening-survey-session-selector";
 import { InlineSelectField, InlineTextField, InlineTextareaField } from "./inline-detail-field";
 import { normalizeRichText, RichTextArea } from "./rich-text-area";
+import { CompanyReportComposer } from "./company-report-composer";
 import {
   inferGoogleDocumentTitle,
   MAX_COMPANY_DOCUMENT_FILE_BYTES,
@@ -39,11 +41,29 @@ type ScreeningCellField = "RELEVANT_FEEDBACK" | "STATUS_UPDATE";
 type CompanyDocumentType =
   | "INTAKE_REPORT"
   | "SCREENING_REPORT"
+  | "OPPORTUNITY_REPORT"
   | "TERM_SHEET"
   | "VENTURE_STUDIO_CONTRACT"
   | "LOI"
   | "COMMERCIAL_CONTRACT"
   | "OTHER";
+
+type OpportunityType =
+  | "SCREENING_LOI"
+  | "VENTURE_STUDIO_SERVICES"
+  | "S1_TERM_SHEET"
+  | "COMMERCIAL_CONTRACT"
+  | "PROSPECT_PURSUIT";
+
+type OpportunityStage =
+  | "IDENTIFIED"
+  | "QUALIFICATION"
+  | "PROPOSAL"
+  | "NEGOTIATION"
+  | "LEGAL"
+  | "CLOSED_WON"
+  | "CLOSED_LOST"
+  | "ON_HOLD";
 
 type ScreeningParticipant = {
   id: string;
@@ -109,6 +129,12 @@ type ScreeningCellChange = {
   changedByName: string;
 };
 
+type NoteAffiliation = {
+  kind: "company" | "healthSystem" | "contact" | "opportunity";
+  id: string;
+  label: string;
+};
+
 type ScreeningHealthSystem = {
   healthSystemId: string;
   healthSystemName: string;
@@ -134,6 +160,7 @@ type ScreeningHealthSystem = {
 type PipelineOpportunityNote = {
   id: string;
   note: string;
+  affiliations: NoteAffiliation[];
   createdAt: string;
   createdByName: string;
 };
@@ -165,15 +192,31 @@ type PipelineOpportunityDetail = {
   opportunities: Array<{
     id: string;
     title: string;
-    type: string;
-    stage: string;
+    type: OpportunityType;
+    stage: OpportunityStage;
     amountUsd: number | string | null;
+    contractPriceUsd: number | string | null;
+    durationDays: number | null;
     likelihoodPercent: number | null;
     nextSteps: string | null;
     notes: string | null;
+    closeReason: string | null;
+    createdAt: string;
     estimatedCloseDate: string | null;
+    closedAt: string | null;
     updatedAt: string;
     healthSystem: { id: string; name: string } | null;
+    contacts: Array<{
+      id: string;
+      role: string | null;
+      createdAt: string;
+      contact: {
+        id: string;
+        name: string;
+        title: string | null;
+        email: string | null;
+      };
+    }>;
   }>;
   documents: Array<{
     id: string;
@@ -190,10 +233,26 @@ type PipelineOpportunityDetail = {
   };
 };
 
+type OpportunityDraft = {
+  type: OpportunityType;
+  stage: OpportunityStage;
+  healthSystemId: string;
+  likelihoodPercent: string;
+  amountUsd: string;
+  contractPriceUsd: string;
+  estimatedCloseDate: string;
+  closedAt: string;
+  closeReason: string;
+  nextSteps: string;
+  notes: string;
+};
+
 type IntakeDetailTab =
   | "pipeline-status"
+  | "opportunities"
   | "screening-materials"
   | "intake-materials"
+  | "reports"
   | "notes"
   | "documents";
 
@@ -203,6 +262,15 @@ type IntakeMaterialsSubTab =
   | "market-landscape"
   | "market-landscape-option-1";
 
+type OpportunityModalState =
+  | { mode: "create" }
+  | {
+      mode: "edit";
+      opportunityId: string;
+    };
+
+type OpportunityModalTab = "details" | "contacts";
+
 function formatDate(value: string | null | undefined) {
   if (!value) return "Not set";
   const parsed = parseDateInput(value);
@@ -210,8 +278,73 @@ function formatDate(value: string | null | undefined) {
   return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+function formatTimestamp(value: string | null | undefined) {
+  if (!value) return "Date unavailable";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Date unavailable";
+  return parsed.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
 function toDateInputValue(value: string | null | undefined) {
   return formatDateInputValue(value);
+}
+
+function parseNoteAffiliations(raw: unknown): NoteAffiliation[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const parsed: NoteAffiliation[] = [];
+
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const typed = entry as { kind?: unknown; id?: unknown; label?: unknown };
+    const rawKind = typeof typed.kind === "string" ? typed.kind : "";
+    const id = typeof typed.id === "string" ? typed.id.trim() : "";
+    const label = typeof typed.label === "string" ? typed.label.trim() : "";
+    const key = `${rawKind}:${id}`;
+    if (!id || !label || seen.has(key)) continue;
+    if (rawKind !== "company" && rawKind !== "healthSystem" && rawKind !== "contact" && rawKind !== "opportunity") {
+      continue;
+    }
+    const kind = rawKind as NoteAffiliation["kind"];
+    seen.add(key);
+    parsed.push({ kind, id, label });
+  }
+
+  return parsed;
+}
+
+function noteAffiliationKindLabel(kind: NoteAffiliation["kind"]) {
+  if (kind === "company") return "Company";
+  if (kind === "healthSystem") return "Health System";
+  if (kind === "contact") return "Contact";
+  return "Opportunity";
+}
+
+function toTextValue(value: number | string | null | undefined) {
+  if (value === null || value === undefined) return "";
+  return String(value);
+}
+
+function toOpportunityDraft(opportunity: PipelineOpportunityDetail["opportunities"][number]): OpportunityDraft {
+  return {
+    type: opportunity.type,
+    stage: opportunity.stage,
+    healthSystemId: opportunity.healthSystem?.id || "",
+    likelihoodPercent: toTextValue(opportunity.likelihoodPercent),
+    amountUsd: toTextValue(opportunity.amountUsd as number | string | null),
+    contractPriceUsd: toTextValue(opportunity.contractPriceUsd as number | string | null),
+    estimatedCloseDate: toDateInputValue(opportunity.estimatedCloseDate),
+    closedAt: toDateInputValue(opportunity.closedAt),
+    closeReason: opportunity.closeReason || "",
+    nextSteps: opportunity.nextSteps || "",
+    notes: opportunity.notes || ""
+  };
 }
 
 function compareUpdatedAt(
@@ -339,12 +472,67 @@ const screeningInlineInterestOptions: Array<{ value: ScreeningStatus; label: str
 const companyDocumentTypeOptions: Array<{ value: CompanyDocumentType; label: string }> = [
   { value: "INTAKE_REPORT", label: "Intake Report" },
   { value: "SCREENING_REPORT", label: "Screening Report" },
+  { value: "OPPORTUNITY_REPORT", label: "Opportunity Report" },
   { value: "TERM_SHEET", label: "Term Sheet" },
   { value: "VENTURE_STUDIO_CONTRACT", label: "Venture Studio Contract" },
   { value: "LOI", label: "LOI" },
   { value: "COMMERCIAL_CONTRACT", label: "Commercial Contract" },
   { value: "OTHER", label: "Other" }
 ];
+
+const opportunityTypeOptions: Array<{ value: OpportunityType; label: string }> = [
+  { value: "SCREENING_LOI", label: "Screening LOI" },
+  { value: "VENTURE_STUDIO_SERVICES", label: "Venture Studio Services" },
+  { value: "S1_TERM_SHEET", label: "S1 Term Sheet" },
+  { value: "COMMERCIAL_CONTRACT", label: "Commercial Contract" },
+  { value: "PROSPECT_PURSUIT", label: "Prospect Pursuit" }
+];
+
+const opportunityStageOptions: Array<{ value: OpportunityStage; label: string }> = [
+  { value: "IDENTIFIED", label: "Identified" },
+  { value: "QUALIFICATION", label: "Qualification" },
+  { value: "PROPOSAL", label: "Proposal" },
+  { value: "NEGOTIATION", label: "Negotiation" },
+  { value: "LEGAL", label: "Legal" },
+  { value: "CLOSED_WON", label: "Closed Won" },
+  { value: "CLOSED_LOST", label: "Closed Lost" },
+  { value: "ON_HOLD", label: "On Hold" }
+];
+
+function isClosedOpportunityStage(stage: OpportunityStage) {
+  return stage === "CLOSED_WON" || stage === "CLOSED_LOST";
+}
+
+const likelihoodByStage: Record<OpportunityStage, number> = {
+  IDENTIFIED: 10,
+  QUALIFICATION: 25,
+  PROPOSAL: 50,
+  NEGOTIATION: 70,
+  LEGAL: 85,
+  CLOSED_WON: 100,
+  CLOSED_LOST: 0,
+  ON_HOLD: 35
+};
+
+function defaultLikelihoodForStage(stage: OpportunityStage) {
+  return likelihoodByStage[stage];
+}
+
+function computeOpportunityDurationDays(createdAt: string | null | undefined, closedAt: string | null | undefined) {
+  const parsedCreatedAt = parseDateInput(createdAt);
+  if (!parsedCreatedAt) return null;
+  const parsedClosedAt = parseDateInput(closedAt);
+  const startMs = parsedCreatedAt.getTime();
+  const endMs = (parsedClosedAt || new Date()).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
+  return Math.floor((endMs - startMs) / (1000 * 60 * 60 * 24));
+}
+
+function defaultOpportunityTypeForItem(item: Pick<PipelineOpportunityDetail, "column" | "isScreeningStage">) {
+  if (item.column === "COMMERCIAL_ACCELERATION") return "COMMERCIAL_CONTRACT" as OpportunityType;
+  if (item.isScreeningStage || item.column === "SCREENING") return "SCREENING_LOI" as OpportunityType;
+  return "PROSPECT_PURSUIT" as OpportunityType;
+}
 
 const companyDocumentUploadAccept =
   ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.csv,.png,.jpg,.jpeg,.webp";
@@ -947,12 +1135,82 @@ export function PipelineOpportunityDetailView({
   >(null);
   const [intakeReportGenerationStartedAt, setIntakeReportGenerationStartedAt] = React.useState<number | null>(null);
   const [intakeReportElapsedSeconds, setIntakeReportElapsedSeconds] = React.useState(0);
+  const [opportunityDraftById, setOpportunityDraftById] = React.useState<Record<string, OpportunityDraft>>({});
+  const [savingOpportunityById, setSavingOpportunityById] = React.useState<Record<string, boolean>>({});
+  const [deletingOpportunityById, setDeletingOpportunityById] = React.useState<Record<string, boolean>>({});
+  const [addingOpportunity, setAddingOpportunity] = React.useState(false);
+  const [newOpportunityDraft, setNewOpportunityDraft] = React.useState<OpportunityDraft>({
+    type: "SCREENING_LOI",
+    stage: "IDENTIFIED",
+    healthSystemId: "",
+    likelihoodPercent: String(defaultLikelihoodForStage("IDENTIFIED")),
+    amountUsd: "",
+    contractPriceUsd: "",
+    estimatedCloseDate: "",
+    closedAt: "",
+    closeReason: "",
+    nextSteps: "",
+    notes: ""
+  });
+  const [opportunityContactLookupByOpportunityId, setOpportunityContactLookupByOpportunityId] = React.useState<
+    Record<string, string>
+  >({});
+  const [newOpportunityContactRoleByOpportunityId, setNewOpportunityContactRoleByOpportunityId] = React.useState<
+    Record<string, string>
+  >({});
+  const [addingOpportunityContactByOpportunityId, setAddingOpportunityContactByOpportunityId] = React.useState<
+    Record<string, boolean>
+  >({});
+  const [opportunityContactRoleDraftByLinkId, setOpportunityContactRoleDraftByLinkId] = React.useState<
+    Record<string, string>
+  >({});
+  const [savingOpportunityContactRoleByLinkId, setSavingOpportunityContactRoleByLinkId] = React.useState<
+    Record<string, boolean>
+  >({});
+  const [deletingOpportunityContactByLinkId, setDeletingOpportunityContactByLinkId] = React.useState<
+    Record<string, boolean>
+  >({});
   const [newNoteDraft, setNewNoteDraft] = React.useState("");
+  const [newNoteOpportunityId, setNewNoteOpportunityId] = React.useState("");
   const [addingNote, setAddingNote] = React.useState(false);
   const [showAddNoteModal, setShowAddNoteModal] = React.useState(false);
   const [showAddDocumentModal, setShowAddDocumentModal] = React.useState(false);
+  const [opportunityModal, setOpportunityModal] = React.useState<OpportunityModalState | null>(null);
+  const [opportunityModalTab, setOpportunityModalTab] = React.useState<OpportunityModalTab>("details");
   const pipelineCardUpdateSequenceRef = React.useRef(0);
   const descriptionPlainText = React.useMemo(() => richTextToPlainText(item?.description), [item?.description]);
+  const showOpportunitiesTab = Boolean(
+    item && (item.column === "SCREENING" || item.column === "COMMERCIAL_ACCELERATION")
+  );
+  const opportunityLifecycleCounts = React.useMemo(() => {
+    if (!item) return { open: 0, won: 0, lost: 0 };
+    return item.opportunities.reduce(
+      (accumulator, opportunity) => {
+        if (opportunity.stage === "CLOSED_WON") {
+          accumulator.won += 1;
+          return accumulator;
+        }
+        if (opportunity.stage === "CLOSED_LOST") {
+          accumulator.lost += 1;
+          return accumulator;
+        }
+        accumulator.open += 1;
+        return accumulator;
+      },
+      { open: 0, won: 0, lost: 0 }
+    );
+  }, [item]);
+  const openOpportunities = React.useMemo(
+    () =>
+      (item?.opportunities || []).filter(
+        (opportunity) => opportunity.stage !== "CLOSED_WON" && opportunity.stage !== "CLOSED_LOST"
+      ),
+    [item]
+  );
+  const selectedOpportunityForModal = React.useMemo(() => {
+    if (!item || !opportunityModal || opportunityModal.mode !== "edit") return null;
+    return item.opportunities.find((opportunity) => opportunity.id === opportunityModal.opportunityId) || null;
+  }, [item, opportunityModal]);
 
   const currentIntakeDocument = (item?.documents || [])
     .filter((document) => document.type === "INTAKE_REPORT")
@@ -1027,7 +1285,12 @@ export function PipelineOpportunityDetailView({
         payload.item
           ? {
               ...payload.item,
-              notes: Array.isArray(payload.item.notes) ? payload.item.notes : [],
+              notes: Array.isArray(payload.item.notes)
+                ? payload.item.notes.map((note: { affiliations?: unknown }) => ({
+                    ...note,
+                    affiliations: parseNoteAffiliations(note.affiliations)
+                  }))
+                : [],
               marketLandscape: normalizeMarketLandscapePayload(payload.item.marketLandscape, payload.item.name)
             }
           : null
@@ -1060,7 +1323,12 @@ export function PipelineOpportunityDetailView({
             payload.item
               ? {
                   ...payload.item,
-                  notes: Array.isArray(payload.item.notes) ? payload.item.notes : [],
+                  notes: Array.isArray(payload.item.notes)
+                    ? payload.item.notes.map((note: { affiliations?: unknown }) => ({
+                        ...note,
+                        affiliations: parseNoteAffiliations(note.affiliations)
+                      }))
+                    : [],
                   marketLandscape: normalizeMarketLandscapePayload(payload.item.marketLandscape, payload.item.name)
                 }
               : null
@@ -1096,10 +1364,55 @@ export function PipelineOpportunityDetailView({
   }, [item, activeScreeningHealthSystemId]);
 
   React.useEffect(() => {
+    if (!item) {
+      setNewNoteOpportunityId("");
+      return;
+    }
+    if (!newNoteOpportunityId) return;
+    const stillValid = item.opportunities.some((opportunity) => opportunity.id === newNoteOpportunityId);
+    if (!stillValid) {
+      setNewNoteOpportunityId("");
+    }
+  }, [item, newNoteOpportunityId]);
+
+  React.useEffect(() => {
     if (item?.isScreeningStage) return;
     if (activeIntakeDetailTab !== "screening-materials") return;
     setActiveIntakeDetailTab("pipeline-status");
   }, [item?.isScreeningStage, activeIntakeDetailTab]);
+
+  React.useEffect(() => {
+    if (showOpportunitiesTab) return;
+    if (activeIntakeDetailTab !== "opportunities") return;
+    setActiveIntakeDetailTab("pipeline-status");
+  }, [showOpportunitiesTab, activeIntakeDetailTab]);
+
+  React.useEffect(() => {
+    if (!opportunityModal || opportunityModal.mode !== "edit") return;
+    if (!item) return;
+    const stillExists = item.opportunities.some((opportunity) => opportunity.id === opportunityModal.opportunityId);
+    if (!stillExists) {
+      setOpportunityModal(null);
+      setOpportunityModalTab("details");
+    }
+  }, [item, opportunityModal]);
+
+  React.useEffect(() => {
+    if (!opportunityModal) return;
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpportunityModal(null);
+        setOpportunityModalTab("details");
+      }
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [opportunityModal]);
 
   React.useEffect(() => {
     if (!item?.isScreeningStage) {
@@ -1122,6 +1435,51 @@ export function PipelineOpportunityDetailView({
       }
       return next;
     });
+  }, [item]);
+
+  React.useEffect(() => {
+    if (!item) {
+      setOpportunityDraftById({});
+      setOpportunityContactLookupByOpportunityId({});
+      setNewOpportunityContactRoleByOpportunityId({});
+      setOpportunityContactRoleDraftByLinkId({});
+      return;
+    }
+
+    setOpportunityDraftById((current) => {
+      const next: Record<string, OpportunityDraft> = {};
+      for (const opportunity of item.opportunities) {
+        next[opportunity.id] = current[opportunity.id] || toOpportunityDraft(opportunity);
+      }
+      return next;
+    });
+    setOpportunityContactLookupByOpportunityId((current) => {
+      const next: Record<string, string> = {};
+      for (const opportunity of item.opportunities) {
+        next[opportunity.id] = current[opportunity.id] || "";
+      }
+      return next;
+    });
+    setNewOpportunityContactRoleByOpportunityId((current) => {
+      const next: Record<string, string> = {};
+      for (const opportunity of item.opportunities) {
+        next[opportunity.id] = current[opportunity.id] || "";
+      }
+      return next;
+    });
+    setOpportunityContactRoleDraftByLinkId((current) => {
+      const next: Record<string, string> = {};
+      for (const opportunity of item.opportunities) {
+        for (const link of opportunity.contacts) {
+          next[link.id] = current[link.id] ?? (link.role || "");
+        }
+      }
+      return next;
+    });
+    setNewOpportunityDraft((current) => ({
+      ...current,
+      type: defaultOpportunityTypeForItem(item)
+    }));
   }, [item]);
 
   React.useEffect(() => {
@@ -2712,6 +3070,410 @@ export function PipelineOpportunityDetailView({
     await updatePipelineCardMeta({ screeningWebinarDate2At: trimmed });
   }
 
+  function updateOpportunityDraft(opportunityId: string, patch: Partial<OpportunityDraft>) {
+    setOpportunityDraftById((current) => ({
+      ...current,
+      [opportunityId]: {
+        ...(current[opportunityId] ||
+          (() => {
+            const fallback = item?.opportunities.find((entry) => entry.id === opportunityId);
+            return fallback
+              ? toOpportunityDraft(fallback)
+              : {
+                  type: "SCREENING_LOI",
+                  stage: "IDENTIFIED",
+                  healthSystemId: "",
+                  likelihoodPercent: String(defaultLikelihoodForStage("IDENTIFIED")),
+                  amountUsd: "",
+                  contractPriceUsd: "",
+                  estimatedCloseDate: "",
+                  closedAt: "",
+                  closeReason: "",
+                  nextSteps: "",
+                  notes: ""
+                };
+          })()),
+        ...patch
+      }
+    }));
+  }
+
+  function parseNullableDecimal(value: string, label: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const numeric = Number(trimmed.replace(/[$,\s]/g, ""));
+    if (!Number.isFinite(numeric) || numeric < 0) {
+      throw new Error(`${label} must be a positive number.`);
+    }
+    return numeric;
+  }
+
+  function parseNullableLikelihood(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const numeric = Number(trimmed);
+    if (!Number.isFinite(numeric)) {
+      throw new Error("Likelihood to Close must be a number from 0 to 100.");
+    }
+    const rounded = Math.round(numeric);
+    if (rounded < 0 || rounded > 100) {
+      throw new Error("Likelihood to Close must be between 0 and 100.");
+    }
+    return rounded;
+  }
+
+  function nextOpportunityPayload(draft: OpportunityDraft) {
+    const closeReason = draft.closeReason.trim() || null;
+    if (isClosedOpportunityStage(draft.stage) && !closeReason) {
+      throw new Error("Close reason is required when marking an opportunity won or lost.");
+    }
+
+    return {
+      type: draft.type,
+      stage: draft.stage,
+      healthSystemId: draft.healthSystemId || null,
+      likelihoodPercent: parseNullableLikelihood(draft.likelihoodPercent),
+      amountUsd: parseNullableDecimal(draft.amountUsd, "Amount"),
+      contractPriceUsd: parseNullableDecimal(draft.contractPriceUsd, "Contract Price"),
+      estimatedCloseDate: draft.estimatedCloseDate.trim() || null,
+      closedAt: draft.closedAt.trim() || null,
+      closeReason,
+      nextSteps: draft.nextSteps.trim() || null,
+      notes: draft.notes.trim() || null
+    };
+  }
+
+  function applyUpdatedOpportunity(updated: PipelineOpportunityDetail["opportunities"][number]) {
+    setItem((current) => {
+      if (!current) return current;
+      const exists = current.opportunities.some((entry) => entry.id === updated.id);
+      return {
+        ...current,
+        opportunities: exists
+          ? current.opportunities.map((entry) => (entry.id === updated.id ? updated : entry))
+          : [updated, ...current.opportunities]
+      };
+    });
+    setOpportunityDraftById((current) => ({
+      ...current,
+      [updated.id]: toOpportunityDraft(updated)
+    }));
+    setOpportunityContactLookupByOpportunityId((current) => ({
+      ...current,
+      [updated.id]: current[updated.id] || ""
+    }));
+    setNewOpportunityContactRoleByOpportunityId((current) => ({
+      ...current,
+      [updated.id]: current[updated.id] || ""
+    }));
+    setOpportunityContactRoleDraftByLinkId((current) => {
+      const next = { ...current };
+      for (const link of updated.contacts) {
+        next[link.id] = link.role || "";
+      }
+      return next;
+    });
+  }
+
+  async function saveOpportunity(opportunityId: string) {
+    if (!item) return;
+    const draft = opportunityDraftById[opportunityId];
+    if (!draft) return;
+
+    setSavingOpportunityById((current) => ({ ...current, [opportunityId]: true }));
+    setStatus(null);
+
+    try {
+      const payload = nextOpportunityPayload(draft);
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/opportunities`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          opportunityId,
+          ...payload
+        })
+      });
+      const responsePayload = await res.json();
+      if (!res.ok) throw new Error(responsePayload.error || "Failed to update opportunity.");
+      const updated = responsePayload.opportunity as PipelineOpportunityDetail["opportunities"][number] | undefined;
+      if (!updated) throw new Error("Failed to update opportunity.");
+      applyUpdatedOpportunity(updated);
+      setStatus({ kind: "ok", text: "Opportunity updated." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update opportunity."
+      });
+    } finally {
+      setSavingOpportunityById((current) => ({ ...current, [opportunityId]: false }));
+    }
+  }
+
+  async function createOpportunity() {
+    if (!item) return null;
+
+    setAddingOpportunity(true);
+    setStatus(null);
+    let createdOpportunity: PipelineOpportunityDetail["opportunities"][number] | null = null;
+
+    try {
+      const payload = nextOpportunityPayload(newOpportunityDraft);
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/opportunities`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const responsePayload = await res.json();
+      if (!res.ok) throw new Error(responsePayload.error || "Failed to create opportunity.");
+      const created = responsePayload.opportunity as PipelineOpportunityDetail["opportunities"][number] | undefined;
+      if (!created) throw new Error("Failed to create opportunity.");
+      createdOpportunity = created;
+
+      applyUpdatedOpportunity(created);
+      setNewOpportunityDraft({
+        type: defaultOpportunityTypeForItem(item),
+        stage: "IDENTIFIED",
+        healthSystemId: "",
+        likelihoodPercent: String(defaultLikelihoodForStage("IDENTIFIED")),
+        amountUsd: "",
+        contractPriceUsd: "",
+        estimatedCloseDate: "",
+        closedAt: "",
+        closeReason: "",
+        nextSteps: "",
+        notes: ""
+      });
+      setStatus({ kind: "ok", text: "Opportunity created." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to create opportunity."
+      });
+    } finally {
+      setAddingOpportunity(false);
+    }
+    return createdOpportunity;
+  }
+
+  async function deleteOpportunity(opportunityId: string) {
+    if (!item) return false;
+    const existing = item.opportunities.find((entry) => entry.id === opportunityId);
+    if (!existing) return false;
+    if (!window.confirm(`Delete opportunity \"${existing.title}\"?`)) return false;
+
+    setDeletingOpportunityById((current) => ({ ...current, [opportunityId]: true }));
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/opportunities`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opportunityId })
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to delete opportunity.");
+
+      setItem((current) =>
+        current
+          ? {
+              ...current,
+              opportunities: current.opportunities.filter((entry) => entry.id !== opportunityId)
+            }
+          : current
+      );
+      setOpportunityDraftById((current) => {
+        const next = { ...current };
+        delete next[opportunityId];
+        return next;
+      });
+      setStatus({ kind: "ok", text: "Opportunity deleted." });
+      return true;
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to delete opportunity."
+      });
+      return false;
+    } finally {
+      setDeletingOpportunityById((current) => ({ ...current, [opportunityId]: false }));
+    }
+  }
+
+  async function addOpportunityContact(opportunityId: string) {
+    if (!item) return;
+    const contactId = (opportunityContactLookupByOpportunityId[opportunityId] || "").trim();
+    if (!contactId) {
+      setStatus({ kind: "error", text: "Select a contact before adding." });
+      return;
+    }
+
+    setAddingOpportunityContactByOpportunityId((current) => ({ ...current, [opportunityId]: true }));
+    setStatus(null);
+
+    try {
+      const role = (newOpportunityContactRoleByOpportunityId[opportunityId] || "").trim();
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/opportunity-contacts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          opportunityId,
+          contactId,
+          role: role || null
+        })
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to add opportunity contact.");
+      const link = payload.link as PipelineOpportunityDetail["opportunities"][number]["contacts"][number] | undefined;
+      if (!link) throw new Error("Failed to add opportunity contact.");
+
+      setItem((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          opportunities: current.opportunities.map((opportunity) => {
+            if (opportunity.id !== opportunityId) return opportunity;
+            const existingIndex = opportunity.contacts.findIndex((entry) => entry.id === link.id);
+            if (existingIndex >= 0) {
+              const nextContacts = [...opportunity.contacts];
+              nextContacts[existingIndex] = link;
+              return { ...opportunity, contacts: nextContacts };
+            }
+            return { ...opportunity, contacts: [...opportunity.contacts, link] };
+          })
+        };
+      });
+      setOpportunityContactLookupByOpportunityId((current) => ({ ...current, [opportunityId]: "" }));
+      setNewOpportunityContactRoleByOpportunityId((current) => ({ ...current, [opportunityId]: "" }));
+      setOpportunityContactRoleDraftByLinkId((current) => ({ ...current, [link.id]: link.role || "" }));
+      setStatus({ kind: "ok", text: "Opportunity contact added." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add opportunity contact."
+      });
+    } finally {
+      setAddingOpportunityContactByOpportunityId((current) => ({ ...current, [opportunityId]: false }));
+    }
+  }
+
+  async function saveOpportunityContactRole(linkId: string) {
+    if (!item) return;
+    const role = (opportunityContactRoleDraftByLinkId[linkId] || "").trim();
+
+    setSavingOpportunityContactRoleByLinkId((current) => ({ ...current, [linkId]: true }));
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/opportunity-contacts`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          linkId,
+          role: role || null
+        })
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to update opportunity contact role.");
+      const link = payload.link as PipelineOpportunityDetail["opportunities"][number]["contacts"][number] | undefined;
+      if (!link) throw new Error("Failed to update opportunity contact role.");
+
+      setItem((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          opportunities: current.opportunities.map((opportunity) => ({
+            ...opportunity,
+            contacts: opportunity.contacts.map((entry) => (entry.id === link.id ? link : entry))
+          }))
+        };
+      });
+      setOpportunityContactRoleDraftByLinkId((current) => ({ ...current, [link.id]: link.role || "" }));
+      setStatus({ kind: "ok", text: "Opportunity contact updated." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update opportunity contact role."
+      });
+    } finally {
+      setSavingOpportunityContactRoleByLinkId((current) => ({ ...current, [linkId]: false }));
+    }
+  }
+
+  async function deleteOpportunityContact(opportunityId: string, linkId: string) {
+    if (!item) return;
+    if (!window.confirm("Remove this opportunity contact?")) return;
+
+    setDeletingOpportunityContactByLinkId((current) => ({ ...current, [linkId]: true }));
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/opportunity-contacts`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linkId })
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to remove opportunity contact.");
+
+      setItem((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          opportunities: current.opportunities.map((opportunity) =>
+            opportunity.id === opportunityId
+              ? {
+                  ...opportunity,
+                  contacts: opportunity.contacts.filter((entry) => entry.id !== linkId)
+                }
+              : opportunity
+          )
+        };
+      });
+      setStatus({ kind: "ok", text: "Opportunity contact removed." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to remove opportunity contact."
+      });
+    } finally {
+      setDeletingOpportunityContactByLinkId((current) => ({ ...current, [linkId]: false }));
+    }
+  }
+
+  function openAddNoteForOpportunity(opportunityId: string) {
+    setNewNoteOpportunityId(opportunityId);
+    setShowAddNoteModal(true);
+  }
+
+  function openCreateOpportunityModal() {
+    if (!item) return;
+    setNewOpportunityDraft({
+      type: defaultOpportunityTypeForItem(item),
+      stage: "IDENTIFIED",
+      healthSystemId: "",
+      likelihoodPercent: String(defaultLikelihoodForStage("IDENTIFIED")),
+      amountUsd: "",
+      contractPriceUsd: "",
+      estimatedCloseDate: "",
+      closedAt: "",
+      closeReason: "",
+      nextSteps: "",
+      notes: ""
+    });
+    setOpportunityModal({ mode: "create" });
+    setOpportunityModalTab("details");
+  }
+
+  function openEditOpportunityModal(opportunityId: string) {
+    setOpportunityModal({ mode: "edit", opportunityId });
+    setOpportunityModalTab("details");
+  }
+
+  function closeOpportunityModal() {
+    setOpportunityModal(null);
+    setOpportunityModalTab("details");
+  }
+
   async function addPipelineNote() {
     if (!item || addingNote) return;
     const trimmed = newNoteDraft.trim();
@@ -2727,12 +3489,21 @@ export function PipelineOpportunityDetailView({
       const res = await fetch(`/api/pipeline/opportunities/${item.id}/notes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note: trimmed })
+        body: JSON.stringify({
+          note: trimmed,
+          opportunityId: newNoteOpportunityId || null
+        })
       });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || "Failed to add note");
 
-      const createdNote = payload.note as PipelineOpportunityNote | undefined;
+      const createdNotePayload = payload.note as (PipelineOpportunityNote & { affiliations?: unknown }) | undefined;
+      const createdNote = createdNotePayload
+        ? {
+            ...createdNotePayload,
+            affiliations: parseNoteAffiliations(createdNotePayload.affiliations)
+          }
+        : undefined;
       if (!createdNote) throw new Error("Failed to add note");
 
       setItem((current) =>
@@ -2744,8 +3515,13 @@ export function PipelineOpportunityDetailView({
           : current
       );
       setNewNoteDraft("");
+      setNewNoteOpportunityId("");
       setShowAddNoteModal(false);
-      setStatus({ kind: "ok", text: "Note added." });
+      const propagatedCount = typeof payload.propagatedCount === "number" ? payload.propagatedCount : 0;
+      setStatus({
+        kind: "ok",
+        text: propagatedCount > 0 ? `Note added and propagated to ${propagatedCount} linked record(s).` : "Note added."
+      });
     } catch (error) {
       setStatus({
         kind: "error",
@@ -3679,6 +4455,17 @@ export function PipelineOpportunityDetailView({
           >
             Pipeline Status
           </button>
+          {showOpportunitiesTab ? (
+            <button
+              type="button"
+              role="tab"
+              className={`detail-tab ${activeIntakeDetailTab === "opportunities" ? "active" : ""}`}
+              aria-selected={activeIntakeDetailTab === "opportunities"}
+              onClick={() => setActiveIntakeDetailTab("opportunities")}
+            >
+              Opportunities
+            </button>
+          ) : null}
           {item.isScreeningStage ? (
             <button
               type="button"
@@ -3702,6 +4489,15 @@ export function PipelineOpportunityDetailView({
           <button
             type="button"
             role="tab"
+            className={`detail-tab ${activeIntakeDetailTab === "reports" ? "active" : ""}`}
+            aria-selected={activeIntakeDetailTab === "reports"}
+            onClick={() => setActiveIntakeDetailTab("reports")}
+          >
+            Reports
+          </button>
+          <button
+            type="button"
+            role="tab"
             className={`detail-tab ${activeIntakeDetailTab === "notes" ? "active" : ""}`}
             aria-selected={activeIntakeDetailTab === "notes"}
             onClick={() => setActiveIntakeDetailTab("notes")}
@@ -3720,9 +4516,11 @@ export function PipelineOpportunityDetailView({
         </div>
         <div className="pipeline-detail-tab-panel">
 
-        {activeIntakeDetailTab === "pipeline-status" ? (
+        {activeIntakeDetailTab === "pipeline-status" || (activeIntakeDetailTab === "opportunities" && showOpportunitiesTab) ? (
           <>
-            <h2>Pipeline Status</h2>
+            {activeIntakeDetailTab === "pipeline-status" ? (
+              <>
+                <h2>Pipeline Status</h2>
             <div className="row">
               <div>
                 <InlineSelectField
@@ -3823,28 +4621,172 @@ export function PipelineOpportunityDetailView({
                 </div>
               </div>
             ) : null}
-            <div className="pipeline-status-single-field">
-              <InlineTextField
-                label="Estimated Close Date"
-                value={toDateInputValue(item.ventureExpectedCloseDate)}
-                inputType="date"
-                dateDebugContext={{
-                  scope: "pipeline-opportunity-detail.date",
-                  itemId: item.id,
-                  field: "ventureExpectedCloseDate"
-                }}
-                onSave={(nextValue) => void saveVentureExpectedCloseDate(nextValue)}
-              />
-            </div>
+                <div className="pipeline-status-single-field">
+                  <InlineTextField
+                    label="Estimated Close Date"
+                    value={toDateInputValue(item.ventureExpectedCloseDate)}
+                    inputType="date"
+                    dateDebugContext={{
+                      scope: "pipeline-opportunity-detail.date",
+                      itemId: item.id,
+                      field: "ventureExpectedCloseDate"
+                    }}
+                    onSave={(nextValue) => void saveVentureExpectedCloseDate(nextValue)}
+                  />
+                </div>
 
-            {descriptionPlainText ? (
-              <div className="pipeline-status-stacked-field">
-                <label>Description</label>
-                <div className="pipeline-status-description-scroll">{descriptionPlainText}</div>
-              </div>
+                <div className="detail-section">
+                  <p className="detail-label">Opportunity Lifecycle</p>
+                  <div className="detail-grid">
+                    <div className="inline-edit-field pipeline-status-readonly-field">
+                      <label>Open</label>
+                      <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.open}</div>
+                    </div>
+                    <div className="inline-edit-field pipeline-status-readonly-field">
+                      <label>Won</label>
+                      <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.won}</div>
+                    </div>
+                    <div className="inline-edit-field pipeline-status-readonly-field">
+                      <label>Lost</label>
+                      <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.lost}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {descriptionPlainText ? (
+                  <div className="pipeline-status-stacked-field">
+                    <label>Description</label>
+                    <div className="pipeline-status-description-scroll">{descriptionPlainText}</div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+
+            {activeIntakeDetailTab === "opportunities" && showOpportunitiesTab ? (
+              <>
+                <h2>Opportunities</h2>
+                <div className="detail-section">
+                  <p className="detail-label">Open Opportunities</p>
+                  <p className="muted">
+                    Click an opportunity name to open details. Update Next Steps inline from this list.
+                  </p>
+                  <button type="button" className="opportunity-add-link" onClick={openCreateOpportunityModal}>
+                    + Add new opportunity
+                  </button>
+
+                  {openOpportunities.length === 0 ? <p className="muted">No open opportunities yet.</p> : null}
+
+                  {openOpportunities.length > 0 ? (
+                    <div className="opportunity-list">
+                      <div className="opportunity-list-header">
+                        <span>Opportunity</span>
+                        <span>Health System</span>
+                        <span>Likelihood</span>
+                        <span>Duration</span>
+                        <span>Est. Close</span>
+                        <span>Next Steps</span>
+                        <span>Add a Note</span>
+                        <span>Last Modified</span>
+                      </div>
+                      {openOpportunities.map((opportunity) => {
+                        const draft = opportunityDraftById[opportunity.id] || toOpportunityDraft(opportunity);
+                        const availableHealthSystems = item.screening.healthSystems.map((entry) => ({
+                          id: entry.healthSystemId,
+                          name: entry.healthSystemName
+                        }));
+                        if (
+                          opportunity.healthSystem &&
+                          !availableHealthSystems.some((entry) => entry.id === opportunity.healthSystem?.id)
+                        ) {
+                          availableHealthSystems.push({
+                            id: opportunity.healthSystem.id,
+                            name: opportunity.healthSystem.name
+                          });
+                        }
+                        const opportunityTypeLabel =
+                          opportunityTypeOptions.find((entry) => entry.value === opportunity.type)?.label ||
+                          opportunity.type;
+                        const opportunityStageLabel =
+                          opportunityStageOptions.find((entry) => entry.value === opportunity.stage)?.label ||
+                          opportunity.stage;
+                        const healthSystemName =
+                          availableHealthSystems.find((healthSystem) => healthSystem.id === draft.healthSystemId)
+                            ?.name || "No health system";
+                        const estimatedCloseLabel = draft.estimatedCloseDate
+                          ? formatDate(draft.estimatedCloseDate)
+                          : opportunity.estimatedCloseDate
+                            ? formatDate(opportunity.estimatedCloseDate)
+                            : "—";
+
+                        return (
+                          <div key={opportunity.id} className="opportunity-list-row">
+                            <div className="opportunity-list-cell opportunity-list-opportunity">
+                              <button
+                                type="button"
+                                className="opportunity-name-link"
+                                onClick={() => openEditOpportunityModal(opportunity.id)}
+                              >
+                                {opportunity.title}
+                              </button>
+                              <p className="muted">
+                                {opportunityTypeLabel} · {opportunityStageLabel}
+                              </p>
+                            </div>
+                            <div className="opportunity-list-cell">{healthSystemName}</div>
+                            <div className="opportunity-list-cell">
+                              {draft.likelihoodPercent ? `${draft.likelihoodPercent}%` : "—"}
+                            </div>
+                            <div className="opportunity-list-cell">
+                              {computeOpportunityDurationDays(opportunity.createdAt, opportunity.closedAt) ?? "—"}
+                            </div>
+                            <div className="opportunity-list-cell">{estimatedCloseLabel}</div>
+                            <div className="opportunity-list-cell opportunity-list-next-steps">
+                              <textarea
+                                rows={2}
+                                value={draft.nextSteps}
+                                onChange={(event) =>
+                                  updateOpportunityDraft(opportunity.id, {
+                                    nextSteps: event.target.value
+                                  })
+                                }
+                                onBlur={() => void saveOpportunity(opportunity.id)}
+                                onKeyDown={(event) => {
+                                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                                    event.preventDefault();
+                                    (event.currentTarget as HTMLTextAreaElement).blur();
+                                  }
+                                }}
+                                placeholder="Add next steps..."
+                                className="opportunity-next-steps-input"
+                              />
+                              {savingOpportunityById[opportunity.id] ? (
+                                <span className="opportunity-saving-indicator">Saving...</span>
+                              ) : null}
+                            </div>
+                            <div className="opportunity-list-cell">
+                              <button
+                                type="button"
+                                className="opportunity-inline-link"
+                                onClick={() => openAddNoteForOpportunity(opportunity.id)}
+                              >
+                                Add note
+                              </button>
+                            </div>
+                            <div className="opportunity-list-cell">{formatTimestamp(opportunity.updatedAt)}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+
+                  <button type="button" className="opportunity-add-link" onClick={openCreateOpportunityModal}>
+                    + Add new opportunity
+                  </button>
+                </div>
+              </>
             ) : null}
           </>
-        ) : null}
+	        ) : null}
 
         {activeIntakeDetailTab === "intake-materials" ? (
           <div className="detail-tabs detail-subtabs" role="tablist" aria-label="Intake materials sections">
@@ -4376,6 +5318,16 @@ export function PipelineOpportunityDetailView({
           </>
         ) : null}
 
+        {activeIntakeDetailTab === "reports" ? (
+          <>
+            <h2>Reports</h2>
+            <p className="muted">
+              Build standardized Intake, Screening, and Opportunity reports with section-level edits, live preview, and PDF export.
+            </p>
+            <CompanyReportComposer companyId={item.id} companyName={item.name} />
+          </>
+        ) : null}
+
         {activeIntakeDetailTab === "notes" ? (
           <>
             <h2>Notes</h2>
@@ -4395,6 +5347,18 @@ export function PipelineOpportunityDetailView({
             <div className="pipeline-doc-list">
               {sortedNotes.map((entry) => (
                 <div key={entry.id} className="detail-list-item">
+                  {entry.affiliations && entry.affiliations.length > 0 ? (
+                    <div className="pipeline-note-affiliation-tags">
+                      {entry.affiliations.map((affiliation) => (
+                        <span
+                          key={`${entry.id}:${affiliation.kind}:${affiliation.id}`}
+                          className={`pipeline-note-affiliation-tag ${affiliation.kind}`}
+                        >
+                          <strong>{noteAffiliationKindLabel(affiliation.kind)}:</strong> {affiliation.label}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                   <div
                     className="inline-rich-text"
                     dangerouslySetInnerHTML={{ __html: normalizeRichText(entry.note || "") }}
@@ -5188,21 +6152,675 @@ export function PipelineOpportunityDetailView({
 
       {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
 
+      {opportunityModal ? (
+        <div className="pipeline-note-backdrop" onMouseDown={closeOpportunityModal}>
+          <div
+            className="pipeline-opportunity-modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="pipeline-card-head">
+              <h3>{opportunityModal.mode === "create" ? "Add Opportunity" : selectedOpportunityForModal?.title || "Opportunity"}</h3>
+              <button
+                className="modal-icon-close"
+                type="button"
+                onClick={closeOpportunityModal}
+                aria-label="Close opportunity dialog"
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+
+            <div className="detail-tabs detail-subtabs" role="tablist" aria-label="Opportunity detail sections">
+              <button
+                type="button"
+                role="tab"
+                className={`detail-tab ${opportunityModalTab === "details" ? "active" : ""}`}
+                aria-selected={opportunityModalTab === "details"}
+                onClick={() => setOpportunityModalTab("details")}
+              >
+                Details
+              </button>
+              {opportunityModal.mode === "edit" ? (
+                <button
+                  type="button"
+                  role="tab"
+                  className={`detail-tab ${opportunityModalTab === "contacts" ? "active" : ""}`}
+                  aria-selected={opportunityModalTab === "contacts"}
+                  onClick={() => setOpportunityModalTab("contacts")}
+                >
+                  Related Contacts
+                </button>
+              ) : null}
+            </div>
+
+            {opportunityModal.mode === "create" ? (
+              <div className="detail-card opportunity-modal-card">
+                <div className="detail-grid">
+                  <div>
+                    <label>Type</label>
+                    <select
+                      value={newOpportunityDraft.type}
+                      onChange={(event) =>
+                        setNewOpportunityDraft((current) => ({
+                          ...current,
+                          type: event.target.value as OpportunityType
+                        }))
+                      }
+                    >
+                      {opportunityTypeOptions.map((option) => (
+                        <option key={`create-opportunity-type-${option.value}`} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label>Title</label>
+                    <input
+                      value={generateOpportunityTitle({
+                        companyName: item.name,
+                        healthSystemName:
+                          item.screening.healthSystems.find(
+                            (healthSystem) => healthSystem.healthSystemId === newOpportunityDraft.healthSystemId
+                          )?.healthSystemName || null,
+                        type: newOpportunityDraft.type
+                      })}
+                      readOnly
+                    />
+                    <p className="muted" style={{ marginTop: 4 }}>
+                      Auto-generated by the system.
+                    </p>
+                  </div>
+                  <div>
+                    <label>Stage</label>
+                    <select
+                      value={newOpportunityDraft.stage}
+                      onChange={(event) => {
+                        const stage = event.target.value as OpportunityStage;
+                        setNewOpportunityDraft((current) => ({
+                          ...current,
+                          stage,
+                          likelihoodPercent: String(defaultLikelihoodForStage(stage))
+                        }));
+                      }}
+                    >
+                      {opportunityStageOptions.map((option) => (
+                        <option key={`create-opportunity-stage-${option.value}`} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label>Health System</label>
+                    <select
+                      value={newOpportunityDraft.healthSystemId}
+                      onChange={(event) =>
+                        setNewOpportunityDraft((current) => ({
+                          ...current,
+                          healthSystemId: event.target.value
+                        }))
+                      }
+                    >
+                      <option value="">No health system</option>
+                      {item.screening.healthSystems.map((healthSystem) => (
+                        <option key={`create-opportunity-health-system-${healthSystem.healthSystemId}`} value={healthSystem.healthSystemId}>
+                          {healthSystem.healthSystemName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label>Likelihood to Close (%)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={newOpportunityDraft.likelihoodPercent}
+                      onChange={(event) =>
+                        setNewOpportunityDraft((current) => ({
+                          ...current,
+                          likelihoodPercent: event.target.value
+                        }))
+                      }
+                      placeholder="0-100"
+                    />
+                  </div>
+                  <div>
+                    <label>Expected Close Date</label>
+                    <input
+                      type="date"
+                      value={newOpportunityDraft.estimatedCloseDate}
+                      onChange={(event) =>
+                        setNewOpportunityDraft((current) => ({
+                          ...current,
+                          estimatedCloseDate: event.target.value
+                        }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label>Opportunity Duration (days)</label>
+                    <input
+                      type="text"
+                      value="Calculated from created date"
+                      readOnly
+                    />
+                  </div>
+                  <div>
+                    <label>Contract Price (USD)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={newOpportunityDraft.contractPriceUsd}
+                      onChange={(event) =>
+                        setNewOpportunityDraft((current) => ({
+                          ...current,
+                          contractPriceUsd: event.target.value
+                        }))
+                      }
+                      placeholder="e.g. 250000"
+                    />
+                  </div>
+                  <div>
+                    <label>Amount (USD)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={newOpportunityDraft.amountUsd}
+                      onChange={(event) =>
+                        setNewOpportunityDraft((current) => ({
+                          ...current,
+                          amountUsd: event.target.value
+                        }))
+                      }
+                      placeholder="e.g. 75000"
+                    />
+                  </div>
+                  <div>
+                    <label>Closed At</label>
+                    <input
+                      type="date"
+                      value={newOpportunityDraft.closedAt}
+                      onChange={(event) =>
+                        setNewOpportunityDraft((current) => ({
+                          ...current,
+                          closedAt: event.target.value
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="detail-grid-full">
+                    <label>
+                      Close Reason{isClosedOpportunityStage(newOpportunityDraft.stage) ? " (required)" : ""}
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={newOpportunityDraft.closeReason}
+                      onChange={(event) =>
+                        setNewOpportunityDraft((current) => ({
+                          ...current,
+                          closeReason: event.target.value
+                        }))
+                      }
+                      placeholder={
+                        isClosedOpportunityStage(newOpportunityDraft.stage)
+                          ? "Why this opportunity was won/lost"
+                          : "Optional reason for closure outcome"
+                      }
+                    />
+                  </div>
+                  <div className="detail-grid-full">
+                    <label>Next Steps</label>
+                    <textarea
+                      rows={3}
+                      value={newOpportunityDraft.nextSteps}
+                      onChange={(event) =>
+                        setNewOpportunityDraft((current) => ({
+                          ...current,
+                          nextSteps: event.target.value
+                        }))
+                      }
+                      placeholder="Upcoming actions and owners"
+                    />
+                  </div>
+                  <div className="detail-grid-full">
+                    <label>Opportunity Notes</label>
+                    <RichTextArea
+                      value={newOpportunityDraft.notes}
+                      onChange={(nextValue) =>
+                        setNewOpportunityDraft((current) => ({
+                          ...current,
+                          notes: nextValue
+                        }))
+                      }
+                      rows={6}
+                      placeholder="Opportunity-specific context"
+                    />
+                  </div>
+                </div>
+                <div className="actions">
+                  <button type="button" className="ghost small" onClick={closeOpportunityModal} disabled={addingOpportunity}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary small"
+                    onClick={async () => {
+                      const created = await createOpportunity();
+                      if (!created) return;
+                      setOpportunityModal({ mode: "edit", opportunityId: created.id });
+                      setOpportunityModalTab("details");
+                    }}
+                    disabled={addingOpportunity}
+                  >
+                    {addingOpportunity ? "Creating..." : "Create Opportunity"}
+                  </button>
+                </div>
+              </div>
+            ) : selectedOpportunityForModal ? (
+              opportunityModalTab === "details" ? (
+                (() => {
+                  const draft = opportunityDraftById[selectedOpportunityForModal.id] || toOpportunityDraft(selectedOpportunityForModal);
+                  const availableHealthSystems = item.screening.healthSystems.map((entry) => ({
+                    id: entry.healthSystemId,
+                    name: entry.healthSystemName
+                  }));
+                  if (
+                    selectedOpportunityForModal.healthSystem &&
+                    !availableHealthSystems.some((entry) => entry.id === selectedOpportunityForModal.healthSystem?.id)
+                  ) {
+                    availableHealthSystems.push({
+                      id: selectedOpportunityForModal.healthSystem.id,
+                      name: selectedOpportunityForModal.healthSystem.name
+                    });
+                  }
+                  const draftTitle = generateOpportunityTitle({
+                    companyName: item.name,
+                    healthSystemName:
+                      availableHealthSystems.find((healthSystem) => healthSystem.id === draft.healthSystemId)?.name ||
+                      null,
+                    type: draft.type
+                  });
+                  const closedStage = isClosedOpportunityStage(draft.stage);
+                  const draftDurationDays = computeOpportunityDurationDays(
+                    selectedOpportunityForModal.createdAt,
+                    draft.closedAt.trim() || selectedOpportunityForModal.closedAt
+                  );
+
+                  return (
+                    <div className="detail-card opportunity-modal-card">
+                      <div className="detail-grid">
+                        <div>
+                          <label>Type</label>
+                          <select
+                            value={draft.type}
+                            onChange={(event) =>
+                              updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                type: event.target.value as OpportunityType
+                              })
+                            }
+                          >
+                            {opportunityTypeOptions.map((option) => (
+                              <option key={`${selectedOpportunityForModal.id}-type-${option.value}`} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label>Title</label>
+                          <input value={draftTitle} readOnly />
+                          <p className="muted" style={{ marginTop: 4 }}>
+                            Auto-generated by the system.
+                          </p>
+                        </div>
+                        <div>
+                          <label>Stage</label>
+                          <select
+                            value={draft.stage}
+                            onChange={(event) => {
+                              const stage = event.target.value as OpportunityStage;
+                              updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                stage,
+                                likelihoodPercent: String(defaultLikelihoodForStage(stage))
+                              });
+                            }}
+                          >
+                            {opportunityStageOptions.map((option) => (
+                              <option key={`${selectedOpportunityForModal.id}-stage-${option.value}`} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label>Health System</label>
+                          <select
+                            value={draft.healthSystemId}
+                            onChange={(event) =>
+                              updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                healthSystemId: event.target.value
+                              })
+                            }
+                          >
+                            <option value="">No health system</option>
+                            {availableHealthSystems.map((healthSystem) => (
+                              <option key={`${selectedOpportunityForModal.id}-health-system-${healthSystem.id}`} value={healthSystem.id}>
+                                {healthSystem.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label>Likelihood to Close (%)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={draft.likelihoodPercent}
+                            onChange={(event) =>
+                              updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                likelihoodPercent: event.target.value
+                              })
+                            }
+                            placeholder="0-100"
+                          />
+                        </div>
+                        <div>
+                          <label>Expected Close Date</label>
+                          <input
+                            type="date"
+                            value={draft.estimatedCloseDate}
+                            onChange={(event) =>
+                              updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                estimatedCloseDate: event.target.value
+                              })
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label>Opportunity Duration (days)</label>
+                          <input
+                            type="text"
+                            value={draftDurationDays ?? "—"}
+                            readOnly
+                          />
+                        </div>
+                        <div>
+                          <label>Contract Price (USD)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={draft.contractPriceUsd}
+                            onChange={(event) =>
+                              updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                contractPriceUsd: event.target.value
+                              })
+                            }
+                            placeholder="e.g. 250000"
+                          />
+                        </div>
+                        <div>
+                          <label>Amount (USD)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={draft.amountUsd}
+                            onChange={(event) =>
+                              updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                amountUsd: event.target.value
+                              })
+                            }
+                            placeholder="e.g. 75000"
+                          />
+                        </div>
+                        <div>
+                          <label>Closed At</label>
+                          <input
+                            type="date"
+                            value={draft.closedAt}
+                            onChange={(event) =>
+                              updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                closedAt: event.target.value
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="detail-grid-full">
+                          <label>Close Reason{closedStage ? " (required)" : ""}</label>
+                          <textarea
+                            rows={2}
+                            value={draft.closeReason}
+                            onChange={(event) =>
+                              updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                closeReason: event.target.value
+                              })
+                            }
+                            placeholder={
+                              closedStage
+                                ? "Why this opportunity was won/lost"
+                                : "Optional reason for closure outcome"
+                            }
+                          />
+                        </div>
+                        <div className="detail-grid-full">
+                          <label>Next Steps</label>
+                          <textarea
+                            rows={3}
+                            value={draft.nextSteps}
+                            onChange={(event) =>
+                              updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                nextSteps: event.target.value
+                              })
+                            }
+                            placeholder="Upcoming actions and owners"
+                          />
+                        </div>
+                        <div className="detail-grid-full">
+                          <label>Opportunity Notes</label>
+                          <RichTextArea
+                            value={draft.notes}
+                            onChange={(nextValue) =>
+                              updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                notes: nextValue
+                              })
+                            }
+                            rows={6}
+                            placeholder="Opportunity-specific context"
+                          />
+                        </div>
+                      </div>
+                      <div className="actions">
+                        <button
+                          type="button"
+                          className="secondary small"
+                          onClick={() => void saveOpportunity(selectedOpportunityForModal.id)}
+                          disabled={Boolean(savingOpportunityById[selectedOpportunityForModal.id])}
+                        >
+                          {savingOpportunityById[selectedOpportunityForModal.id] ? "Saving..." : "Save Opportunity"}
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost small"
+                          onClick={async () => {
+                            const deleted = await deleteOpportunity(selectedOpportunityForModal.id);
+                            if (!deleted) return;
+                            closeOpportunityModal();
+                          }}
+                          disabled={Boolean(deletingOpportunityById[selectedOpportunityForModal.id])}
+                        >
+                          {deletingOpportunityById[selectedOpportunityForModal.id] ? "Deleting..." : "Delete"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                (() => {
+                  const draft = opportunityDraftById[selectedOpportunityForModal.id] || toOpportunityDraft(selectedOpportunityForModal);
+                  return (
+                    <div className="detail-card opportunity-modal-card">
+                      <div className="detail-section">
+                        <p className="detail-label">Contracting Contacts</p>
+                        {selectedOpportunityForModal.healthSystem &&
+                        draft.healthSystemId === selectedOpportunityForModal.healthSystem.id ? (
+                          <>
+                            {selectedOpportunityForModal.contacts.length === 0 ? (
+                              <p className="muted">No contracting contacts linked yet.</p>
+                            ) : (
+                              selectedOpportunityForModal.contacts.map((link) => (
+                                <div key={link.id} className="contact-row" style={{ marginBottom: 8 }}>
+                                  <div className="contact-row-details">
+                                    <strong>{link.contact.name}</strong>
+                                    {link.contact.title ? `, ${link.contact.title}` : ""}
+                                    {link.contact.email ? ` | ${link.contact.email}` : ""}
+                                  </div>
+                                  <div className="contact-row-actions">
+                                    <input
+                                      value={opportunityContactRoleDraftByLinkId[link.id] ?? link.role ?? ""}
+                                      onChange={(event) =>
+                                        setOpportunityContactRoleDraftByLinkId((current) => ({
+                                          ...current,
+                                          [link.id]: event.target.value
+                                        }))
+                                      }
+                                      placeholder="Role"
+                                    />
+                                    <button
+                                      type="button"
+                                      className="ghost small"
+                                      onClick={() => void saveOpportunityContactRole(link.id)}
+                                      disabled={Boolean(savingOpportunityContactRoleByLinkId[link.id])}
+                                    >
+                                      {savingOpportunityContactRoleByLinkId[link.id] ? "Saving..." : "Save Role"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="ghost small"
+                                      onClick={() => void deleteOpportunityContact(selectedOpportunityForModal.id, link.id)}
+                                      disabled={Boolean(deletingOpportunityContactByLinkId[link.id])}
+                                    >
+                                      {deletingOpportunityContactByLinkId[link.id] ? "Removing..." : "Remove"}
+                                    </button>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                            <div className="detail-grid" style={{ marginTop: 10 }}>
+                              <div>
+                                <label>Add Contact</label>
+                                <EntityLookupInput
+                                  entityKind="CONTACT"
+                                  value={opportunityContactLookupByOpportunityId[selectedOpportunityForModal.id] || ""}
+                                  onChange={(nextValue) =>
+                                    setOpportunityContactLookupByOpportunityId((current) => ({
+                                      ...current,
+                                      [selectedOpportunityForModal.id]: nextValue
+                                    }))
+                                  }
+                                  contactCreateContext={{
+                                    parentType: "healthSystem",
+                                    parentId: selectedOpportunityForModal.healthSystem.id,
+                                    roleType: "EXECUTIVE"
+                                  }}
+                                  contactSearchHealthSystemId={selectedOpportunityForModal.healthSystem.id}
+                                  disabled={Boolean(addingOpportunityContactByOpportunityId[selectedOpportunityForModal.id])}
+                                />
+                              </div>
+                              <div>
+                                <label>Role (Optional)</label>
+                                <input
+                                  value={newOpportunityContactRoleByOpportunityId[selectedOpportunityForModal.id] || ""}
+                                  onChange={(event) =>
+                                    setNewOpportunityContactRoleByOpportunityId((current) => ({
+                                      ...current,
+                                      [selectedOpportunityForModal.id]: event.target.value
+                                    }))
+                                  }
+                                  placeholder="Contracting lead"
+                                />
+                              </div>
+                            </div>
+                            <div className="actions">
+                              <button
+                                type="button"
+                                className="ghost small"
+                                onClick={() => void addOpportunityContact(selectedOpportunityForModal.id)}
+                                disabled={Boolean(addingOpportunityContactByOpportunityId[selectedOpportunityForModal.id])}
+                              >
+                                {addingOpportunityContactByOpportunityId[selectedOpportunityForModal.id]
+                                  ? "Adding..."
+                                  : "Add Contact"}
+                              </button>
+                            </div>
+                          </>
+                        ) : draft.healthSystemId ? (
+                          <p className="muted">
+                            Save this opportunity in the Details tab before editing contacts for the updated health
+                            system assignment.
+                          </p>
+                        ) : (
+                          <p className="muted">Link a health system in the Details tab before assigning contacts.</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()
+              )
+            ) : (
+              <p className="muted">Opportunity not found.</p>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       {showAddNoteModal ? (
-        <div className="pipeline-note-backdrop" onMouseDown={() => setShowAddNoteModal(false)}>
+        <div
+          className="pipeline-note-backdrop"
+          onMouseDown={() => {
+            setShowAddNoteModal(false);
+            setNewNoteOpportunityId("");
+          }}
+        >
           <div className="pipeline-note-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
             <div className="pipeline-card-head">
               <h3>Add Note</h3>
               <button
                 className="modal-icon-close"
                 type="button"
-                onClick={() => setShowAddNoteModal(false)}
+                onClick={() => {
+                  setShowAddNoteModal(false);
+                  setNewNoteOpportunityId("");
+                }}
                 aria-label="Close add note dialog"
               >
                 <span aria-hidden="true">×</span>
               </button>
             </div>
             <p className="muted">{item.name}</p>
+            {item.opportunities.length > 0 ? (
+              <div className="pipeline-status-single-field" style={{ marginTop: 10 }}>
+                <label>Tag to Opportunity (Optional)</label>
+                <select
+                  value={newNoteOpportunityId}
+                  onChange={(event) => setNewNoteOpportunityId(event.target.value)}
+                >
+                  <option value="">General company note</option>
+                  {item.opportunities.map((opportunity) => (
+                    <option key={opportunity.id} value={opportunity.id}>
+                      {`${opportunity.title} (${opportunity.type})${opportunity.healthSystem ? ` - ${opportunity.healthSystem.name}` : ""}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             <RichTextArea
               className="pipeline-note-textarea"
               value={newNoteDraft}
@@ -5211,7 +6829,15 @@ export function PipelineOpportunityDetailView({
               rows={8}
             />
             <div className="actions">
-              <button type="button" className="ghost small" onClick={() => setShowAddNoteModal(false)} disabled={addingNote}>
+              <button
+                type="button"
+                className="ghost small"
+                onClick={() => {
+                  setShowAddNoteModal(false);
+                  setNewNoteOpportunityId("");
+                }}
+                disabled={addingNote}
+              >
                 Cancel
               </button>
               <button type="button" className="secondary small" onClick={() => void addPipelineNote()} disabled={addingNote}>

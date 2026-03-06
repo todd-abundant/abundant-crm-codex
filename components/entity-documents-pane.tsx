@@ -4,7 +4,7 @@ import * as React from "react";
 import { DateInputField } from "./date-input-field";
 import { parseDateInput, toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
 
-type EntityPath = "health-systems" | "co-investors" | "companies";
+type EntityPath = "health-systems" | "co-investors" | "companies" | "contacts";
 
 type StatusMessage = { kind: "ok" | "error"; text: string };
 

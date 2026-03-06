@@ -16,6 +16,7 @@ const patchSessionSchema = z
           category: z.string().trim().min(1).max(80),
           prompt: z.string().trim().min(1).max(360),
           instructions: z.string().trim().max(600).optional().nullable().or(z.literal("")),
+          drivesScreeningOpportunity: z.boolean().default(false),
           displayOrder: z.number().int().min(0)
         })
       )
@@ -55,6 +56,7 @@ function toSessionResponse(
       categoryOverride: string | null;
       promptOverride: string | null;
       instructionsOverride: string | null;
+      drivesScreeningOpportunity: boolean;
       question: {
         id: string;
         category: string;
@@ -102,6 +104,7 @@ function toSessionResponse(
       category: entry.categoryOverride || entry.question.category,
       prompt: entry.promptOverride || entry.question.prompt,
       instructions: entry.instructionsOverride || entry.question.instructions,
+      drivesScreeningOpportunity: entry.drivesScreeningOpportunity,
       scaleMin: entry.question.scaleMin,
       scaleMax: entry.question.scaleMax
     }))
@@ -136,6 +139,7 @@ export async function PATCH(
               categoryOverride: true,
               promptOverride: true,
               instructionsOverride: true,
+              drivesScreeningOpportunity: true,
               question: {
                 select: {
                   category: true,
@@ -158,6 +162,7 @@ export async function PATCH(
             category: string;
             prompt: string;
             instructions: string | null;
+            drivesScreeningOpportunity: boolean;
             displayOrder: number;
           }>
         | null = null;
@@ -187,14 +192,23 @@ export async function PATCH(
             category: entry.category.trim(),
             prompt: entry.prompt.trim(),
             instructions: entry.instructions?.trim() || null,
+            drivesScreeningOpportunity: Boolean(entry.drivesScreeningOpportunity),
             displayOrder: index
           }));
+
+        const triggerQuestionCount = normalizedIncomingQuestions.filter(
+          (entry) => entry.drivesScreeningOpportunity
+        ).length;
+        if (triggerQuestionCount > 1) {
+          throw new Error("Only one question can drive automatic Screening opportunities.");
+        }
 
         const normalizedExistingQuestions = existing.questions.map((entry, index) => ({
           questionId: entry.questionId,
           category: (entry.categoryOverride || entry.question.category).trim(),
           prompt: (entry.promptOverride || entry.question.prompt).trim(),
           instructions: (entry.instructionsOverride || entry.question.instructions || "").trim() || null,
+          drivesScreeningOpportunity: entry.drivesScreeningOpportunity,
           displayOrder: index
         }));
 
@@ -276,7 +290,8 @@ export async function PATCH(
                 displayOrder: entry.displayOrder,
                 categoryOverride: entry.category,
                 promptOverride: entry.prompt,
-                instructionsOverride: entry.instructions
+                instructionsOverride: entry.instructions,
+                drivesScreeningOpportunity: entry.drivesScreeningOpportunity
               }
             });
             continue;
@@ -289,7 +304,8 @@ export async function PATCH(
               displayOrder: entry.displayOrder,
               categoryOverride: entry.category,
               promptOverride: entry.prompt,
-              instructionsOverride: entry.instructions
+              instructionsOverride: entry.instructions,
+              drivesScreeningOpportunity: entry.drivesScreeningOpportunity
             }
           });
         }

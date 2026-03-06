@@ -3,9 +3,15 @@
 import * as React from "react";
 import { normalizeRichText, RichTextArea } from "./rich-text-area";
 
-type EntityPath = "health-systems" | "co-investors" | "companies";
+type EntityPath = "health-systems" | "co-investors" | "companies" | "contacts";
 
 type StatusMessage = { kind: "ok" | "error"; text: string };
+
+type NoteAffiliation = {
+  kind: "company" | "healthSystem" | "contact" | "opportunity";
+  id: string;
+  label: string;
+};
 
 type EntityDocument = {
   id: string;
@@ -23,7 +29,12 @@ type EntityNote = {
   createdAt: string;
   updatedAt: string;
   createdByName?: string | null;
+  affiliations?: NoteAffiliation[];
   documents: EntityDocument[];
+};
+
+type EntityNotePayload = Omit<EntityNote, "affiliations"> & {
+  affiliations?: unknown;
 };
 
 type EntityNotesPaneProps = {
@@ -53,6 +64,41 @@ function toggleId(current: string[], id: string) {
 
 function mapDocumentIdsForNote(note: EntityNote) {
   return note.documents.map((document) => document.id);
+}
+
+function parseAffiliations(raw: unknown): NoteAffiliation[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const parsed: NoteAffiliation[] = [];
+
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const typed = entry as { kind?: unknown; id?: unknown; label?: unknown };
+    const rawKind = typeof typed.kind === "string" ? typed.kind : "";
+    const id = typeof typed.id === "string" ? typed.id.trim() : "";
+    const label = typeof typed.label === "string" ? typed.label.trim() : "";
+    const key = `${rawKind}:${id}`;
+    if (!id || !label || seen.has(key)) continue;
+    if (rawKind !== "company" && rawKind !== "healthSystem" && rawKind !== "contact" && rawKind !== "opportunity") {
+      continue;
+    }
+    const kind = rawKind as NoteAffiliation["kind"];
+    seen.add(key);
+    parsed.push({
+      kind,
+      id,
+      label
+    });
+  }
+
+  return parsed;
+}
+
+function affiliationKindLabel(kind: NoteAffiliation["kind"]) {
+  if (kind === "company") return "Company";
+  if (kind === "healthSystem") return "Health System";
+  if (kind === "contact") return "Contact";
+  return "Opportunity";
 }
 
 export function EntityNotesPane({ entityPath, entityId, onStatus }: EntityNotesPaneProps) {
@@ -106,7 +152,14 @@ export function EntityNotesPane({ entityPath, entityId, onStatus }: EntityNotesP
       }
 
       setDocuments(Array.isArray(documentsPayload.documents) ? documentsPayload.documents : []);
-      setNotes(Array.isArray(notesPayload.notes) ? notesPayload.notes : []);
+      setNotes(
+        Array.isArray(notesPayload.notes)
+          ? notesPayload.notes.map((note: EntityNotePayload): EntityNote => ({
+              ...note,
+              affiliations: parseAffiliations(note.affiliations)
+            }))
+          : []
+      );
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to load notes");
     } finally {
@@ -349,6 +402,18 @@ export function EntityNotesPane({ entityPath, entityId, onStatus }: EntityNotesP
               ) : (
                 <div className="contact-row">
                   <div className="contact-row-details">
+                    {note.affiliations && note.affiliations.length > 0 ? (
+                      <div className="entity-note-affiliation-tags">
+                        {note.affiliations.map((affiliation) => (
+                          <span
+                            key={`${note.id}:${affiliation.kind}:${affiliation.id}`}
+                            className={`entity-note-affiliation-tag ${affiliation.kind}`}
+                          >
+                            <strong>{affiliationKindLabel(affiliation.kind)}:</strong> {affiliation.label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                     <p
                       className="entity-note-body"
                       dangerouslySetInnerHTML={{ __html: normalizeRichText(note.note) }}

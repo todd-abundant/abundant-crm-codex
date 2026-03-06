@@ -5,6 +5,7 @@ import { z } from "zod";
 import { normalizeCompanyDocumentUrl } from "@/lib/company-document-links";
 import { parseDateInput } from "@/lib/date-parse";
 import { getDateDebugContextFromRequest, shouldLogDateRequest } from "@/lib/date-debug";
+import { generateOpportunityTitle } from "@/lib/opportunity-title";
 
 const pipelinePhaseSchema = z.enum([
   "INTAKE",
@@ -23,6 +24,7 @@ const documentSchema = z.object({
     .enum([
       "INTAKE_REPORT",
       "SCREENING_REPORT",
+      "OPPORTUNITY_REPORT",
       "TERM_SHEET",
       "VENTURE_STUDIO_CONTRACT",
       "LOI",
@@ -37,18 +39,35 @@ const documentSchema = z.object({
 });
 
 const opportunitySchema = z.object({
-  type: z.enum(["VENTURE_STUDIO_SERVICES", "S1_TERM_SHEET", "COMMERCIAL_CONTRACT", "PROSPECT_PURSUIT"]),
-  title: z.string().min(1),
+  type: z.enum([
+    "SCREENING_LOI",
+    "VENTURE_STUDIO_SERVICES",
+    "S1_TERM_SHEET",
+    "COMMERCIAL_CONTRACT",
+    "PROSPECT_PURSUIT"
+  ]),
+  title: z.string().optional().nullable(),
   healthSystemId: z.string().optional().nullable(),
   stage: z
     .enum(["IDENTIFIED", "QUALIFICATION", "PROPOSAL", "NEGOTIATION", "LEGAL", "CLOSED_WON", "CLOSED_LOST", "ON_HOLD"])
     .default("IDENTIFIED"),
   likelihoodPercent: z.number().int().min(0).max(100).optional().nullable(),
   amountUsd: z.number().nonnegative().optional().nullable(),
+  contractPriceUsd: z.number().nonnegative().optional().nullable(),
   notes: z.string().optional().nullable(),
   nextSteps: z.string().optional().nullable(),
+  closeReason: z.string().max(1000).optional().nullable(),
   estimatedCloseDate: z.string().optional().nullable(),
   closedAt: z.string().optional().nullable()
+}).superRefine((value, ctx) => {
+  const closeReason = (value.closeReason || "").trim();
+  if ((value.stage === "CLOSED_WON" || value.stage === "CLOSED_LOST") && !closeReason) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["closeReason"],
+      message: "Close reason is required when marking an opportunity won or lost."
+    });
+  }
 });
 
 const screeningParticipantSchema = z.object({
@@ -115,6 +134,13 @@ const pipelineUpdateSchema = z.object({
 
 function toNullableDate(value?: string | null) {
   return parseDateInput(value);
+}
+
+function computeDurationDays(createdAt: Date, closedAt: Date | null) {
+  const startMs = createdAt.getTime();
+  const endMs = (closedAt || new Date()).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
+  return Math.floor((endMs - startMs) / (1000 * 60 * 60 * 24));
 }
 
 function toNullableString(value?: string | null) {
@@ -293,7 +319,10 @@ function buildPipelinePayload(company: CompanyPipelineView) {
     portfolioAddedAt: company.pipeline.portfolioAddedAt,
     updatedAt: company.pipeline.updatedAt.toISOString(),
     documents: company.documents,
-    opportunities: company.opportunities,
+    opportunities: company.opportunities.map((opportunity) => ({
+      ...opportunity,
+      durationDays: computeDurationDays(opportunity.createdAt, opportunity.closedAt)
+    })),
     screeningEvents: company.screeningEvents,
     lois: company.lois,
     fundraises: company.fundraises
@@ -485,21 +514,55 @@ export async function PATCH(
 
       await tx.companyOpportunity.deleteMany({ where: { companyId: id } });
       if (input.opportunities.length > 0) {
+        const healthSystemIds = Array.from(
+          new Set(
+            input.opportunities
+              .map((opportunity) => toNullableString(opportunity.healthSystemId))
+              .filter((healthSystemId): healthSystemId is string => Boolean(healthSystemId))
+          )
+        );
+        const healthSystemNameById = new Map<string, string>();
+        if (healthSystemIds.length > 0) {
+          const healthSystems = await tx.healthSystem.findMany({
+            where: {
+              id: { in: healthSystemIds }
+            },
+            select: {
+              id: true,
+              name: true
+            }
+          });
+          for (const healthSystem of healthSystems) {
+            healthSystemNameById.set(healthSystem.id, healthSystem.name);
+          }
+        }
+
         const opportunitiesToCreate = input.opportunities
-          .map((opportunity) => ({
-            companyId: id,
-            healthSystemId: toNullableString(opportunity.healthSystemId),
-            type: opportunity.type,
-            title: opportunity.title.trim(),
-            stage: opportunity.stage,
-            likelihoodPercent: opportunity.likelihoodPercent ?? null,
-            amountUsd: opportunity.amountUsd ?? null,
-            notes: toNullableString(opportunity.notes),
-            nextSteps: toNullableString(opportunity.nextSteps),
-            estimatedCloseDate: toNullableDate(opportunity.estimatedCloseDate),
-            closedAt: toNullableDate(opportunity.closedAt)
-          }))
-          .filter((opportunity) => opportunity.title);
+          .map((opportunity) => {
+            const healthSystemId = toNullableString(opportunity.healthSystemId);
+            return {
+              companyId: id,
+              healthSystemId,
+              type: opportunity.type,
+              title: generateOpportunityTitle({
+                companyName: company.name,
+                healthSystemName: healthSystemId ? healthSystemNameById.get(healthSystemId) || null : null,
+                type: opportunity.type
+              }),
+              stage: opportunity.stage,
+              likelihoodPercent: opportunity.likelihoodPercent ?? null,
+              amountUsd: opportunity.amountUsd ?? null,
+              contractPriceUsd: opportunity.contractPriceUsd ?? null,
+              notes: toNullableString(opportunity.notes),
+              nextSteps: toNullableString(opportunity.nextSteps),
+              closeReason: toNullableString(opportunity.closeReason),
+              estimatedCloseDate: toNullableDate(opportunity.estimatedCloseDate),
+              closedAt:
+                opportunity.stage === "CLOSED_WON" || opportunity.stage === "CLOSED_LOST"
+                  ? toNullableDate(opportunity.closedAt) || new Date()
+                  : toNullableDate(opportunity.closedAt)
+            };
+          });
 
         if (opportunitiesToCreate.length > 0) {
           await tx.companyOpportunity.createMany({

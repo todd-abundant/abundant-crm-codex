@@ -27,12 +27,18 @@ type IntakeDecision = "PENDING" | "ADVANCE_TO_NEGOTIATION" | "DECLINE";
 type DocumentType =
   | "INTAKE_REPORT"
   | "SCREENING_REPORT"
+  | "OPPORTUNITY_REPORT"
   | "TERM_SHEET"
   | "VENTURE_STUDIO_CONTRACT"
   | "LOI"
   | "COMMERCIAL_CONTRACT"
   | "OTHER";
-type OpportunityType = "VENTURE_STUDIO_SERVICES" | "S1_TERM_SHEET" | "COMMERCIAL_CONTRACT" | "PROSPECT_PURSUIT";
+type OpportunityType =
+  | "SCREENING_LOI"
+  | "VENTURE_STUDIO_SERVICES"
+  | "S1_TERM_SHEET"
+  | "COMMERCIAL_CONTRACT"
+  | "PROSPECT_PURSUIT";
 type OpportunityStage =
   | "IDENTIFIED"
   | "QUALIFICATION"
@@ -78,8 +84,11 @@ type PipelineOpportunityDraft = {
   stage: OpportunityStage;
   likelihoodPercent: string;
   amountUsd: string;
+  contractPriceUsd: string;
+  durationDays: string;
   notes: string;
   nextSteps: string;
+  closeReason: string;
   estimatedCloseDate: string;
   closedAt: string;
 };
@@ -172,6 +181,7 @@ const intakeDecisionOptions: Array<{ value: IntakeDecision; label: string }> = [
 const documentTypeOptions: Array<{ value: DocumentType; label: string }> = [
   { value: "INTAKE_REPORT", label: "Intake Report" },
   { value: "SCREENING_REPORT", label: "Screening Report" },
+  { value: "OPPORTUNITY_REPORT", label: "Opportunity Report" },
   { value: "TERM_SHEET", label: "Term Sheet" },
   { value: "VENTURE_STUDIO_CONTRACT", label: "Venture Studio Contract" },
   { value: "LOI", label: "LOI" },
@@ -180,6 +190,7 @@ const documentTypeOptions: Array<{ value: DocumentType; label: string }> = [
 ];
 
 const opportunityTypeOptions: Array<{ value: OpportunityType; label: string }> = [
+  { value: "SCREENING_LOI", label: "Screening LOI" },
   { value: "VENTURE_STUDIO_SERVICES", label: "Venture Studio Services" },
   { value: "S1_TERM_SHEET", label: "S1 Term Sheet" },
   { value: "COMMERCIAL_CONTRACT", label: "Commercial Contract" },
@@ -196,6 +207,21 @@ const opportunityStageOptions: Array<{ value: OpportunityStage; label: string }>
   { value: "CLOSED_LOST", label: "Closed Lost" },
   { value: "ON_HOLD", label: "On Hold" }
 ];
+
+const likelihoodByStage: Record<OpportunityStage, number> = {
+  IDENTIFIED: 10,
+  QUALIFICATION: 25,
+  PROPOSAL: 50,
+  NEGOTIATION: 70,
+  LEGAL: 85,
+  CLOSED_WON: 100,
+  CLOSED_LOST: 0,
+  ON_HOLD: 35
+};
+
+function defaultLikelihoodForStage(stage: OpportunityStage) {
+  return likelihoodByStage[stage];
+}
 
 const screeningEventTypeOptions: Array<{ value: ScreeningEventType; label: string }> = [
   { value: "WEBINAR", label: "Webinar" },
@@ -303,14 +329,17 @@ function emptyGoogleDocumentDraft(): GoogleDocumentDraft {
 
 function emptyOpportunity(): PipelineOpportunityDraft {
   return {
-    type: "VENTURE_STUDIO_SERVICES",
+    type: "SCREENING_LOI",
     title: "",
     healthSystemId: "",
     stage: "IDENTIFIED",
-    likelihoodPercent: "",
+    likelihoodPercent: String(defaultLikelihoodForStage("IDENTIFIED")),
     amountUsd: "",
+    contractPriceUsd: "",
+    durationDays: "",
     notes: "",
     nextSteps: "",
+    closeReason: "",
     estimatedCloseDate: "",
     closedAt: ""
   };
@@ -397,15 +426,20 @@ function hydratePipelineDraft(input: unknown): PipelineDraft {
     }),
     opportunities: asArray(payload.opportunities).map((item) => {
       const entry = asObject(item);
+      const stage = (entry.stage as OpportunityStage) || "IDENTIFIED";
+      const likelihoodPercent = toText(entry.likelihoodPercent);
       return {
-        type: (entry.type as OpportunityType) || "VENTURE_STUDIO_SERVICES",
+        type: (entry.type as OpportunityType) || "SCREENING_LOI",
         title: toText(entry.title),
         healthSystemId: toText(entry.healthSystemId),
-        stage: (entry.stage as OpportunityStage) || "IDENTIFIED",
-        likelihoodPercent: toText(entry.likelihoodPercent),
+        stage,
+        likelihoodPercent: likelihoodPercent || String(defaultLikelihoodForStage(stage)),
         amountUsd: toText(entry.amountUsd),
+        contractPriceUsd: toText(entry.contractPriceUsd),
+        durationDays: toText(entry.durationDays),
         notes: toText(entry.notes),
         nextSteps: toText(entry.nextSteps),
+        closeReason: toText(entry.closeReason),
         estimatedCloseDate: toDateInputValue(entry.estimatedCloseDate),
         closedAt: toDateInputValue(entry.closedAt)
       };
@@ -494,8 +528,10 @@ function serializePipelineDraft(draft: PipelineDraft) {
         stage: opportunity.stage,
         likelihoodPercent: parseNullableNumber(opportunity.likelihoodPercent),
         amountUsd: parseNullableNumber(opportunity.amountUsd),
+        contractPriceUsd: parseNullableNumber(opportunity.contractPriceUsd),
         notes: opportunity.notes.trim() || null,
         nextSteps: opportunity.nextSteps.trim() || null,
+        closeReason: opportunity.closeReason.trim() || null,
         estimatedCloseDate: opportunity.estimatedCloseDate || null,
         closedAt: opportunity.closedAt || null
       }))
@@ -1313,7 +1349,13 @@ export function CompanyPipelineManager({
                 <label>Stage</label>
                 <select
                   value={opportunity.stage}
-                  onChange={(event) => updateOpportunity(index, { stage: event.target.value as OpportunityStage })}
+                  onChange={(event) => {
+                    const stage = event.target.value as OpportunityStage;
+                    updateOpportunity(index, {
+                      stage,
+                      likelihoodPercent: String(defaultLikelihoodForStage(stage))
+                    });
+                  }}
                 >
                   {opportunityStageOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -1365,6 +1407,18 @@ export function CompanyPipelineManager({
                 />
               </div>
               <div>
+                <label>Contract Price (USD)</label>
+                <input
+                  value={opportunity.contractPriceUsd}
+                  onChange={(event) => updateOpportunity(index, { contractPriceUsd: event.target.value })}
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <label>Duration (days)</label>
+                <input type="text" value={opportunity.durationDays || "Calculated from created date"} readOnly />
+              </div>
+              <div>
                 <label>Estimated Close</label>
                 <DateInputField
                   value={opportunity.estimatedCloseDate}
@@ -1376,6 +1430,14 @@ export function CompanyPipelineManager({
                 <DateInputField
                   value={opportunity.closedAt}
                   onChange={(nextValue) => updateOpportunity(index, { closedAt: nextValue })}
+                />
+              </div>
+              <div>
+                <label>Close Reason</label>
+                <input
+                  value={opportunity.closeReason}
+                  onChange={(event) => updateOpportunity(index, { closeReason: event.target.value })}
+                  placeholder="Reason for won/lost outcome"
                 />
               </div>
             </div>

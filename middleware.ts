@@ -7,6 +7,7 @@ function isPublicRoute(pathname: string) {
   return (
     pathname === "/sign-in" ||
     pathname.startsWith("/api/auth/") ||
+    pathname.startsWith("/api/addons/gmail/") ||
     pathname.startsWith("/survey/live/") ||
     pathname.startsWith("/api/screening-surveys/live/")
   );
@@ -19,6 +20,7 @@ function isAdminRoute(pathname: string) {
 function isWorkbenchPage(pathname: string) {
   return (
     pathname === "/health-systems" ||
+    pathname.startsWith("/contacts") ||
     pathname.startsWith("/co-investors") ||
     pathname.startsWith("/companies") ||
     pathname.startsWith("/narrative-agent") ||
@@ -30,6 +32,7 @@ function isWorkbenchPage(pathname: string) {
 function isWorkbenchApi(pathname: string) {
   return (
     pathname.startsWith("/api/health-systems") ||
+    pathname.startsWith("/api/contacts") ||
     pathname.startsWith("/api/co-investors") ||
     pathname.startsWith("/api/companies") ||
     pathname.startsWith("/api/narrative-agent") ||

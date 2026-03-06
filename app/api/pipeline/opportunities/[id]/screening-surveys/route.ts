@@ -39,6 +39,37 @@ const createSessionSchema = z
     }
   });
 
+function normalizePrompt(value: string | null | undefined) {
+  return (value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function applyDefaultScreeningOpportunityDriver<
+  T extends { promptOverride: string | null; drivesScreeningOpportunity: boolean }
+>(questions: T[]) {
+  if (questions.some((entry) => entry.drivesScreeningOpportunity)) {
+    return questions;
+  }
+
+  const defaultIndex = questions.findIndex((entry) => {
+    const normalized = normalizePrompt(entry.promptOverride);
+    return normalized.includes("co development") && normalized.includes("interested");
+  });
+
+  if (defaultIndex < 0) {
+    return questions;
+  }
+
+  return questions.map((entry, index) => ({
+    ...entry,
+    drivesScreeningOpportunity: index === defaultIndex
+  }));
+}
+
 function toSessionResponse(
   session: {
     id: string;
@@ -63,6 +94,7 @@ function toSessionResponse(
       categoryOverride: string | null;
       promptOverride: string | null;
       instructionsOverride: string | null;
+      drivesScreeningOpportunity: boolean;
       question: {
         id: string;
         category: string;
@@ -110,6 +142,7 @@ function toSessionResponse(
       category: entry.categoryOverride || entry.question.category,
       prompt: entry.promptOverride || entry.question.prompt,
       instructions: entry.instructionsOverride || entry.question.instructions,
+      drivesScreeningOpportunity: entry.drivesScreeningOpportunity,
       scaleMin: entry.question.scaleMin,
       scaleMax: entry.question.scaleMax
     }))
@@ -352,6 +385,7 @@ export async function POST(
         categoryOverride: string | null;
         promptOverride: string | null;
         instructionsOverride: string | null;
+        drivesScreeningOpportunity: boolean;
       }> = [];
 
       if (input.templateId) {
@@ -397,7 +431,8 @@ export async function POST(
           displayOrder: index,
           categoryOverride: entry.categoryOverride || entry.question.category,
           promptOverride: entry.promptOverride || entry.question.prompt,
-          instructionsOverride: entry.instructionsOverride || entry.question.instructions || null
+          instructionsOverride: entry.instructionsOverride || entry.question.instructions || null,
+          drivesScreeningOpportunity: false
         }));
       } else if (input.sourceSessionId) {
         const sourceSession = await tx.companyScreeningSurveySession.findUnique({
@@ -450,7 +485,8 @@ export async function POST(
           displayOrder: index,
           categoryOverride: entry.categoryOverride || entry.question.category,
           promptOverride: entry.promptOverride || entry.question.prompt,
-          instructionsOverride: entry.instructionsOverride || entry.question.instructions || null
+          instructionsOverride: entry.instructionsOverride || entry.question.instructions || null,
+          drivesScreeningOpportunity: entry.drivesScreeningOpportunity
         }));
       } else {
         const dedupedQuestionIds = Array.from(new Set(input.questionIds || []));
@@ -459,22 +495,30 @@ export async function POST(
             id: { in: dedupedQuestionIds },
             isActive: true
           },
-          select: { id: true }
+          select: {
+            id: true,
+            prompt: true
+          }
         });
 
         if (questions.length !== dedupedQuestionIds.length) {
           throw new Error("One or more selected questions are unavailable.");
         }
 
+        const questionById = new Map(questions.map((question) => [question.id, question] as const));
+
         sessionQuestions = dedupedQuestionIds.map((questionId, index) => ({
           questionId,
           templateQuestionId: null,
           displayOrder: index,
           categoryOverride: null,
-          promptOverride: null,
-          instructionsOverride: null
+          promptOverride: questionById.get(questionId)?.prompt || null,
+          instructionsOverride: null,
+          drivesScreeningOpportunity: false
         }));
       }
+
+      const normalizedSessionQuestions = applyDefaultScreeningOpportunityDriver(sessionQuestions);
 
       const now = new Date();
       if (input.openNow) {
@@ -503,14 +547,15 @@ export async function POST(
       });
 
       await tx.companyScreeningSurveySessionQuestion.createMany({
-        data: sessionQuestions.map((entry) => ({
+        data: normalizedSessionQuestions.map((entry) => ({
           sessionId: created.id,
           questionId: entry.questionId,
           templateQuestionId: entry.templateQuestionId,
           displayOrder: entry.displayOrder,
           categoryOverride: entry.categoryOverride,
           promptOverride: entry.promptOverride,
-          instructionsOverride: entry.instructionsOverride
+          instructionsOverride: entry.instructionsOverride,
+          drivesScreeningOpportunity: entry.drivesScreeningOpportunity
         }))
       });
 

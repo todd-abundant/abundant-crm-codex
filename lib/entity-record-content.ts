@@ -1,5 +1,13 @@
-import { type EntityKind, type User } from "@prisma/client";
+import { Prisma, type EntityKind, type User } from "@prisma/client";
 import { prisma } from "@/lib/db";
+
+export type EntityNoteAffiliationKind = "company" | "healthSystem" | "contact" | "opportunity";
+
+export type EntityNoteAffiliation = {
+  kind: EntityNoteAffiliationKind;
+  id: string;
+  label: string;
+};
 
 type EntityDocumentInput = {
   title: string;
@@ -11,6 +19,7 @@ type EntityDocumentInput = {
 type EntityNoteInput = {
   note: string;
   documentIds?: string[];
+  affiliations?: EntityNoteAffiliation[];
   createdByUserId?: string | null;
   createdByName?: string | null;
 };
@@ -32,6 +41,7 @@ type EntityNoteWithAttachments = {
   entityKind: EntityKind;
   entityId: string;
   note: string;
+  affiliations: unknown;
   createdByUserId: string | null;
   createdByName: string | null;
   createdAt: Date;
@@ -45,7 +55,8 @@ type EntityNoteWithAttachments = {
 const entityNotFoundMessageByKind: Record<EntityKind, string> = {
   HEALTH_SYSTEM: "Health system not found",
   CO_INVESTOR: "Co-investor not found",
-  COMPANY: "Company not found"
+  COMPANY: "Company not found",
+  CONTACT: "Contact not found"
 };
 
 function toNullableString(value?: string | null) {
@@ -58,6 +69,31 @@ function parseUploadedAt(value?: string | null) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return new Date();
   return parsed;
+}
+
+function parseAffiliationKind(value: string): EntityNoteAffiliationKind | null {
+  if (value === "company") return "company";
+  if (value === "healthSystem") return "healthSystem";
+  if (value === "contact") return "contact";
+  if (value === "opportunity") return "opportunity";
+  return null;
+}
+
+function normalizeEntityNoteAffiliations(value: unknown): EntityNoteAffiliation[] {
+  if (!Array.isArray(value)) return [];
+
+  const deduped = new Map<string, EntityNoteAffiliation>();
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const typed = entry as { kind?: unknown; id?: unknown; label?: unknown };
+    const kind = typeof typed.kind === "string" ? parseAffiliationKind(typed.kind) : null;
+    const id = typeof typed.id === "string" ? typed.id.trim() : "";
+    const label = typeof typed.label === "string" ? typed.label.trim() : "";
+    if (!kind || !id || !label) continue;
+    deduped.set(`${kind}:${id}`, { kind, id, label });
+  }
+
+  return Array.from(deduped.values());
 }
 
 function ensureTrimmedValue(value: string, fieldName: string) {
@@ -76,6 +112,11 @@ async function entityExists(entityKind: EntityKind, entityId: string) {
 
   if (entityKind === "CO_INVESTOR") {
     const record = await prisma.coInvestor.findUnique({ where: { id: entityId }, select: { id: true } });
+    return !!record;
+  }
+
+  if (entityKind === "CONTACT") {
+    const record = await prisma.contact.findUnique({ where: { id: entityId }, select: { id: true } });
     return !!record;
   }
 
@@ -128,6 +169,7 @@ function mapNote(note: EntityNoteWithAttachments) {
   return {
     id: note.id,
     note: note.note,
+    affiliations: normalizeEntityNoteAffiliations(note.affiliations),
     createdAt: note.createdAt,
     updatedAt: note.updatedAt,
     createdByUserId: note.createdByUserId,
@@ -237,12 +279,14 @@ export async function listEntityNotes(entityKind: EntityKind, entityId: string) 
 export async function createEntityNote(entityKind: EntityKind, entityId: string, input: EntityNoteInput) {
   const noteText = ensureTrimmedValue(input.note, "Note");
   const attachmentIds = await validateAttachmentDocuments(entityKind, entityId, input.documentIds || []);
+  const affiliations = normalizeEntityNoteAffiliations(input.affiliations);
 
   const created = await prisma.entityNote.create({
     data: {
       entityKind,
       entityId,
       note: noteText,
+      affiliations: affiliations.length > 0 ? affiliations : Prisma.DbNull,
       createdByUserId: input.createdByUserId || null,
       createdByName: toNullableString(input.createdByName),
       attachments:

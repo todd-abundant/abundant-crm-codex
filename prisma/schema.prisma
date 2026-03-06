@@ -129,6 +129,7 @@ enum CompanyIntakeDecision {
 enum CompanyDocumentType {
   INTAKE_REPORT
   SCREENING_REPORT
+  OPPORTUNITY_REPORT
   TERM_SHEET
   VENTURE_STUDIO_CONTRACT
   LOI
@@ -136,13 +137,31 @@ enum CompanyDocumentType {
   OTHER
 }
 
+enum CompanyReportType {
+  INTAKE
+  SCREENING
+  OPPORTUNITY
+}
+
+enum CompanyReportStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 enum EntityKind {
   HEALTH_SYSTEM
   CO_INVESTOR
   COMPANY
+  CONTACT
+}
+
+enum ExternalMessageProvider {
+  GMAIL
 }
 
 enum CompanyOpportunityType {
+  SCREENING_LOI
   VENTURE_STUDIO_SERVICES
   S1_TERM_SHEET
   COMMERCIAL_CONTRACT
@@ -444,39 +463,39 @@ model NextAction {
 }
 
 model Company {
-  id                       String                 @id @default(cuid())
-  name                     String
-  legalName                String?
-  website                  String?
-  headquartersCity         String?
-  headquartersState        String?
-  headquartersCountry      String?
-  companyType              CompanyType            @default(STARTUP)
-  primaryCategory          CompanyPrimaryCategory @default(OTHER)
-  primaryCategoryOther     String?
-  declineReason            CompanyDeclineReason?
-  declineReasonOther       String?
-  leadSourceType           CompanyLeadSourceType  @default(OTHER)
-  leadSourceHealthSystemId String?
-  leadSourceOther          String?
-  leadSourceNotes          String?
-  description              String?
-  atAGlanceProblem         String?
-  atAGlanceSolution        String?
-  atAGlanceImpact          String?
-  atAGlanceKeyStrengths    String?
+  id                         String                 @id @default(cuid())
+  name                       String
+  legalName                  String?
+  website                    String?
+  headquartersCity           String?
+  headquartersState          String?
+  headquartersCountry        String?
+  companyType                CompanyType            @default(STARTUP)
+  primaryCategory            CompanyPrimaryCategory @default(OTHER)
+  primaryCategoryOther       String?
+  declineReason              CompanyDeclineReason?
+  declineReasonOther         String?
+  leadSourceType             CompanyLeadSourceType  @default(OTHER)
+  leadSourceHealthSystemId   String?
+  leadSourceOther            String?
+  leadSourceNotes            String?
+  description                String?
+  atAGlanceProblem           String?
+  atAGlanceSolution          String?
+  atAGlanceImpact            String?
+  atAGlanceKeyStrengths      String?
   atAGlanceKeyConsiderations String?
-  googleTranscriptUrl      String?
-  spinOutOwnershipPercent  Decimal?               @db.Decimal(7, 2)
-  intakeStatus             CompanyIntakeStatus    @default(NOT_SCHEDULED)
-  intakeScheduledAt        DateTime?
-  screeningEvaluationAt    DateTime?
-  researchStatus           ResearchStatus         @default(DRAFT)
-  researchNotes            String?
-  researchError            String?
-  researchUpdatedAt        DateTime?
-  createdAt                DateTime               @default(now())
-  updatedAt                DateTime               @updatedAt
+  googleTranscriptUrl        String?
+  spinOutOwnershipPercent    Decimal?               @db.Decimal(7, 2)
+  intakeStatus               CompanyIntakeStatus    @default(NOT_SCHEDULED)
+  intakeScheduledAt          DateTime?
+  screeningEvaluationAt      DateTime?
+  researchStatus             ResearchStatus         @default(DRAFT)
+  researchNotes              String?
+  researchError              String?
+  researchUpdatedAt          DateTime?
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
 
   leadSourceHealthSystem HealthSystem? @relation("CompanyLeadSourceHealthSystem", fields: [leadSourceHealthSystemId], references: [id], onDelete: SetNull)
 
@@ -498,6 +517,7 @@ model Company {
   screeningSurveySessions       CompanyScreeningSurveySession[]
   fundraises                    CompanyFundraise[]
   marketLandscape               CompanyMarketLandscape?
+  reports                       CompanyReport[]
 
   @@index([name])
   @@index([companyType])
@@ -588,23 +608,23 @@ model CompanyPipeline {
 }
 
 model CompanyMarketLandscape {
-  id                  String  @id @default(cuid())
-  companyId           String  @unique
-  sectionLabel        String  @default("Market Landscape")
-  headline            String  @default("")
-  subheadline         String  @default("")
-  template            String  @default("CATEGORY_OVERVIEW")
-  xAxisLabel          String  @default("Product Category")
-  yAxisLabel          String  @default("Differentiation")
-  columnLabel1        String  @default("Adjacent Players")
-  columnLabel2        String  @default("Most Similar")
-  rowLabel1           String  @default("GI-Specific")
-  rowLabel2           String  @default("Generalist")
+  id                  String   @id @default(cuid())
+  companyId           String   @unique
+  sectionLabel        String   @default("Market Landscape")
+  headline            String   @default("")
+  subheadline         String   @default("")
+  template            String   @default("CATEGORY_OVERVIEW")
+  xAxisLabel          String   @default("Product Category")
+  yAxisLabel          String   @default("Differentiation")
+  columnLabel1        String   @default("Adjacent Players")
+  columnLabel2        String   @default("Most Similar")
+  rowLabel1           String   @default("GI-Specific")
+  rowLabel2           String   @default("Generalist")
   primaryFocusCellKey String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company Company                      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   cards   CompanyMarketLandscapeCard[]
 }
 
@@ -655,6 +675,34 @@ model CompanyDocument {
   @@index([companyId, type])
 }
 
+model CompanyReport {
+  id                   String              @id @default(cuid())
+  companyId            String
+  type                 CompanyReportType
+  status               CompanyReportStatus @default(DRAFT)
+  templateVersion      Int                 @default(1)
+  title                String
+  subtitle             String?
+  audienceLabel        String?
+  confidentialityLabel String?
+  periodStart          DateTime?
+  periodEnd            DateTime?
+  sourceSnapshotJson   Json
+  sectionStateJson     Json
+  renderedHtml         String?
+  publishedAt          DateTime?
+  createdByUserId      String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  company       Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdByUser User?   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+  @@index([companyId, type, status, createdAt])
+  @@index([createdByUserId])
+}
+
 model EntityDocument {
   id         String     @id @default(cuid())
   entityKind EntityKind
@@ -673,20 +721,41 @@ model EntityDocument {
 }
 
 model EntityNote {
-  id         String     @id @default(cuid())
-  entityKind EntityKind
-  entityId   String
-  note       String
+  id              String     @id @default(cuid())
+  entityKind      EntityKind
+  entityId        String
+  note            String
+  affiliations    Json?
   createdByUserId String?
   createdByName   String?
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 
-  createdByUser User? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
-  attachments EntityNoteDocument[]
+  createdByUser User?                @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  attachments   EntityNoteDocument[]
 
   @@index([entityKind, entityId, createdAt])
   @@index([createdByUserId])
+}
+
+model ExternalMessageCapture {
+  id                String                  @id @default(cuid())
+  provider          ExternalMessageProvider
+  externalMessageId String
+  threadId          String?
+  internetMessageId String?
+  entityKind        EntityKind
+  entityId          String
+  noteId            String?
+  capturedByUserId  String?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  capturedByUser User? @relation(fields: [capturedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, externalMessageId, entityKind, entityId])
+  @@index([entityKind, entityId, createdAt])
+  @@index([capturedByUserId])
 }
 
 model EntityNoteDocument {
@@ -710,18 +779,37 @@ model CompanyOpportunity {
   stage              CompanyOpportunityStage @default(IDENTIFIED)
   likelihoodPercent  Int?
   amountUsd          Decimal?                @db.Decimal(16, 2)
+  contractPriceUsd   Decimal?                @db.Decimal(16, 2)
+  durationDays       Int?
   notes              String?
   nextSteps          String?
+  closeReason        String?
   estimatedCloseDate DateTime?
   closedAt           DateTime?
   createdAt          DateTime                @default(now())
   updatedAt          DateTime                @updatedAt
 
-  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  healthSystem HealthSystem? @relation(fields: [healthSystemId], references: [id], onDelete: SetNull)
+  company      Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  healthSystem HealthSystem?               @relation(fields: [healthSystemId], references: [id], onDelete: SetNull)
+  contacts     CompanyOpportunityContact[]
 
   @@index([companyId, type])
   @@index([healthSystemId])
+}
+
+model CompanyOpportunityContact {
+  id            String   @id @default(cuid())
+  opportunityId String
+  contactId     String
+  role          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  opportunity CompanyOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  contact     Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([opportunityId, contactId])
+  @@index([contactId])
 }
 
 model CompanyScreeningEvent {
@@ -868,10 +956,10 @@ model CompanyScreeningSurveyQuestion {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  createdByUser    User?                                   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUser     User?                                    @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   templateQuestions CompanyScreeningSurveyTemplateQuestion[]
-  sessionQuestions CompanyScreeningSurveySessionQuestion[]
-  answers          CompanyScreeningSurveyAnswer[]
+  sessionQuestions  CompanyScreeningSurveySessionQuestion[]
+  answers           CompanyScreeningSurveyAnswer[]
 
   @@index([category, isActive])
   @@index([createdByUserId])
@@ -888,7 +976,7 @@ model CompanyScreeningSurveyTemplate {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  createdByUser User?                                  @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUser User?                                    @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   questions     CompanyScreeningSurveyTemplateQuestion[]
   sessions      CompanyScreeningSurveySession[]
   answers       CompanyScreeningSurveyAnswer[]
@@ -908,8 +996,8 @@ model CompanyScreeningSurveyTemplateQuestion {
   instructionsOverride String?
   createdAt            DateTime @default(now())
 
-  template         CompanyScreeningSurveyTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  question         CompanyScreeningSurveyQuestion  @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  template         CompanyScreeningSurveyTemplate          @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  question         CompanyScreeningSurveyQuestion          @relation(fields: [questionId], references: [id], onDelete: Restrict)
   sessionQuestions CompanyScreeningSurveySessionQuestion[]
   answers          CompanyScreeningSurveyAnswer[]
 
@@ -945,18 +1033,19 @@ model CompanyScreeningSurveySession {
 }
 
 model CompanyScreeningSurveySessionQuestion {
-  id               String   @id @default(cuid())
-  sessionId        String
-  questionId       String
-  templateQuestionId String?
-  displayOrder     Int      @default(0)
-  categoryOverride String?
-  promptOverride   String?
-  instructionsOverride String?
-  createdAt        DateTime @default(now())
+  id                         String   @id @default(cuid())
+  sessionId                  String
+  questionId                 String
+  templateQuestionId         String?
+  displayOrder               Int      @default(0)
+  categoryOverride           String?
+  promptOverride             String?
+  instructionsOverride       String?
+  drivesScreeningOpportunity Boolean  @default(false)
+  createdAt                  DateTime @default(now())
 
-  session          CompanyScreeningSurveySession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  question         CompanyScreeningSurveyQuestion         @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  session          CompanyScreeningSurveySession           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question         CompanyScreeningSurveyQuestion          @relation(fields: [questionId], references: [id], onDelete: Restrict)
   templateQuestion CompanyScreeningSurveyTemplateQuestion? @relation(fields: [templateQuestionId], references: [id], onDelete: SetNull)
   answers          CompanyScreeningSurveyAnswer[]
 
@@ -989,23 +1078,23 @@ model CompanyScreeningSurveySubmission {
 }
 
 model CompanyScreeningSurveyAnswer {
-  id                String   @id @default(cuid())
-  sessionId         String
-  templateId        String?
-  submissionId      String
-  sessionQuestionId String
+  id                 String   @id @default(cuid())
+  sessionId          String
+  templateId         String?
+  submissionId       String
+  sessionQuestionId  String
   templateQuestionId String?
-  questionId        String
-  score             Int?
-  isSkipped         Boolean  @default(false)
-  createdAt         DateTime @default(now())
+  questionId         String
+  score              Int?
+  isSkipped          Boolean  @default(false)
+  createdAt          DateTime @default(now())
 
-  session          CompanyScreeningSurveySession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  template         CompanyScreeningSurveyTemplate?        @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  submission       CompanyScreeningSurveySubmission       @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  sessionQuestion  CompanyScreeningSurveySessionQuestion  @relation(fields: [sessionQuestionId], references: [id], onDelete: Cascade)
+  session          CompanyScreeningSurveySession           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  template         CompanyScreeningSurveyTemplate?         @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  submission       CompanyScreeningSurveySubmission        @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  sessionQuestion  CompanyScreeningSurveySessionQuestion   @relation(fields: [sessionQuestionId], references: [id], onDelete: Cascade)
   templateQuestion CompanyScreeningSurveyTemplateQuestion? @relation(fields: [templateQuestionId], references: [id], onDelete: SetNull)
-  question         CompanyScreeningSurveyQuestion         @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  question         CompanyScreeningSurveyQuestion          @relation(fields: [questionId], references: [id], onDelete: Restrict)
 
   @@unique([submissionId, sessionQuestionId])
   @@index([sessionId, questionId])
@@ -1059,6 +1148,12 @@ enum ContactRoleType {
   OTHER
 }
 
+enum ContactPrincipalEntityType {
+  HEALTH_SYSTEM
+  CO_INVESTOR
+  COMPANY
+}
+
 enum UserRole {
   EXECUTIVE
   USER
@@ -1066,19 +1161,22 @@ enum UserRole {
 }
 
 model Contact {
-  id          String   @id @default(cuid())
-  name        String
-  title       String?
-  email       String?
-  phone       String?
-  linkedinUrl String?
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                  String                      @id @default(cuid())
+  name                String
+  title               String?
+  email               String?
+  phone               String?
+  linkedinUrl         String?
+  notes               String?
+  principalEntityType ContactPrincipalEntityType?
+  principalEntityId   String?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
 
   healthSystemLinks                    ContactHealthSystem[]
   companyLinks                         ContactCompany[]
   coInvestorLinks                      ContactCoInvestor[]
+  companyOpportunityContacts           CompanyOpportunityContact[]
   companyScreeningParticipants         CompanyScreeningParticipant[]
   companyScreeningQuantitativeFeedback CompanyScreeningQuantitativeFeedback[]
   companyScreeningQualitativeFeedback  CompanyScreeningQualitativeFeedback[]
@@ -1086,6 +1184,7 @@ model Contact {
 
   @@index([name])
   @@index([email])
+  @@index([principalEntityType, principalEntityId])
 }
 
 model User {
@@ -1103,7 +1202,9 @@ model User {
   companyScreeningSurveyQuestions CompanyScreeningSurveyQuestion[]
   companyScreeningSurveyTemplates CompanyScreeningSurveyTemplate[]
   companyScreeningSurveySessions  CompanyScreeningSurveySession[]
+  companyReports                  CompanyReport[]
   entityNotes                     EntityNote[]
+  externalMessageCaptures         ExternalMessageCapture[]
 
   @@index([isActive])
 }
