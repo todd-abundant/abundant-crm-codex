@@ -70,6 +70,18 @@ type ScreeningQuantitativeFeedback = {
   weightPercent: number | null;
   notes: string | null;
   updatedAt: string;
+  isDeprecatedQuestion?: boolean;
+};
+
+type SupplementalQuantitativeResponse = {
+  id: string;
+  contactName: string;
+  contactTitle: string | null;
+  institutionName: string;
+  category: string | null;
+  metric: string;
+  score: number | null;
+  isDeprecatedQuestion?: boolean;
 };
 
 type ScreeningQualitativeFeedback = {
@@ -174,6 +186,7 @@ type PipelineOpportunityDetail = {
   notes: PipelineOpportunityNote[];
   screening: {
     healthSystems: ScreeningHealthSystem[];
+    supplementalQuantitativeResponses?: SupplementalQuantitativeResponse[];
   };
 };
 
@@ -430,6 +443,62 @@ function normalizeMetricKey(metric: string) {
   return metric.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function normalizeCategoryKey(category: string | null | undefined) {
+  return normalizeMetricKey(category || "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function canonicalizeQuantitativeCategory(category: string | null | undefined) {
+  const raw = (category || "Uncategorized").trim();
+  const normalized = normalizeCategoryKey(raw);
+  if (!normalized) return raw;
+
+  const exactAliasMap: Record<string, string> = {
+    "co development interest": "Co-Development",
+    "co development": "Co-Development",
+    "co-development interest": "Co-Development",
+    "co-development": "Co-Development",
+    "desirability": "Desirability",
+    "esirability": "Desirability",
+    "desirable": "Desirability",
+    "desireability": "Desirability",
+    "feasibility": "Feasibility",
+    "feasability": "Feasibility",
+    "feasablity": "Feasibility",
+    "feasabilty": "Feasibility",
+    "feasabiltiy": "Feasibility",
+    "feasible": "Feasibility",
+    impact: "Impact and Viability",
+    viability: "Impact and Viability",
+    "impactandviability": "Impact and Viability",
+    "impact and viability": "Impact and Viability"
+  };
+
+  if (exactAliasMap[normalized]) {
+    return exactAliasMap[normalized];
+  }
+
+  if (normalized.includes("co") && normalized.includes("develop")) {
+    return "Co-Development";
+  }
+
+  if (normalized.includes("feas")) {
+    return "Feasibility";
+  }
+
+  if (normalized.includes("desir")) {
+    return "Desirability";
+  }
+
+  if (normalized.includes("impact") || normalized.includes("viabil")) {
+    return "Impact and Viability";
+  }
+
+  return raw;
+}
+
 function sanitizeQuantitativeQuestionCategories(raw: unknown): QuantitativeQuestionCategory[] | null {
   if (!Array.isArray(raw)) return null;
 
@@ -450,7 +519,7 @@ function sanitizeQuantitativeQuestionCategories(raw: unknown): QuantitativeQuest
 
     categories.push({
       category,
-      questions: questions.length > 0 ? questions : ["Untitled question"]
+      questions
     });
   }
 
@@ -460,44 +529,84 @@ function sanitizeQuantitativeQuestionCategories(raw: unknown): QuantitativeQuest
 
 function mergeQuantitativeQuestionsWithFeedback(
   source: QuantitativeQuestionCategory[],
-  healthSystems: ScreeningHealthSystem[]
+  healthSystems: ScreeningHealthSystem[],
+  supplementalResponses: SupplementalQuantitativeResponse[] = []
 ) {
   const normalizedQuestionSetByCategory = new Map<string, Set<string>>();
   const sectionByCategory = new Map<string, QuantitativeQuestionCategory>();
 
   for (const section of source) {
-    const category = section.category.trim();
+    const category = canonicalizeQuantitativeCategory(section.category);
     if (!category) continue;
+    const normalizedCategory = normalizeCategoryKey(category);
     const questions = section.questions
       .map((question) => question.trim())
       .filter((question) => question.length > 0);
     const normalizedQuestions = new Set(questions.map((question) => normalizeMetricKey(question)));
 
-    normalizedQuestionSetByCategory.set(category, normalizedQuestions);
-    sectionByCategory.set(category, {
-      category,
-      questions: questions.length > 0 ? questions : ["Untitled question"]
-    });
+    const existingSection = sectionByCategory.get(normalizedCategory);
+    if (!existingSection) {
+      normalizedQuestionSetByCategory.set(normalizedCategory, normalizedQuestions);
+      sectionByCategory.set(normalizedCategory, {
+        category,
+        questions
+      });
+    } else {
+      const mergedQuestions = new Set<string>(existingSection.questions.map((question) => normalizeMetricKey(question)));
+      for (const question of questions) {
+        const normalizedQuestion = normalizeMetricKey(question);
+        if (mergedQuestions.has(normalizedQuestion)) continue;
+        mergedQuestions.add(normalizedQuestion);
+        existingSection.questions.push(question);
+      }
+      normalizedQuestionSetByCategory.set(
+        normalizedCategory,
+        new Set(Array.from(existingSection.questions).map((question) => normalizeMetricKey(question)))
+      );
+    }
   }
 
   for (const healthSystem of healthSystems) {
     for (const entry of healthSystem.quantitativeFeedback) {
-      const category = entry.category?.trim() || "Uncategorized";
+      if (entry.isDeprecatedQuestion && (entry.score === null || !Number.isFinite(entry.score))) continue;
+      const category = canonicalizeQuantitativeCategory(entry.category?.trim() || "Uncategorized");
+      const normalizedCategory = normalizeCategoryKey(category);
       const metric = entry.metric?.trim() || "Untitled question";
       const normalizedMetric = normalizeMetricKey(metric);
 
-      let section = sectionByCategory.get(category);
+      let section = sectionByCategory.get(normalizedCategory);
       if (!section) {
         section = { category, questions: [] };
-        sectionByCategory.set(category, section);
+        sectionByCategory.set(normalizedCategory, section);
       }
 
-      const normalizedQuestions = normalizedQuestionSetByCategory.get(category) || new Set<string>();
+      const normalizedQuestions = normalizedQuestionSetByCategory.get(normalizedCategory) || new Set<string>();
       if (!normalizedQuestions.has(normalizedMetric)) {
         section.questions.push(metric);
         normalizedQuestions.add(normalizedMetric);
-        normalizedQuestionSetByCategory.set(category, normalizedQuestions);
+        normalizedQuestionSetByCategory.set(normalizedCategory, normalizedQuestions);
       }
+    }
+  }
+
+  for (const entry of supplementalResponses) {
+    if (entry.isDeprecatedQuestion && (entry.score === null || !Number.isFinite(entry.score))) continue;
+    const category = canonicalizeQuantitativeCategory(entry.category?.trim() || "Uncategorized");
+    const normalizedCategory = normalizeCategoryKey(category);
+    const metric = entry.metric?.trim() || "Untitled question";
+    const normalizedMetric = normalizeMetricKey(metric);
+
+    let section = sectionByCategory.get(normalizedCategory);
+    if (!section) {
+      section = { category, questions: [] };
+      sectionByCategory.set(normalizedCategory, section);
+    }
+
+    const normalizedQuestions = normalizedQuestionSetByCategory.get(normalizedCategory) || new Set<string>();
+    if (!normalizedQuestions.has(normalizedMetric)) {
+      section.questions.push(metric);
+      normalizedQuestions.add(normalizedMetric);
+      normalizedQuestionSetByCategory.set(normalizedCategory, normalizedQuestions);
     }
   }
 
@@ -1111,7 +1220,7 @@ export function PipelineOpportunityDetailView({
     }
 
     setQuantitativeQuestionsReady(false);
-    const storageKey = `abundant:quantitative-question-set:${item.id}`;
+    const storageKey = `abundant:quantitative-question-set:v2:${item.id}`;
     let source = cloneQuantitativeQuestionCategories(defaultQuantitativeQuestionCategories);
 
     if (typeof window !== "undefined") {
@@ -1128,14 +1237,18 @@ export function PipelineOpportunityDetailView({
     }
 
     setQuantitativeQuestionCategories(
-      mergeQuantitativeQuestionsWithFeedback(source, item.screening.healthSystems)
+      mergeQuantitativeQuestionsWithFeedback(
+        source,
+        item.screening.healthSystems,
+        item.screening.supplementalQuantitativeResponses || []
+      )
     );
     setQuantitativeQuestionsReady(true);
   }, [item?.id, item?.isScreeningStage, item?.screening.healthSystems]);
 
   React.useEffect(() => {
     if (!item?.isScreeningStage || !quantitativeQuestionsReady || typeof window === "undefined") return;
-    const storageKey = `abundant:quantitative-question-set:${item.id}`;
+    const storageKey = `abundant:quantitative-question-set:v2:${item.id}`;
     try {
       window.localStorage.setItem(storageKey, JSON.stringify(quantitativeQuestionCategories));
     } catch {
@@ -1198,7 +1311,6 @@ export function PipelineOpportunityDetailView({
     setQuantitativeQuestionCategories((current) =>
       current.map((section) => {
         if (section.category !== category) return section;
-        if (section.questions.length <= 1) return section;
         return {
           ...section,
           questions: section.questions.filter((_, index) => index !== questionIndex)
@@ -1212,7 +1324,8 @@ export function PipelineOpportunityDetailView({
     setQuantitativeQuestionCategories(
       mergeQuantitativeQuestionsWithFeedback(
         cloneQuantitativeQuestionCategories(defaultQuantitativeQuestionCategories),
-        item.screening.healthSystems
+        item.screening.healthSystems,
+        item.screening.supplementalQuantitativeResponses || []
       )
     );
     setStatus({ kind: "ok", text: "Quantitative question set reset to defaults." });
@@ -2277,7 +2390,7 @@ export function PipelineOpportunityDetailView({
       ventureLikelihoodPercent: Object.prototype.hasOwnProperty.call(input, "ventureLikelihoodPercent")
     };
     const debugContext = createDateDebugContext("pipeline-opportunity-detail.update", item.id);
-    const headers = {
+    const headers: Record<string, string> = {
       ...dateDebugHeaders("pipeline-opportunity-detail.update", item.id),
       "Content-Type": "application/json"
     };
@@ -3259,15 +3372,24 @@ export function PipelineOpportunityDetailView({
     };
 
     const responseMapByCategory = new Map<string, Map<string, QuantitativeResponseAggregate>>();
-    const questionCategoryNames = new Set(quantitativeQuestionCategories.map((section) => section.category));
+    const responseCategoryByKey = new Map<string, string>();
+    const questionCategoryNames = new Set(
+      quantitativeQuestionCategories.map((section) => normalizeCategoryKey(canonicalizeQuantitativeCategory(section.category)))
+    );
+    const supplementalQuantitativeResponses = item.screening.supplementalQuantitativeResponses || [];
 
     for (const healthSystem of item.screening.healthSystems) {
       for (const entry of healthSystem.quantitativeFeedback) {
-        const category = entry.category?.trim() || "Uncategorized";
+        if (entry.isDeprecatedQuestion && (entry.score === null || !Number.isFinite(entry.score))) continue;
+        const category = canonicalizeQuantitativeCategory(entry.category?.trim() || "Uncategorized");
+        const categoryKey = normalizeCategoryKey(category);
         const metric = entry.metric?.trim() || "Untitled question";
         const metricKey = normalizeMetricKey(metric);
         const categoryMap =
-          responseMapByCategory.get(category) || new Map<string, QuantitativeResponseAggregate>();
+          responseMapByCategory.get(categoryKey) || new Map<string, QuantitativeResponseAggregate>();
+        if (!responseCategoryByKey.has(categoryKey)) {
+          responseCategoryByKey.set(categoryKey, category);
+        }
         const row = categoryMap.get(metricKey) || {
           metric,
           responseCount: 0,
@@ -3286,13 +3408,47 @@ export function PipelineOpportunityDetailView({
         }
 
         categoryMap.set(metricKey, row);
-        responseMapByCategory.set(category, categoryMap);
+        responseMapByCategory.set(categoryKey, categoryMap);
       }
     }
 
+    for (const entry of supplementalQuantitativeResponses) {
+      if (entry.isDeprecatedQuestion && (entry.score === null || !Number.isFinite(entry.score))) continue;
+      const category = canonicalizeQuantitativeCategory(entry.category?.trim() || "Uncategorized");
+      const categoryKey = normalizeCategoryKey(category);
+      const metric = entry.metric?.trim() || "Untitled question";
+      const metricKey = normalizeMetricKey(metric);
+      const categoryMap =
+        responseMapByCategory.get(categoryKey) || new Map<string, QuantitativeResponseAggregate>();
+      if (!responseCategoryByKey.has(categoryKey)) {
+        responseCategoryByKey.set(categoryKey, category);
+      }
+      const row = categoryMap.get(metricKey) || {
+        metric,
+        responseCount: 0,
+        responses: []
+      };
+
+      row.responseCount += 1;
+      if (entry.score !== null && Number.isFinite(entry.score)) {
+        row.responses.push({
+          id: entry.id,
+          score: Math.max(1, Math.min(10, entry.score)),
+          contactName: entry.contactName?.trim() || "Unlinked individual",
+          contactTitle: entry.contactTitle,
+          institution: entry.institutionName || "Unlinked survey response"
+        });
+      }
+
+      categoryMap.set(metricKey, row);
+      responseMapByCategory.set(categoryKey, categoryMap);
+    }
+
     const sectionsFromQuestionSet = quantitativeQuestionCategories.map((section) => {
+      const canonicalCategory = canonicalizeQuantitativeCategory(section.category);
+      const categoryKey = normalizeCategoryKey(canonicalCategory);
       const categoryResponseMap =
-        responseMapByCategory.get(section.category) || new Map<string, QuantitativeResponseAggregate>();
+        responseMapByCategory.get(categoryKey) || new Map<string, QuantitativeResponseAggregate>();
       const questionKeySet = new Set(section.questions.map((question) => normalizeMetricKey(question)));
       const configuredRows: QuantitativeSlideQuestionRow[] = section.questions.map((question) => {
         const bucket = categoryResponseMap.get(normalizeMetricKey(question));
@@ -3337,7 +3493,7 @@ export function PipelineOpportunityDetailView({
           : null;
 
       return {
-        category: section.category,
+        category: canonicalCategory,
         categoryAverageScore,
         rows
       };
@@ -3348,6 +3504,7 @@ export function PipelineOpportunityDetailView({
     )
       .filter(([category]) => !questionCategoryNames.has(category))
       .map(([category, metrics]) => {
+        const categoryLabel = responseCategoryByKey.get(category) || category;
         const rows: QuantitativeSlideQuestionRow[] = Array.from(metrics.values())
           .map((bucket) => {
             const numericScores = bucket.responses.map((response) => response.score);
@@ -3371,13 +3528,75 @@ export function PipelineOpportunityDetailView({
             : null;
 
         return {
-          category,
+          category: categoryLabel,
           categoryAverageScore,
           rows
         };
       });
 
-    const sections = [...sectionsFromQuestionSet, ...sectionsFromResponseOnlyCategories]
+    const sectionsByCategory = new Map<string, QuantitativeSlideCategorySection>();
+    const mergeRowsByCategory = (target: QuantitativeSlideCategorySection, incoming: QuantitativeSlideCategorySection) => {
+      const metricByKey = new Map<string, QuantitativeSlideQuestionRow>([
+        ...target.rows.map((row) => [normalizeMetricKey(row.metric), row] as const)
+      ]);
+
+      for (const incomingRow of incoming.rows) {
+        const metricKey = normalizeMetricKey(incomingRow.metric);
+        const existingRow = metricByKey.get(metricKey);
+        if (!existingRow) {
+          target.rows.push(incomingRow);
+          metricByKey.set(metricKey, incomingRow);
+          continue;
+        }
+
+        const existingResponseById = new Map(
+          existingRow.responses.map((response) => [response.id, response] as const)
+        );
+        for (const response of incomingRow.responses) {
+          if (!existingResponseById.has(response.id)) {
+            existingRow.responses.push(response);
+          }
+        }
+        existingRow.responseCount = existingRow.responses.length;
+        const numericScores = existingRow.responses.map((response) => response.score);
+        existingRow.averageScore =
+          numericScores.length > 0
+            ? Math.round((numericScores.reduce((sum, score) => sum + score, 0) / numericScores.length) * 10) /
+              10
+            : null;
+      }
+
+      const categoryScores = target.rows.flatMap((row) => row.responses.map((response) => response.score));
+      target.categoryAverageScore =
+        categoryScores.length > 0
+          ? Math.round((categoryScores.reduce((sum, score) => sum + score, 0) / categoryScores.length) * 10) / 10
+          : null;
+      target.rows.sort((a, b) => a.metric.localeCompare(b.metric));
+      target.rows.sort((a, b) => {
+        const left = normalizeMetricKey(a.metric);
+        const right = normalizeMetricKey(b.metric);
+        if (left !== right) return left.localeCompare(right);
+        if (a.isUnmapped !== b.isUnmapped) return a.isUnmapped ? 1 : -1;
+        return a.metric.localeCompare(b.metric);
+      });
+    };
+
+    for (const section of [...sectionsFromQuestionSet, ...sectionsFromResponseOnlyCategories]) {
+      if (section.rows.length === 0) continue;
+      const categoryKey = normalizeCategoryKey(canonicalizeQuantitativeCategory(section.category));
+      const existing = sectionsByCategory.get(categoryKey);
+      if (!existing) {
+        sectionsByCategory.set(categoryKey, {
+          category: section.category,
+          categoryAverageScore: section.categoryAverageScore,
+          rows: [...section.rows]
+        });
+        continue;
+      }
+      mergeRowsByCategory(existing, section);
+    }
+
+    const sections = Array.from(sectionsByCategory.values())
       .filter((section) => section.rows.length > 0)
       .sort((a, b) => compareQuantitativeCategoryName(a.category, b.category));
 
@@ -4689,7 +4908,6 @@ export function PipelineOpportunityDetailView({
                                       onClick={() =>
                                         removeQuantitativeQuestion(section.category, questionIndex)
                                       }
-                                      disabled={section.questions.length <= 1}
                                     >
                                       Remove
                                     </button>

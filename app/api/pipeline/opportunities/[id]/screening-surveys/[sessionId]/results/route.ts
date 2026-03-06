@@ -126,12 +126,6 @@ export async function GET(
           answer.sessionQuestion.question.instructions ||
           null;
         const displayOrder = configuredQuestion?.displayOrder ?? 0;
-
-        const categoryBucket = categoryAggregate.get(category) || { sum: 0, count: 0 };
-        categoryBucket.sum += answer.score;
-        categoryBucket.count += 1;
-        categoryAggregate.set(category, categoryBucket);
-
         const questionBucket = questionAggregate.get(answer.sessionQuestionId) || {
           sessionQuestionId: answer.sessionQuestionId,
           category,
@@ -141,8 +135,16 @@ export async function GET(
           sum: 0,
           count: 0
         };
-        questionBucket.sum += answer.score;
-        questionBucket.count += 1;
+        const isSkipped = answer.isSkipped || answer.score === null;
+        if (!isSkipped && answer.score !== null) {
+          const categoryBucket = categoryAggregate.get(category) || { sum: 0, count: 0 };
+          categoryBucket.sum += answer.score;
+          categoryBucket.count += 1;
+          categoryAggregate.set(category, categoryBucket);
+
+          questionBucket.sum += answer.score;
+          questionBucket.count += 1;
+        }
         questionAggregate.set(answer.sessionQuestionId, questionBucket);
 
         return {
@@ -152,14 +154,17 @@ export async function GET(
           category,
           prompt,
           instructions,
-          score: answer.score
+          score: answer.score,
+          isSkipped
         };
       });
 
+      const scoredAnswers = mappedAnswers.filter((entry) => !entry.isSkipped && entry.score !== null);
+      const skippedAnswerCount = mappedAnswers.length - scoredAnswers.length;
       const averageScore =
-        mappedAnswers.length > 0
+        scoredAnswers.length > 0
           ? Math.round(
-              (mappedAnswers.reduce((sum, entry) => sum + entry.score, 0) / mappedAnswers.length) * 10
+              (scoredAnswers.reduce((sum, entry) => sum + (entry.score || 0), 0) / scoredAnswers.length) * 10
             ) / 10
           : null;
 
@@ -173,7 +178,8 @@ export async function GET(
         contactTitle: submission.contact?.title || null,
         healthSystemId: submission.healthSystemId,
         healthSystemName: submission.healthSystem?.name || "Unlinked health system",
-        answerCount: mappedAnswers.length,
+        answerCount: scoredAnswers.length,
+        skippedAnswerCount,
         averageScore,
         answers: mappedAnswers
       };

@@ -996,7 +996,8 @@ model CompanyScreeningSurveyAnswer {
   sessionQuestionId String
   templateQuestionId String?
   questionId        String
-  score             Int
+  score             Int?
+  isSkipped         Boolean  @default(false)
   createdAt         DateTime @default(now())
 
   session          CompanyScreeningSurveySession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)

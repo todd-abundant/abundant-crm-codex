@@ -25,6 +25,53 @@ function toNumber(value: { toString(): string } | null | undefined) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function normalizeQuantitativeQuestionKey(value: string | null | undefined) {
+  return (value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function canonicalizeQuantitativeCategory(category: string | null | undefined) {
+  const raw = (category || "Uncategorized").trim();
+  const normalized = normalizeQuantitativeQuestionKey(raw);
+  if (!normalized) return raw;
+
+  const exactAliasMap: Record<string, string> = {
+    "co development interest": "Co-Development",
+    "co-development interest": "Co-Development",
+    "co development": "Co-Development",
+    "co-development": "Co-Development",
+    "desirability": "Desirability",
+    "desirable": "Desirability",
+    "desireability": "Desirability",
+    "esirability": "Desirability",
+    "feasability": "Feasibility",
+    "feasibility": "Feasibility",
+    "feasabiltiy": "Feasibility",
+    "feasabilty": "Feasibility",
+    "impact": "Impact and Viability",
+    "viability": "Impact and Viability",
+    "impact and viability": "Impact and Viability"
+  };
+
+  if (exactAliasMap[normalized]) return exactAliasMap[normalized];
+
+  if (normalized.includes("co") && normalized.includes("develop")) return "Co-Development";
+  if (normalized.includes("desir")) return "Desirability";
+  if (normalized.includes("feas")) return "Feasibility";
+  if (normalized.includes("impact") || normalized.includes("viabil")) return "Impact and Viability";
+
+  return raw;
+}
+
+function makeQuantitativeQuestionKey(category: string | null | undefined, metric: string | null | undefined) {
+  const canonicalCategory = canonicalizeQuantitativeCategory(category);
+  return `${normalizeQuantitativeQuestionKey(canonicalCategory)}::${normalizeQuantitativeQuestionKey(metric)}`;
+}
+
 function latestNoteEntry(notes: string | null | undefined) {
   const segments = (notes || "")
     .split(/\n{2,}/)
@@ -194,10 +241,143 @@ export async function GET(
     const phase = (company.pipeline?.phase || inferDefaultPhaseFromCompany(company)) as PipelinePhase;
     const column = mapPhaseToBoardColumn(phase);
 
-    const allianceHealthSystems = await prisma.healthSystem.findMany({
-      where: { isAllianceMember: true },
+    const attendeeHealthSystemIds = Array.from(
+      new Set(
+        company.screeningEvents.flatMap((event) =>
+          event.participants.map((participant) => participant.healthSystemId)
+        )
+      )
+    );
+    const screeningMatrixHealthSystems = await prisma.healthSystem.findMany({
+      where: {
+        OR: [
+          { isAllianceMember: true },
+          { id: { in: attendeeHealthSystemIds } }
+        ]
+      },
       select: { id: true, name: true },
       orderBy: [{ name: "asc" }]
+    });
+    const screeningSurveyQuestions = await prisma.companyScreeningSurveyQuestion.findMany({
+      select: {
+        category: true,
+        prompt: true,
+        isActive: true
+      }
+    });
+    const screeningSurveySessions = await prisma.companyScreeningSurveySession.findMany({
+      where: { companyId: id },
+      orderBy: [{ updatedAt: "desc" }],
+      select: {
+        id: true,
+        status: true,
+        updatedAt: true,
+        questions: {
+          orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+          select: {
+            categoryOverride: true,
+            promptOverride: true,
+            question: {
+              select: {
+                category: true,
+                prompt: true
+              }
+            }
+          }
+        }
+      }
+    });
+    const supplementalSurveyAnswers = await prisma.companyScreeningSurveyAnswer.findMany({
+      where: {
+        session: { companyId: id },
+        score: { not: null },
+        isSkipped: false,
+        submission: {
+          healthSystemId: null
+        }
+      },
+      orderBy: [{ createdAt: "desc" }],
+      select: {
+        id: true,
+        score: true,
+        submission: {
+          select: {
+            participantName: true,
+            participantEmail: true,
+            healthSystem: {
+              select: {
+                name: true
+              }
+            },
+            contact: {
+              select: {
+                name: true,
+                title: true
+              }
+            }
+          }
+        },
+        sessionQuestion: {
+          select: {
+            categoryOverride: true,
+            promptOverride: true,
+            question: {
+              select: {
+                category: true,
+                prompt: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    const activeQuestionKeys = new Set<string>();
+    const inactiveQuestionKeys = new Set<string>();
+    for (const question of screeningSurveyQuestions) {
+      const key = makeQuantitativeQuestionKey(question.category, question.prompt);
+      if (question.isActive) {
+        activeQuestionKeys.add(key);
+      } else {
+        inactiveQuestionKeys.add(key);
+      }
+    }
+
+    const activeSessionQuestionKeys = new Set<string>();
+    for (const session of screeningSurveySessions) {
+      for (const question of session.questions) {
+        const key = makeQuantitativeQuestionKey(
+          question.categoryOverride || question.question.category,
+          question.promptOverride || question.question.prompt
+        );
+        activeSessionQuestionKeys.add(key);
+      }
+    }
+
+    const supplementalQuantitativeResponses = supplementalSurveyAnswers.map((entry) => {
+      const category = canonicalizeQuantitativeCategory(
+        entry.sessionQuestion.categoryOverride || entry.sessionQuestion.question.category
+      );
+      const metric = entry.sessionQuestion.promptOverride || entry.sessionQuestion.question.prompt;
+      const key = makeQuantitativeQuestionKey(category, metric);
+      const score = toNumber(entry.score);
+      return {
+        id: entry.id,
+        contactName:
+          entry.submission.contact?.name ||
+          entry.submission.participantName ||
+          entry.submission.participantEmail ||
+          "Unknown participant",
+        contactTitle: entry.submission.contact?.title || null,
+        institutionName: entry.submission.healthSystem?.name || "Unlinked survey response",
+        category,
+        metric,
+        score,
+        isDeprecatedQuestion:
+          activeSessionQuestionKeys.size > 0
+            ? !activeSessionQuestionKeys.has(key)
+            : inactiveQuestionKeys.has(key) && !activeQuestionKeys.has(key)
+      };
     });
 
     const loiByHealthSystemId = new Map(
@@ -293,7 +473,7 @@ export async function GET(
       screeningCellChangesByHealthSystemId.set(change.healthSystemId, existing);
     }
 
-    const screeningHealthSystems = allianceHealthSystems.map((healthSystem) => {
+    const screeningHealthSystems = screeningMatrixHealthSystems.map((healthSystem) => {
       const loi = loiByHealthSystemId.get(healthSystem.id);
       const cellChanges = screeningCellChangesByHealthSystemId.get(healthSystem.id) || [];
       const relevantFeedbackHistory = cellChanges
@@ -355,18 +535,28 @@ export async function GET(
         })),
         quantitativeFeedback: (
           screeningQuantitativeFeedbackByHealthSystemId.get(healthSystem.id) || []
-        ).map((entry) => ({
-          id: entry.id,
-          contactId: entry.contactId,
-          contactName: entry.contact?.name || "Individual not linked",
-          contactTitle: entry.contact?.title || null,
-          category: entry.category,
-          metric: entry.metric,
-          score: toNumber(entry.score),
-          weightPercent: entry.weightPercent,
-          notes: entry.notes,
-          updatedAt: entry.updatedAt
-        })),
+        ).map((entry) => {
+          const canonicalCategory = canonicalizeQuantitativeCategory(entry.category);
+          return {
+            id: entry.id,
+            contactId: entry.contactId,
+            contactName: entry.contact?.name || "Individual not linked",
+            contactTitle: entry.contact?.title || null,
+            category: canonicalCategory,
+            metric: entry.metric,
+            score: toNumber(entry.score),
+            weightPercent: entry.weightPercent,
+            notes: entry.notes,
+            updatedAt: entry.updatedAt,
+            isDeprecatedQuestion: (() => {
+              const key = makeQuantitativeQuestionKey(canonicalCategory, entry.metric);
+              if (activeSessionQuestionKeys.size > 0) {
+                return !activeSessionQuestionKeys.has(key);
+              }
+              return inactiveQuestionKeys.has(key) && !activeQuestionKeys.has(key);
+            })()
+          };
+        }),
         qualitativeFeedback: (
           screeningQualitativeFeedbackByHealthSystemId.get(healthSystem.id) || []
         ).map((entry) => ({
@@ -436,7 +626,8 @@ export async function GET(
           createdByName: note.createdByName || note.createdByUser?.name || note.createdByUser?.email || "Unknown user"
         })),
         screening: {
-          healthSystems: screeningHealthSystems
+          healthSystems: screeningHealthSystems,
+          supplementalQuantitativeResponses
         }
       }
     });

@@ -18,7 +18,8 @@ const submitResponseSchema = z
       .array(
         z.object({
           sessionQuestionId: z.string().min(1),
-          score: z.number().int().min(0).max(10)
+          score: z.number().int().nullable().optional(),
+          skipped: z.boolean().optional().default(false)
         })
       )
       .min(1)
@@ -112,22 +113,35 @@ export async function POST(
         session.questions.map((entry) => [entry.id, entry] as const)
       );
 
-      const dedupedAnswers = new Map<string, { sessionQuestionId: string; score: number }>();
+      const dedupedAnswers = new Map<
+        string,
+        { sessionQuestionId: string; score: number | null; skipped: boolean }
+      >();
       for (const entry of input.answers) {
         if (dedupedAnswers.has(entry.sessionQuestionId)) {
           throw new Error("Duplicate survey answers detected.");
         }
-        dedupedAnswers.set(entry.sessionQuestionId, entry);
+        dedupedAnswers.set(entry.sessionQuestionId, {
+          sessionQuestionId: entry.sessionQuestionId,
+          score: entry.skipped ? null : (entry.score ?? null),
+          skipped: entry.skipped ?? false
+        });
       }
 
       if (dedupedAnswers.size !== session.questions.length) {
-        throw new Error("Every survey question must be answered.");
+        throw new Error("Every survey question must be scored or skipped.");
       }
 
       for (const answer of dedupedAnswers.values()) {
         const sessionQuestion = sessionQuestionById.get(answer.sessionQuestionId);
         if (!sessionQuestion) {
           throw new Error("Survey response includes unknown question.");
+        }
+        if (answer.skipped) {
+          continue;
+        }
+        if (answer.score === null) {
+          throw new Error("Every survey question must include a score or be skipped.");
         }
         if (answer.score < sessionQuestion.question.scaleMin || answer.score > sessionQuestion.question.scaleMax) {
           throw new Error("Survey response score is out of range.");
@@ -245,6 +259,7 @@ export async function POST(
           templateQuestionId: sessionQuestion.templateQuestionId || null,
           questionId: sessionQuestion.questionId,
           score: entry.score,
+          isSkipped: entry.skipped,
           metric: sessionQuestion.promptOverride || sessionQuestion.question.prompt,
           category: sessionQuestion.categoryOverride || sessionQuestion.question.category
         };
@@ -258,21 +273,25 @@ export async function POST(
           sessionQuestionId: row.sessionQuestionId,
           templateQuestionId: row.templateQuestionId,
           questionId: row.questionId,
-          score: row.score
+          score: row.score,
+          isSkipped: row.isSkipped
         }))
       });
 
-      await tx.companyScreeningQuantitativeFeedback.createMany({
-        data: answerRows.map((row) => ({
-          companyId: session.companyId,
-          healthSystemId: input.healthSystemId,
-          contactId,
-          category: row.category,
-          metric: row.metric,
-          score: row.score,
-          notes: `Captured via live screening survey: ${session.title}`
-        }))
-      });
+      const scoredRows = answerRows.filter((row) => !row.isSkipped && row.score !== null);
+      if (scoredRows.length > 0) {
+        await tx.companyScreeningQuantitativeFeedback.createMany({
+          data: scoredRows.map((row) => ({
+            companyId: session.companyId,
+            healthSystemId: input.healthSystemId,
+            contactId,
+            category: row.category,
+            metric: row.metric,
+            score: row.score,
+            notes: `Captured via live screening survey: ${session.title}`
+          }))
+        });
+      }
 
       await tx.companyScreeningQualitativeFeedback.create({
         data: {

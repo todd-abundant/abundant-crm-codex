@@ -592,7 +592,7 @@ export async function PATCH(
     });
 
     if (shouldDebug) {
-      const savedPipeline = pipeline.pipeline;
+      const savedPipeline = pipeline?.pipeline;
       const postUpdateClientState = debugClientUpdatedAtComparison(
         debugContext?.clientUpdatedAt || null,
         savedPipeline?.updatedAt || null

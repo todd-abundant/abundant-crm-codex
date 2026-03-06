@@ -189,6 +189,17 @@ function loadAnalysisProgressTimingsFromStorage(): AnalysisProgressTimingStore {
   }
 }
 
+async function parseJsonResponse<T>(response: Response): Promise<{ ok: boolean; payload: T }> {
+  const body = await response.text();
+  try {
+    return { ok: response.ok, payload: JSON.parse(body) as T };
+  } catch {
+    throw new Error(
+      `Server returned non-JSON response (${response.status}). First bytes: ${body.slice(0, 220).replace(/\s+/g, " ")}`
+    );
+  }
+}
+
 function saveAnalysisProgressTimingsToStorage(store: AnalysisProgressTimingStore) {
   if (typeof window === "undefined") return;
   try {
@@ -757,7 +768,7 @@ function recordProgressPhaseTiming(mode: AnalysisProgressMode, phase: string, el
         })
       });
 
-      const payload = (await response.json()) as AnalyzeResponse;
+      const { payload } = await parseJsonResponse<AnalyzeResponse>(response);
       if (!response.ok) {
         throw new Error(payload.error || "Failed to identify participants.");
       }
@@ -862,7 +873,7 @@ function recordProgressPhaseTiming(mode: AnalysisProgressMode, phase: string, el
         })
       });
 
-      const payload = (await response.json()) as AnalyzeResponse;
+      const { payload } = await parseJsonResponse<AnalyzeResponse>(response);
       if (!response.ok) {
         throw new Error(payload.error || "Failed to extract member quotes.");
       }
@@ -955,7 +966,7 @@ function recordProgressPhaseTiming(mode: AnalysisProgressMode, phase: string, el
         })
       });
 
-      const payload = (await response.json()) as SaveResponse;
+      const { payload } = await parseJsonResponse<SaveResponse>(response);
       if (!response.ok) {
         throw new Error(payload.error || "Failed to save insights.");
       }

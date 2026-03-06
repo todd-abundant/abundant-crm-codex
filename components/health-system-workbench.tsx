@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -1671,7 +1672,6 @@ export function HealthSystemWorkbench() {
               <div className="detail-head">
                 <div className="health-system-head-main">
                   {selectedRecord.logoUrl ? (
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       className="health-system-logo-preview"
                       src={selectedRecord.logoUrl}

@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import * as React from "react";
@@ -27,6 +28,11 @@ type LiveSurveyHealthSystem = {
   name: string;
 };
 
+type LiveSurveyAnswer = {
+  score: number;
+  skipped: boolean;
+};
+
 function midpoint(min: number, max: number) {
   return Math.round((min + max) / 2);
 }
@@ -41,14 +47,14 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
   const [session, setSession] = React.useState<LiveSurveySession | null>(null);
   const [questions, setQuestions] = React.useState<LiveSurveyQuestion[]>([]);
   const [healthSystems, setHealthSystems] = React.useState<LiveSurveyHealthSystem[]>([]);
-  const [answers, setAnswers] = React.useState<Record<string, number>>({});
+  const [answers, setAnswers] = React.useState<Record<string, LiveSurveyAnswer>>({});
   const [participantName, setParticipantName] = React.useState("");
   const [participantEmail, setParticipantEmail] = React.useState("");
   const [healthSystemId, setHealthSystemId] = React.useState("");
   const [impressions, setImpressions] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
   const [submitted, setSubmitted] = React.useState(false);
-  const [questionIndex, setQuestionIndex] = React.useState(0);
+  const [stepIndex, setStepIndex] = React.useState(0);
   const [slideDirection, setSlideDirection] = React.useState<"forward" | "backward">("forward");
   const [slideKey, setSlideKey] = React.useState(0);
 
@@ -81,12 +87,15 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
         setQuestions(nextQuestions);
         setHealthSystems(nextHealthSystems);
         setAnswers(
-          nextQuestions.reduce<Record<string, number>>((accumulator, question) => {
-            accumulator[question.sessionQuestionId] = midpoint(question.scaleMin, question.scaleMax);
+          nextQuestions.reduce<Record<string, LiveSurveyAnswer>>((accumulator, question) => {
+            accumulator[question.sessionQuestionId] = {
+              score: midpoint(question.scaleMin, question.scaleMax),
+              skipped: false
+            };
             return accumulator;
           }, {})
         );
-        setQuestionIndex(0);
+        setStepIndex(0);
         setSlideDirection("forward");
         setSlideKey(0);
         setImpressions("");
@@ -109,25 +118,51 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
   }, [token]);
 
   const questionCount = questions.length;
-  const totalSteps = questionCount > 0 ? questionCount + 1 : 0;
-  const currentQuestion = questionCount > 0 && questionIndex < questionCount ? questions[questionIndex] : null;
-  const isImpressionStep = questionCount > 0 && questionIndex === questionCount;
-  const progressPercent = totalSteps > 0 ? ((questionIndex + 1) / totalSteps) * 100 : 0;
-  const currentAnswerValue = currentQuestion ? answers[currentQuestion.sessionQuestionId] : 0;
+  const totalSteps = questionCount > 0 ? questionCount + 2 : 1;
+  const questionPosition = stepIndex - 1;
+  const isIntroStep = stepIndex === 0;
+  const currentQuestion =
+    questionCount > 0 && questionPosition >= 0 && questionPosition < questionCount
+      ? questions[questionPosition]
+      : null;
+  const isImpressionStep = questionCount > 0 && stepIndex === totalSteps - 1;
+  const progressPercent = totalSteps > 0 ? ((stepIndex + 1) / totalSteps) * 100 : 0;
+  const currentAnswer = currentQuestion ? answers[currentQuestion.sessionQuestionId] : null;
+  const currentAnswerValue = currentAnswer?.score ?? 0;
+  const progressLabel = isIntroStep
+    ? `Step 1 of ${totalSteps}`
+    : currentQuestion
+      ? `Question ${questionPosition + 1} of ${questionCount}`
+      : "Final Feedback";
 
-  function goToNextQuestion() {
+  function goToNextStep() {
     if (totalSteps === 0) return;
-    if (questionIndex >= totalSteps - 1) return;
+    if (stepIndex >= totalSteps - 1) return;
     setSlideDirection("forward");
-    setQuestionIndex((current) => current + 1);
+    setStepIndex((current) => current + 1);
     setSlideKey((current) => current + 1);
   }
 
-  function goToPreviousQuestion() {
-    if (questionIndex <= 0) return;
+  function goToPreviousStep() {
+    if (stepIndex <= 0) return;
     setSlideDirection("backward");
-    setQuestionIndex((current) => current - 1);
+    setStepIndex((current) => current - 1);
     setSlideKey((current) => current + 1);
+  }
+
+  function skipCurrentQuestion() {
+    if (!currentQuestion) return;
+    setAnswers((current) => {
+      const existing = current[currentQuestion.sessionQuestionId];
+      return {
+        ...current,
+        [currentQuestion.sessionQuestionId]: {
+          score: existing?.score ?? midpoint(currentQuestion.scaleMin, currentQuestion.scaleMax),
+          skipped: true
+        }
+      };
+    });
+    goToNextStep();
   }
 
   async function submitSurvey() {
@@ -166,7 +201,11 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
           impressions: impressionText,
           answers: questions.map((question) => ({
             sessionQuestionId: question.sessionQuestionId,
-            score: answers[question.sessionQuestionId]
+            score: answers[question.sessionQuestionId]?.skipped
+              ? null
+              : (answers[question.sessionQuestionId]?.score ??
+                midpoint(question.scaleMin, question.scaleMax)),
+            skipped: answers[question.sessionQuestionId]?.skipped ?? false
           }))
         })
       });
@@ -188,7 +227,6 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
     <main className="live-survey-main">
       <section className="live-survey-card">
         <div className="live-survey-brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/icon.svg" alt="Abundant logo" className="live-survey-logo" />
           <div>
             <p className="live-survey-eyebrow">Abundant Webinar Survey</p>
@@ -251,25 +289,80 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
 
             {questionCount > 0 ? (
               <>
+                <p className="live-survey-skip-tip">
+                  Use the <strong>Skip</strong> button if you are not the right person to answer a
+                  question.
+                </p>
                 <div className="live-survey-progress-meta">
-                  <strong>{`Question ${Math.min(questionIndex + 1, totalSteps)} of ${totalSteps}`}</strong>
+                  <strong>{progressLabel}</strong>
                   <span>{`${Math.round(progressPercent)}% complete`}</span>
                 </div>
-                <div className="live-survey-progress-track" role="progressbar" aria-valuenow={Math.round(progressPercent)} aria-valuemin={0} aria-valuemax={100}>
+                <div
+                  className="live-survey-progress-track"
+                  role="progressbar"
+                  aria-valuenow={Math.round(progressPercent)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
                   <span className="live-survey-progress-fill" style={{ width: `${progressPercent}%` }} />
                 </div>
 
-                {currentQuestion ? (
+                {isIntroStep ? (
+                  <div
+                    key={`intro-step-${slideKey}`}
+                    className={`live-survey-question-stage ${
+                      slideDirection === "forward" ? "slide-forward" : "slide-backward"
+                    }`}
+                  >
+                    <span className="live-survey-category-chip">Instructions</span>
+                    <h2>Before you begin</h2>
+                    <p className="live-survey-question-instructions">
+                      Please answer each question with a score from the slider. If a question is better
+                      answered by someone else, use <strong>Skip</strong>.
+                    </p>
+                    <ul className="live-survey-instruction-list">
+                      <li>Skip is available on every question.</li>
+                      <li>Skipped questions are captured and excluded from score averages.</li>
+                      <li>You can go back at any time before submitting.</li>
+                    </ul>
+                    <div className="live-survey-nav">
+                      <span />
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={goToNextStep}
+                        disabled={submitting}
+                      >
+                        Start Survey
+                      </button>
+                    </div>
+                  </div>
+                ) : currentQuestion ? (
                   <div
                     key={`${currentQuestion.sessionQuestionId}-${slideKey}`}
                     className={`live-survey-question-stage ${
                       slideDirection === "forward" ? "slide-forward" : "slide-backward"
                     }`}
                   >
-                    <span className="live-survey-category-chip">{currentQuestion.category}</span>
+                    <div className="live-survey-question-head">
+                      <span className="live-survey-category-chip">{currentQuestion.category}</span>
+                      <button
+                        type="button"
+                        className="live-survey-skip-button"
+                        onClick={skipCurrentQuestion}
+                        disabled={submitting}
+                      >
+                        Skip
+                      </button>
+                    </div>
                     <h2>{currentQuestion.prompt}</h2>
                     {currentQuestion.instructions ? (
                       <p className="live-survey-question-instructions">{currentQuestion.instructions}</p>
+                    ) : null}
+                    {currentAnswer?.skipped ? (
+                      <p className="live-survey-question-instructions">
+                        This question is currently marked as skipped.
+                      </p>
                     ) : null}
                     <div className="live-survey-scale">
                       <span>{currentQuestion.scaleMin}</span>
@@ -282,11 +375,14 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
                         onChange={(event) =>
                           setAnswers((current) => ({
                             ...current,
-                            [currentQuestion.sessionQuestionId]: clamp(
-                              event.target.valueAsNumber,
-                              currentQuestion.scaleMin,
-                              currentQuestion.scaleMax
-                            )
+                            [currentQuestion.sessionQuestionId]: {
+                              score: clamp(
+                                event.target.valueAsNumber,
+                                currentQuestion.scaleMin,
+                                currentQuestion.scaleMax
+                              ),
+                              skipped: false
+                            }
                           }))
                         }
                       />
@@ -297,13 +393,13 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
                       <button
                         type="button"
                         className="ghost"
-                        onClick={goToPreviousQuestion}
-                        disabled={questionIndex === 0 || submitting}
+                        onClick={goToPreviousStep}
+                        disabled={stepIndex === 0 || submitting}
                       >
                         Back
                       </button>
-                      <button type="button" className="secondary" onClick={goToNextQuestion} disabled={submitting}>
-                        {questionIndex < questionCount - 1 ? "Next" : "Final Question"}
+                      <button type="button" className="secondary" onClick={goToNextStep} disabled={submitting}>
+                        {questionPosition < questionCount - 1 ? "Next" : "Final Question"}
                       </button>
                     </div>
                   </div>
@@ -335,8 +431,8 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
                       <button
                         type="button"
                         className="ghost"
-                        onClick={goToPreviousQuestion}
-                        disabled={questionIndex === 0 || submitting}
+                        onClick={goToPreviousStep}
+                        disabled={stepIndex === 0 || submitting}
                       >
                         Back
                       </button>

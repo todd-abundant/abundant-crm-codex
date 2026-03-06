@@ -13,59 +13,52 @@ type SurveySeedQuestion = {
 
 export const standardScreeningSurveyQuestions: SurveySeedQuestion[] = [
   {
-    category: "DESIRABILITY",
-    prompt: "How does what has been described align with the challenges you are facing?"
+    category: "Desirability",
+    prompt: "How urgent is the underlying problem for your organization?"
   },
   {
-    category: "DESIRABILITY",
-    prompt: "What is your organization's current competency in solving this problem?"
+    category: "Desirability",
+    prompt: "How clear is the value proposition for clinicians and operators?"
   },
   {
-    category: "DESIRABILITY",
-    prompt: "How desirable is this solution for your organization?"
+    category: "Desirability",
+    prompt: "How likely is your team to champion adoption internally?"
   },
   {
-    category: "DESIRABILITY",
-    prompt: "Is this a top-three strategic priority for your organization in the next 18 months?"
+    category: "Feasibility",
+    prompt: "How feasible is implementation with current workflow and resources?"
   },
   {
-    category: "FEASABILITY",
-    prompt:
-      "Overall, how feasible would it be for your organization to implement a solution like this in the next year given resourcing and governance?"
+    category: "Feasibility",
+    prompt: "How realistic is integration with existing systems (Epic/EHR/data)?"
   },
   {
-    category: "FEASABILITY",
-    prompt: "How feasible would it be to implement this solution from an IT perspective?"
+    category: "Feasibility",
+    prompt: "How manageable is change management for frontline teams?"
   },
   {
-    category: "FEASABILITY",
-    prompt: "How feasible would it be to implement this solution from a clinical perspective?"
+    category: "Impact and Viability",
+    prompt: "How strong is expected clinical and operational impact?"
   },
   {
-    category: "VIABILITY",
-    prompt: "How differentiated is this solution from others you've evaluated or have in place today?"
+    category: "Impact and Viability",
+    prompt: "How compelling is expected ROI over the next 12-24 months?"
   },
   {
-    category: "VIABILITY",
-    prompt: "How attractive is the business model for a health system customer?"
+    category: "Impact and Viability",
+    prompt: "How durable is the model for long-term adoption and scale?"
   },
   {
-    category: "IMPACT",
-    prompt: "What magnitude of ROI do you anticipate seeing from this solution?"
+    category: "Co-Development",
+    prompt: "How interested is your organization in co-development participation?"
   },
   {
-    category: "IMPACT",
-    prompt: "How confident are you in your ability to measure ROI for this solution?"
+    category: "Co-Development",
+    prompt: "How prepared is your team to share data and feedback loops?"
   },
   {
-    category: "CO-DEVELOPMENT INTEREST",
-    prompt:
-      "If you are the right stakeholder to participate in co-development, how interested are you in being a co-development partner?"
-  },
-  {
-    category: "CO-DEVELOPMENT INTEREST",
-    prompt:
-      "If you are not the right stakeholder at your organization, how likely are you to bring forward this co-development opportunity to key stakeholders?"
+    category: "Co-Development",
+    prompt: "How aligned are incentives for pilot design and governance?"
   }
 ];
 

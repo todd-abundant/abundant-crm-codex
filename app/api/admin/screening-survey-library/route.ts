@@ -57,6 +57,8 @@ export async function GET(request: Request) {
             by: ["templateId"],
             where: {
               templateId: { in: templateIds },
+              isSkipped: false,
+              score: { not: null },
               ...(questionId ? { questionId } : {})
             },
             _count: {
@@ -120,7 +122,12 @@ export async function GET(request: Request) {
     const questionAnswerWhere: {
       templateId?: string | { in: string[] };
       questionId?: string;
-    } = {};
+      isSkipped?: boolean;
+      score?: { not: null };
+    } = {
+      isSkipped: false,
+      score: { not: null }
+    };
 
     if (templateId) {
       questionAnswerWhere.templateId = templateId;

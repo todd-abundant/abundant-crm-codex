@@ -824,7 +824,7 @@ export function CompanyPipelineManager({
       s1InvestmentAt: Object.prototype.hasOwnProperty.call(requestPayload, "s1InvestmentAt"),
       portfolioAddedAt: Object.prototype.hasOwnProperty.call(requestPayload, "portfolioAddedAt")
     };
-    const headers = {
+    const headers: Record<string, string> = {
       ...dateDebugHeaders("company-pipeline-manager.save", companyId),
       "Content-Type": "application/json"
     };

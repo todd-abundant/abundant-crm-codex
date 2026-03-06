@@ -797,6 +797,25 @@ function quotePriorityScore(type: "question" | "comment", specificity: number, l
   return specificity + commentBonus + recencyAdjustment;
 }
 
+type TranscriptQuote = {
+  id: string;
+  speakerName: string;
+  speaker_org: string;
+  excerpt: string;
+  sentiment: "POSITIVE" | "MIXED" | "NEUTRAL" | "NEGATIVE";
+  type: "question" | "comment";
+  sentiment_rationale: string;
+  specificity_score: number;
+  why_selected: string;
+  quote: string;
+  theme: string;
+  isQuestion: boolean;
+  lineNumber: number;
+  timestampSeconds: number | null;
+  timestampLabel: string | null;
+  healthSystemId: string;
+};
+
 function parseOpenAIErrorMessage(error: unknown): string {
   if (error && typeof error === "object") {
     if ("message" in error && typeof error.message === "string") {
@@ -1132,9 +1151,9 @@ function detectCompanyCue(organization: string | null): boolean {
 }
 
 function detectHealthSystemCue(organization: string | null): boolean {
-  return Boolean(
-    cleanText(organization) &&
-      /(health|hospital|medical|clinic|system|systems|healthcare|health center|university|children)/i.test(organization)
+  const normalizedOrganization = cleanText(organization);
+  return /(health|hospital|medical|clinic|system|systems|healthcare|health center|university|children)/i.test(
+    normalizedOrganization
   );
 }
 
@@ -2382,7 +2401,7 @@ async function extractMemberQuotesWithAI(
       if (!excerpt) return null;
 
       const quoteTypeRaw = cleanText((quote as Record<string, unknown>).type).toLowerCase();
-      const normalizedType = quoteTypeRaw === "question" ? "question" : "comment";
+      const normalizedType: "question" | "comment" = quoteTypeRaw === "question" ? "question" : "comment";
 
       const sentiment = cleanText((quote as Record<string, unknown>).sentiment).toUpperCase();
       const validatedSentiment = SENTIMENT_VALUES.includes(sentiment as (typeof SENTIMENT_VALUES)[number])
@@ -2427,9 +2446,9 @@ async function extractMemberQuotesWithAI(
         timestampSeconds: safeNumber(quote.timestampSeconds),
         timestampLabel: sanitizeNullableText(quote.timestampLabel),
         healthSystemId: isUnmatchedSpeaker ? "" : matchedHealthSystemId
-      };
+      } as TranscriptQuote;
     })
-    .filter(Boolean)
+    .filter((entry): entry is TranscriptQuote => entry !== null)
     .sort((a, b) => {
       const weighted =
         quotePriorityScore(b.type, b.specificity_score, b.lineNumber) -
@@ -2446,7 +2465,24 @@ async function extractMemberQuotesWithAI(
       Math.min(maxInsights, 15)
     );
     if (deterministicFallback.length > 0) {
-      mappedQuotes = deterministicFallback;
+      mappedQuotes = deterministicFallback.map<TranscriptQuote>((entry) => ({
+        id: entry.id,
+        speakerName: entry.speaker,
+        speaker_org: "",
+        excerpt: entry.quote,
+        sentiment: entry.sentiment,
+        type: entry.type,
+        sentiment_rationale: "Fallback quote generated from transcript text.",
+        specificity_score: Math.max(1, Math.min(5, entry.specificity_score)),
+        why_selected: "Deterministic fallback snippet extraction used for review.",
+        quote: entry.quote,
+        theme: entry.theme || "General feedback",
+        isQuestion: entry.isQuestion,
+        lineNumber: entry.lineNumber,
+        timestampSeconds: null,
+        timestampLabel: null,
+        healthSystemId: ""
+      }));
       warnings.push("AI quote output could not be parsed/merged. Deterministic parser produced reviewable fallback quotes.");
     }
   }

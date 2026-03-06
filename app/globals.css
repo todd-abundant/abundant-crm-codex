@@ -4103,6 +4103,12 @@ select {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.live-survey-skip-tip {
+  margin: 12px 0 8px;
+  color: #8f1f1f;
+  font-size: 0.9rem;
+}
+
 .live-survey-progress-meta {
   margin-top: 12px;
   margin-bottom: 6px;
@@ -4163,6 +4169,35 @@ select {
   font-size: 0.75rem;
   font-weight: 700;
   padding: 0 10px;
+}
+
+.live-survey-question-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.live-survey-skip-button {
+  border: 1px solid #c53030;
+  background: #fff5f5;
+  color: #9b1c1c;
+  border-radius: 10px;
+  min-height: 38px;
+  padding: 0 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.live-survey-skip-button:hover,
+.live-survey-skip-button:focus-visible {
+  background: #fee2e2;
+  border-color: #9b1c1c;
+}
+
+.live-survey-skip-button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .live-survey-scale {
@@ -4226,6 +4261,14 @@ select {
   justify-content: space-between;
   align-items: center;
   margin-top: 12px;
+}
+
+.live-survey-instruction-list {
+  margin: 0;
+  padding-left: 20px;
+  color: #304b69;
+  display: grid;
+  gap: 4px;
 }
 
 .slide-forward {

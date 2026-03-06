@@ -352,7 +352,7 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
       intakeCommitSequenceById.current[itemId] = requestSequence;
       const requestStartMs = Date.now();
       const debugContext = createDateDebugContext("pipeline-kanban.intake-commit", itemId);
-      const headers = {
+      const headers: Record<string, string> = {
         ...dateDebugHeaders("pipeline-kanban.intake-commit", itemId),
         "Content-Type": "application/json"
       };
@@ -609,7 +609,7 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
 
       const requestSequence = (cardCommitSequenceById.current[itemId] || 0) + 1;
       cardCommitSequenceById.current[itemId] = requestSequence;
-      const headers = {
+      const headers: Record<string, string> = {
         ...dateDebugHeaders("pipeline-kanban.card-commit", itemId),
         "Content-Type": "application/json"
       };

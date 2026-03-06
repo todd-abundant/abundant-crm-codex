@@ -146,7 +146,8 @@ type SurveyResultsAnswer = {
   category: string;
   prompt: string;
   instructions: string | null;
-  score: number;
+  score: number | null;
+  isSkipped: boolean;
 };
 
 type SurveyResultsSubmission = {
@@ -160,6 +161,7 @@ type SurveyResultsSubmission = {
   healthSystemId: string | null;
   healthSystemName: string;
   answerCount: number;
+  skippedAnswerCount: number;
   averageScore: number | null;
   answers: SurveyResultsAnswer[];
 };
@@ -1809,6 +1811,22 @@ export function AdminSurveyManagement() {
 
   const categoryOrder = sessionDraft ? orderedCategories(sessionDraft.questions) : [];
   const resultsSubmissionCount = results?.submissions.length || 0;
+  const questionResponseCountByQuestionId = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    if (!selectedSession || !results) return counts;
+
+    const questionIdBySessionQuestionId = new Map(
+      selectedSession.questions.map((entry) => [entry.sessionQuestionId, entry.questionId] as const)
+    );
+
+    for (const entry of results.questionAverages) {
+      const questionId = questionIdBySessionQuestionId.get(entry.sessionQuestionId);
+      if (!questionId) continue;
+      counts.set(questionId, (counts.get(questionId) || 0) + entry.responseCount);
+    }
+
+    return counts;
+  }, [results, selectedSession]);
   const templateCategoryOrder = templateLibraryDraft ? orderedCategories(templateLibraryDraft.questions) : [];
   const templateLibraryDirty = React.useMemo(() => {
     if (!templateLibraryDraft) return false;
@@ -2088,10 +2106,16 @@ export function AdminSurveyManagement() {
                       <div className="admin-survey-question-list">
                         {questionIndexes.map((globalQuestionIndex, questionIndexWithinCategory) => {
                           const question = sessionDraft.questions[globalQuestionIndex];
+                          const questionResponseCount = questionResponseCountByQuestionId.get(question.questionId) || 0;
                           return (
                             <div key={`${question.questionId}-${globalQuestionIndex}`} className="admin-survey-question-row">
                               <div className="admin-survey-question-fields">
                                 <label>Question {questionIndexWithinCategory + 1}</label>
+                                <span className="muted">
+                                  {loadingResults
+                                    ? "DB responses: loading..."
+                                    : `DB responses: ${questionResponseCount}`}
+                                </span>
                                 <input
                                   value={question.prompt}
                                   onChange={(event) =>
@@ -2388,11 +2412,20 @@ export function AdminSurveyManagement() {
                               <td>{entry.averageScore === null ? "N/A" : entry.averageScore.toFixed(1)}</td>
                               <td>
                                 <details>
-                                  <summary>{`${entry.answerCount} scores`}</summary>
+                                  <summary>
+                                    {`${entry.answerCount} scores${
+                                      entry.skippedAnswerCount > 0
+                                        ? ` • ${entry.skippedAnswerCount} skipped`
+                                        : ""
+                                    }`}
+                                  </summary>
                                   <div className="admin-survey-submission-answers">
                                     {entry.answers.map((answer) => (
                                       <p key={answer.answerId}>
-                                        <strong>{answer.category}:</strong> {answer.prompt} = {answer.score}
+                                        <strong>{answer.category}:</strong> {answer.prompt} ={" "}
+                                        {answer.isSkipped || answer.score === null
+                                          ? "Skipped"
+                                          : answer.score}
                                       </p>
                                     ))}
                                   </div>
