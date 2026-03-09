@@ -147,18 +147,18 @@ export function AppHeader({
                 onBlurCapture={(event) => handleDropdownBlur(event, "pipeline")}
                 onKeyDown={(event) => handleDropdownEscape(event, "pipeline")}
               >
-                <button
-                  type="button"
+                <Link
+                  href="/pipeline"
                   className="top-nav-link top-nav-dropdown-toggle"
                   aria-expanded={openDropdownId === "pipeline"}
                   aria-haspopup="true"
-                  onClick={() => toggleDropdown("pipeline")}
+                  onClick={closeOpenDropdowns}
                 >
                   <span>Pipeline</span>
                   <span className="top-nav-dropdown-caret" aria-hidden="true">
                     ▾
                   </span>
-                </button>
+                </Link>
                 <div className="top-nav-dropdown-menu" role="menu" aria-label="Pipeline">
                   {PIPELINE_COMPANY_TYPE_OPTIONS.map((option) => {
                     const href = option.value === "STARTUP" ? "/pipeline" : `/pipeline?companyType=${option.value}`;

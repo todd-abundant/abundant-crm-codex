@@ -50,6 +50,8 @@ type EntityLookupInputProps = {
   contactCreateContext?: ContactCreateContext;
   contactSearchHealthSystemId?: string;
   autoOpenCreateOnEnterNoMatch?: boolean;
+  openAddModalSignal?: number;
+  hideLookupField?: boolean;
 };
 
 const EMPTY_ENTITY_OPTIONS: EntityOption[] = [];
@@ -145,7 +147,9 @@ export function EntityLookupInput({
   companyCreateDefaults,
   contactCreateContext,
   contactSearchHealthSystemId,
-  autoOpenCreateOnEnterNoMatch = false
+  autoOpenCreateOnEnterNoMatch = false,
+  openAddModalSignal,
+  hideLookupField = false
 }: EntityLookupInputProps) {
   const [query, setQuery] = React.useState("");
   const [open, setOpen] = React.useState(false);
@@ -176,6 +180,7 @@ export function EntityLookupInput({
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const resultsRef = React.useRef<HTMLDivElement | null>(null);
   const lastSyncedValueRef = React.useRef<string>(value);
+  const lastOpenAddModalSignalRef = React.useRef<number | undefined>(openAddModalSignal);
 
   const supportsWebLookup = entityKind !== "CONTACT";
   const normalizedInitialOptions = React.useMemo(
@@ -377,6 +382,14 @@ export function EntityLookupInput({
     setWebCandidates([]);
     setSelectedWebCandidateIndex(null);
   }
+
+  React.useEffect(() => {
+    if (openAddModalSignal === undefined) return;
+    if (openAddModalSignal === lastOpenAddModalSignalRef.current) return;
+    lastOpenAddModalSignalRef.current = openAddModalSignal;
+    if (disabled) return;
+    openAddModal();
+  }, [openAddModalSignal, disabled]);
 
   async function lookupWebCandidates() {
     const searchEndpoint = webSearchEndpointForKind(entityKind);
@@ -598,88 +611,92 @@ export function EntityLookupInput({
 
   return (
     <div className={`entity-lookup ${className || ""}`} ref={containerRef}>
-      <div className="entity-lookup-controls">
-        <input
-          value={query}
-          onFocus={() => setOpen(true)}
-          onKeyDown={(event) => {
-            if (
-              event.key === "Enter" &&
-              autoOpenCreateOnEnterNoMatch &&
-              !loading &&
-              open &&
-              query.trim() &&
-              results.length === 0
-            ) {
-              event.preventDefault();
-              openAddModal();
-            }
-          }}
-          onChange={(event) => {
-            const nextValue = event.target.value;
-            setQuery(nextValue);
-            setOpen(true);
-            if (value && normalizeForCompare(nextValue) !== normalizeForCompare(selectedOption?.name)) {
-              onChange("");
-            }
-          }}
-          placeholder={placeholder || `Search ${entityKindLabel[entityKind]}s`}
-          disabled={disabled}
-        />
-        {allowEmpty && value ? (
-          <button
-            type="button"
-            className="ghost small"
-            onClick={() => {
-              onChange("");
-              setQuery("");
-              setOpen(false);
-            }}
-            disabled={disabled}
-          >
-            Clear
-          </button>
-        ) : null}
-      </div>
-
-      {allowEmpty && !value && !query.trim() ? <p className="muted entity-lookup-meta">{emptyLabel}</p> : null}
-
-      {open ? (
-        <div
-          ref={resultsRef}
-          className={`entity-lookup-results ${resultsDirection === "up" ? "upward" : ""}`}
-        >
-          {loading ? <p className="muted">Searching…</p> : null}
-          {searchError ? <p className="status error">{searchError}</p> : null}
-          {!loading && !searchError ? (
-            <>
+      {!hideLookupField ? (
+        <>
+          <div className="entity-lookup-controls">
+            <input
+              value={query}
+              onFocus={() => setOpen(true)}
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Enter" &&
+                  autoOpenCreateOnEnterNoMatch &&
+                  !loading &&
+                  open &&
+                  query.trim() &&
+                  results.length === 0
+                ) {
+                  event.preventDefault();
+                  openAddModal();
+                }
+              }}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                setQuery(nextValue);
+                setOpen(true);
+                if (value && normalizeForCompare(nextValue) !== normalizeForCompare(selectedOption?.name)) {
+                  onChange("");
+                }
+              }}
+              placeholder={placeholder || `Search ${entityKindLabel[entityKind]}s`}
+              disabled={disabled}
+            />
+            {allowEmpty && value ? (
               <button
                 type="button"
-                className="entity-lookup-option"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={openAddModal}
+                className="ghost small"
+                onClick={() => {
+                  onChange("");
+                  setQuery("");
+                  setOpen(false);
+                }}
+                disabled={disabled}
               >
-                Add New
+                Clear
               </button>
-              {results.length === 0 ? (
-                <p className="muted">No matching {entityKindLabel[entityKind]} found.</p>
-              ) : (
-                results.map((option) => (
+            ) : null}
+          </div>
+
+          {allowEmpty && !value && !query.trim() ? <p className="muted entity-lookup-meta">{emptyLabel}</p> : null}
+
+          {open ? (
+            <div
+              ref={resultsRef}
+              className={`entity-lookup-results ${resultsDirection === "up" ? "upward" : ""}`}
+            >
+              {loading ? <p className="muted">Searching…</p> : null}
+              {searchError ? <p className="status error">{searchError}</p> : null}
+              {!loading && !searchError ? (
+                <>
                   <button
                     type="button"
-                    key={option.id}
-                    className={`entity-lookup-option ${value === option.id ? "active" : ""}`}
+                    className="entity-lookup-option"
                     onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => selectOption(option)}
+                    onClick={openAddModal}
                   >
-                    <span className="entity-lookup-option-name">{option.name}</span>
-                    {option.subtitle ? <span className="entity-lookup-option-subtitle">{option.subtitle}</span> : null}
+                    Add New
                   </button>
-                ))
-              )}
-            </>
+                  {results.length === 0 ? (
+                    <p className="muted">No matching {entityKindLabel[entityKind]} found.</p>
+                  ) : (
+                    results.map((option) => (
+                      <button
+                        type="button"
+                        key={option.id}
+                        className={`entity-lookup-option ${value === option.id ? "active" : ""}`}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectOption(option)}
+                      >
+                        <span className="entity-lookup-option-name">{option.name}</span>
+                        {option.subtitle ? <span className="entity-lookup-option-subtitle">{option.subtitle}</span> : null}
+                      </button>
+                    ))
+                  )}
+                </>
+              ) : null}
+            </div>
           ) : null}
-        </div>
+        </>
       ) : null}
 
       {addOpen ? (

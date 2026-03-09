@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { RichTextArea } from "@/components/rich-text-area";
+import { getJsonErrorMessage, readJsonResponse } from "@/lib/http-response";
 
 type ReportType = "INTAKE" | "SCREENING" | "OPPORTUNITY";
 type ReportStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
@@ -122,9 +123,9 @@ export function CompanyReportComposer({
         const res = await fetch(`/api/pipeline/opportunities/${companyId}/reports/${reportId}`, {
           cache: "no-store"
         });
-        const payload = await res.json();
+        const payload = await readJsonResponse(res);
         if (!res.ok) {
-          throw new Error(payload.error || "Failed to load report detail.");
+          throw new Error(getJsonErrorMessage(payload, "Failed to load report detail."));
         }
         const nextReport = payload.report as ReportDetail;
         setReport(nextReport);
@@ -149,9 +150,9 @@ export function CompanyReportComposer({
         const res = await fetch(`/api/pipeline/opportunities/${companyId}/reports?type=${type}`, {
           cache: "no-store"
         });
-        const payload = await res.json();
+        const payload = await readJsonResponse(res);
         if (!res.ok) {
-          throw new Error(payload.error || "Failed to load reports.");
+          throw new Error(getJsonErrorMessage(payload, "Failed to load reports."));
         }
         const rows = (Array.isArray(payload.reports) ? payload.reports : []) as ReportSummary[];
         setReports(rows);
@@ -210,9 +211,9 @@ export function CompanyReportComposer({
           type: activeType
         })
       });
-      const payload = await res.json();
+      const payload = await readJsonResponse(res);
       if (!res.ok) {
-        throw new Error(payload.error || "Failed to create report draft.");
+        throw new Error(getJsonErrorMessage(payload, "Failed to create report draft."));
       }
       const created = payload.report as ReportDetail;
       setStatus("Report draft created.");
@@ -250,9 +251,9 @@ export function CompanyReportComposer({
           }))
         })
       });
-      const payload = await res.json();
+      const payload = await readJsonResponse(res);
       if (!res.ok) {
-        throw new Error(payload.error || "Failed to save draft.");
+        throw new Error(getJsonErrorMessage(payload, "Failed to save draft."));
       }
       const updated = payload.report as ReportDetail;
       setReport(updated);
@@ -293,9 +294,9 @@ export function CompanyReportComposer({
           refreshFromLatestData: true
         })
       });
-      const payload = await res.json();
+      const payload = await readJsonResponse(res);
       if (!res.ok) {
-        throw new Error(payload.error || "Failed to refresh source data.");
+        throw new Error(getJsonErrorMessage(payload, "Failed to refresh source data."));
       }
       const updated = payload.report as ReportDetail;
       setReport(updated);
@@ -336,9 +337,9 @@ export function CompanyReportComposer({
           resetOverrides: true
         })
       });
-      const payload = await res.json();
+      const payload = await readJsonResponse(res);
       if (!res.ok) {
-        throw new Error(payload.error || "Failed to reset overrides.");
+        throw new Error(getJsonErrorMessage(payload, "Failed to reset overrides."));
       }
       const updated = payload.report as ReportDetail;
       setReport(updated);
@@ -378,18 +379,18 @@ export function CompanyReportComposer({
           }))
         })
       });
-      const savePayload = await saveRes.json();
+      const savePayload = await readJsonResponse(saveRes);
       if (!saveRes.ok) {
-        throw new Error(savePayload.error || "Failed to save report before preview.");
+        throw new Error(getJsonErrorMessage(savePayload, "Failed to save report before preview."));
       }
 
       const previewRes = await fetch(`/api/pipeline/opportunities/${companyId}/reports/${report.id}/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" }
       });
-      const previewPayload = await previewRes.json();
+      const previewPayload = await readJsonResponse(previewRes);
       if (!previewRes.ok) {
-        throw new Error(previewPayload.error || "Failed to generate preview.");
+        throw new Error(getJsonErrorMessage(previewPayload, "Failed to generate preview."));
       }
       const previewDetail = previewPayload.report as ReportDetail;
       setReport(previewDetail);
@@ -412,9 +413,9 @@ export function CompanyReportComposer({
         method: "POST",
         headers: { "Content-Type": "application/json" }
       });
-      const payload = await res.json();
+      const payload = await readJsonResponse(res);
       if (!res.ok) {
-        throw new Error(payload.error || "Failed to export PDF.");
+        throw new Error(getJsonErrorMessage(payload, "Failed to export PDF."));
       }
       const nextReport = payload.report as ReportDetail;
       const document = payload.document as ReportDocument;
@@ -440,9 +441,9 @@ export function CompanyReportComposer({
         method: "POST",
         headers: { "Content-Type": "application/json" }
       });
-      const payload = await res.json();
+      const payload = await readJsonResponse(res);
       if (!res.ok) {
-        throw new Error(payload.error || "Failed to publish report.");
+        throw new Error(getJsonErrorMessage(payload, "Failed to publish report."));
       }
       const nextReport = payload.report as ReportDetail;
       const document = payload.document as ReportDocument;

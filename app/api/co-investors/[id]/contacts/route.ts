@@ -41,6 +41,29 @@ function trimOrNull(value?: string | null) {
   return trimmed ? trimmed : null;
 }
 
+function formatRequestError(error: unknown, fallback: string) {
+  if (error instanceof z.ZodError) {
+    const firstIssue = error.issues[0];
+    const firstField = String(firstIssue?.path?.[0] || "");
+    if (firstField === "name") {
+      return "Contact name is required.";
+    }
+    if (firstField === "email") {
+      return "Enter a valid email address or leave it blank.";
+    }
+    if (firstField === "linkedinUrl") {
+      return "Enter a valid LinkedIn URL or leave it blank.";
+    }
+    return "Please correct the highlighted contact fields and try again.";
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
 function buildContactUpdatePayload(input: z.infer<typeof patchRequestSchema>) {
   const name = trimOrNull(input.name);
   if (input.name !== undefined && name === null) {
@@ -137,7 +160,10 @@ export async function POST(
     });
   } catch (error) {
     console.error("co_investor_add_contact_error", error);
-    return NextResponse.json({ error: "Failed to add co-investor contact" }, { status: 400 });
+    return NextResponse.json(
+      { error: formatRequestError(error, "Failed to add co-investor contact") },
+      { status: 400 }
+    );
   }
 }
 

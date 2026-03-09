@@ -71,8 +71,10 @@ function isLikelyDuplicateCandidate(
 export async function verifyCandidateAndQueueResearch(params: {
   candidate: HealthSystemSearchCandidate;
   isAllianceMember: boolean;
+  isLimitedPartner: boolean;
+  limitedPartnerInvestmentUsd: number | null;
 }) {
-  const { candidate, isAllianceMember } = params;
+  const { candidate, isAllianceMember, isLimitedPartner, limitedPartnerInvestmentUsd } = params;
 
   const result = await prisma.$transaction(async (tx) => {
     const existingHealthSystems = await tx.healthSystem.findMany({
@@ -105,6 +107,8 @@ export async function verifyCandidateAndQueueResearch(params: {
         headquartersState: trimOrNull(candidate.headquartersState),
         headquartersCountry: trimOrNull(candidate.headquartersCountry),
         isAllianceMember,
+        isLimitedPartner,
+        limitedPartnerInvestmentUsd: isLimitedPartner ? limitedPartnerInvestmentUsd : null,
         researchStatus: "QUEUED",
         researchError: null,
         researchUpdatedAt: new Date()

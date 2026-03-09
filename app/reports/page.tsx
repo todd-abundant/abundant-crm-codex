@@ -2,13 +2,14 @@
 
 import * as React from "react";
 import { EntityLookupInput } from "@/components/entity-lookup-input";
+import { getJsonErrorMessage, readJsonResponse } from "@/lib/http-response";
 
 type ReportPreset = {
   key: string;
   name: string;
   description: string;
   defaults: {
-    status: "open" | "closed";
+    status: "all" | "open" | "closed";
     types: string[];
   };
   isCustom?: boolean;
@@ -380,13 +381,13 @@ export default function ReportsPage() {
     const loadFilterOptions = async () => {
       try {
         const res = await fetch("/api/reports/opportunities/options", { cache: "no-store" });
-        const payload = await res.json();
+        const payload = await readJsonResponse(res);
         if (!res.ok) {
-          throw new Error(payload.error || "Failed to load report filter options.");
+          throw new Error(getJsonErrorMessage(payload, "Failed to load report filter options."));
         }
         if (!active) return;
-        setCompanies(Array.isArray(payload.companies) ? payload.companies : []);
-        setHealthSystems(Array.isArray(payload.healthSystems) ? payload.healthSystems : []);
+        setCompanies(Array.isArray(payload.companies) ? (payload.companies as FilterOption[]) : []);
+        setHealthSystems(Array.isArray(payload.healthSystems) ? (payload.healthSystems as FilterOption[]) : []);
       } catch (requestError) {
         if (!active) return;
         setError(requestError instanceof Error ? requestError.message : "Failed to load report filters.");
@@ -416,15 +417,15 @@ export default function ReportsPage() {
     const loadReport = async () => {
       try {
         const res = await fetch(`/api/reports/opportunities?${query.toString()}`, { cache: "no-store" });
-        const payload = (await res.json()) as ReportResponse & { error?: string };
+        const payload = await readJsonResponse(res);
         if (!res.ok) {
-          throw new Error(payload.error || "Failed to load report.");
+          throw new Error(getJsonErrorMessage(payload, "Failed to load report."));
         }
         if (!active) return;
-        setPresets(Array.isArray(payload.presets) ? payload.presets : []);
-        setRows(Array.isArray(payload.rows) ? payload.rows : []);
+        setPresets(Array.isArray(payload.presets) ? (payload.presets as ReportPreset[]) : []);
+        setRows(Array.isArray(payload.rows) ? (payload.rows as ReportRow[]) : []);
         setSummary(
-          payload.summary || {
+          (payload.summary as ReportResponse["summary"] | undefined) || {
             total: 0,
             openCount: 0,
             closedCount: 0,
@@ -562,9 +563,9 @@ export default function ReportsPage() {
           nextSteps: nextValue || null
         })
       });
-      const payload = await res.json();
+      const payload = await readJsonResponse(res);
       if (!res.ok) {
-        throw new Error(payload.error || "Failed to update next step.");
+        throw new Error(getJsonErrorMessage(payload, "Failed to update next step."));
       }
       const opportunity = payload.opportunity as {
         id: string;
@@ -620,9 +621,9 @@ export default function ReportsPage() {
           notes: draft.notes.trim() || null
         })
       });
-      const payload = await res.json();
+      const payload = await readJsonResponse(res);
       if (!res.ok) {
-        throw new Error(payload.error || "Failed to update opportunity.");
+        throw new Error(getJsonErrorMessage(payload, "Failed to update opportunity."));
       }
       const opportunity = payload.opportunity as {
         id: string;

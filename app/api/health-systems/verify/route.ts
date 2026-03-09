@@ -9,7 +9,9 @@ export async function POST(request: Request) {
 
     const created = await verifyCandidateAndQueueResearch({
       candidate,
-      isAllianceMember
+      isAllianceMember,
+      isLimitedPartner: false,
+      limitedPartnerInvestmentUsd: null
     });
 
     return NextResponse.json({

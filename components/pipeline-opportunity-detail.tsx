@@ -12,6 +12,7 @@ import {
 } from "@/lib/pipeline-opportunities";
 import { generateOpportunityTitle } from "@/lib/opportunity-title";
 import { EntityLookupInput } from "./entity-lookup-input";
+import { EntityDocumentsPane } from "./entity-documents-pane";
 import { ScreeningSurveySessionSelector } from "./screening-survey-session-selector";
 import { InlineSelectField, InlineTextField, InlineTextareaField } from "./inline-detail-field";
 import { normalizeRichText, RichTextArea } from "./rich-text-area";
@@ -267,7 +268,7 @@ type OpportunityModalState =
       opportunityId: string;
     };
 
-type OpportunityModalTab = "details" | "contacts";
+type OpportunityModalTab = "details" | "contacts" | "notes" | "documents";
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "Not set";
@@ -1137,6 +1138,7 @@ export function PipelineOpportunityDetailView({
   const [intakeReportElapsedSeconds, setIntakeReportElapsedSeconds] = React.useState(0);
   const [opportunityDraftById, setOpportunityDraftById] = React.useState<Record<string, OpportunityDraft>>({});
   const [savingOpportunityById, setSavingOpportunityById] = React.useState<Record<string, boolean>>({});
+  const [editingOpportunityNextStepsId, setEditingOpportunityNextStepsId] = React.useState<string | null>(null);
   const [deletingOpportunityById, setDeletingOpportunityById] = React.useState<Record<string, boolean>>({});
   const [addingOpportunity, setAddingOpportunity] = React.useState(false);
   const [newOpportunityDraft, setNewOpportunityDraft] = React.useState<OpportunityDraft>({
@@ -1154,6 +1156,9 @@ export function PipelineOpportunityDetailView({
   });
   const [opportunityContactLookupByOpportunityId, setOpportunityContactLookupByOpportunityId] = React.useState<
     Record<string, string>
+  >({});
+  const [showAddOpportunityContactByOpportunityId, setShowAddOpportunityContactByOpportunityId] = React.useState<
+    Record<string, boolean>
   >({});
   const [newOpportunityContactRoleByOpportunityId, setNewOpportunityContactRoleByOpportunityId] = React.useState<
     Record<string, string>
@@ -3179,12 +3184,20 @@ export function PipelineOpportunityDetailView({
     if (!item) return;
     const draft = opportunityDraftById[opportunityId];
     if (!draft) return;
+    const existingOpportunity = item.opportunities.find((entry) => entry.id === opportunityId) || null;
 
     setSavingOpportunityById((current) => ({ ...current, [opportunityId]: true }));
     setStatus(null);
 
     try {
-      const payload = nextOpportunityPayload(draft);
+      const lockedHealthSystemId = existingOpportunity?.healthSystem?.id || "";
+      const payloadDraft = lockedHealthSystemId
+        ? {
+            ...draft,
+            healthSystemId: lockedHealthSystemId
+          }
+        : draft;
+      const payload = nextOpportunityPayload(payloadDraft);
       const res = await fetch(`/api/pipeline/opportunities/${item.id}/opportunities`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -3299,9 +3312,9 @@ export function PipelineOpportunityDetailView({
     }
   }
 
-  async function addOpportunityContact(opportunityId: string) {
+  async function addOpportunityContact(opportunityId: string, contactIdOverride?: string, roleOverride?: string | null) {
     if (!item) return;
-    const contactId = (opportunityContactLookupByOpportunityId[opportunityId] || "").trim();
+    const contactId = ((contactIdOverride ?? opportunityContactLookupByOpportunityId[opportunityId]) || "").trim();
     if (!contactId) {
       setStatus({ kind: "error", text: "Select a contact before adding." });
       return;
@@ -3311,7 +3324,41 @@ export function PipelineOpportunityDetailView({
     setStatus(null);
 
     try {
-      const role = (newOpportunityContactRoleByOpportunityId[opportunityId] || "").trim();
+      const role = ((roleOverride ?? newOpportunityContactRoleByOpportunityId[opportunityId]) || "").trim();
+      const optimisticLinkId = `temp:${opportunityId}:${contactId}`;
+      if (contactIdOverride) {
+        setShowAddOpportunityContactByOpportunityId((current) => ({ ...current, [opportunityId]: false }));
+        const previewParticipant = item.screening.healthSystems
+          .flatMap((entry) => entry.surveyParticipants)
+          .find((participant) => participant.contactId === contactId);
+        setItem((current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            opportunities: current.opportunities.map((opportunity) => {
+              if (opportunity.id !== opportunityId) return opportunity;
+              if (opportunity.contacts.some((entry) => entry.contact.id === contactId)) return opportunity;
+              return {
+                ...opportunity,
+                contacts: [
+                  ...opportunity.contacts,
+                  {
+                    id: optimisticLinkId,
+                    role: role || null,
+                    createdAt: new Date().toISOString(),
+                    contact: {
+                      id: contactId,
+                      name: previewParticipant?.contactName || "Selected contact",
+                      title: previewParticipant?.contactTitle || null,
+                      email: null
+                    }
+                  }
+                ]
+              };
+            })
+          };
+        });
+      }
       const res = await fetch(`/api/pipeline/opportunities/${item.id}/opportunity-contacts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3332,7 +3379,9 @@ export function PipelineOpportunityDetailView({
           ...current,
           opportunities: current.opportunities.map((opportunity) => {
             if (opportunity.id !== opportunityId) return opportunity;
-            const existingIndex = opportunity.contacts.findIndex((entry) => entry.id === link.id);
+            const existingIndex = opportunity.contacts.findIndex(
+              (entry) => entry.id === link.id || entry.contact.id === link.contact.id
+            );
             if (existingIndex >= 0) {
               const nextContacts = [...opportunity.contacts];
               nextContacts[existingIndex] = link;
@@ -3343,10 +3392,28 @@ export function PipelineOpportunityDetailView({
         };
       });
       setOpportunityContactLookupByOpportunityId((current) => ({ ...current, [opportunityId]: "" }));
+      setShowAddOpportunityContactByOpportunityId((current) => ({ ...current, [opportunityId]: false }));
       setNewOpportunityContactRoleByOpportunityId((current) => ({ ...current, [opportunityId]: "" }));
       setOpportunityContactRoleDraftByLinkId((current) => ({ ...current, [link.id]: link.role || "" }));
       setStatus({ kind: "ok", text: "Opportunity contact added." });
     } catch (error) {
+      if (contactIdOverride) {
+        const optimisticLinkId = `temp:${opportunityId}:${contactId}`;
+        setItem((current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            opportunities: current.opportunities.map((opportunity) =>
+              opportunity.id === opportunityId
+                ? {
+                    ...opportunity,
+                    contacts: opportunity.contacts.filter((entry) => entry.id !== optimisticLinkId)
+                  }
+                : opportunity
+            )
+          };
+        });
+      }
       setStatus({
         kind: "error",
         text: error instanceof Error ? error.message : "Failed to add opportunity contact."
@@ -3356,9 +3423,9 @@ export function PipelineOpportunityDetailView({
     }
   }
 
-  async function saveOpportunityContactRole(linkId: string) {
+  async function saveOpportunityContactRoleWithValue(linkId: string, nextRole: string) {
     if (!item) return;
-    const role = (opportunityContactRoleDraftByLinkId[linkId] || "").trim();
+    const role = nextRole.trim();
 
     setSavingOpportunityContactRoleByLinkId((current) => ({ ...current, [linkId]: true }));
     setStatus(null);
@@ -4755,41 +4822,67 @@ export function PipelineOpportunityDetailView({
                           <div key={opportunity.id} className="detail-list-item">
                             <div className="contact-row opportunity-list-row-compact">
                               <div className="contact-row-details opportunity-list-row-details">
-                                <button
-                                  type="button"
-                                  className="opportunity-name-link"
-                                  onClick={() => openEditOpportunityModal(opportunity.id)}
-                                >
-                                  {opportunity.title}
-                                </button>
+                                <div className="opportunity-row-title-line">
+                                  <button
+                                    type="button"
+                                    className="opportunity-name-link"
+                                    onClick={() => openEditOpportunityModal(opportunity.id)}
+                                  >
+                                    {opportunity.title}
+                                  </button>
+                                  <div className="opportunity-inline-next-steps">
+                                    <span className="opportunity-inline-next-steps-label">Next Steps:</span>
+                                    {editingOpportunityNextStepsId === opportunity.id ? (
+                                      <input
+                                        value={draft.nextSteps}
+                                        onChange={(event) =>
+                                          updateOpportunityDraft(opportunity.id, {
+                                            nextSteps: event.target.value
+                                          })
+                                        }
+                                        onBlur={() => {
+                                          setEditingOpportunityNextStepsId(null);
+                                          void saveOpportunity(opportunity.id);
+                                        }}
+                                        onKeyDown={(event) => {
+                                          if (event.key === "Enter") {
+                                            event.preventDefault();
+                                            (event.currentTarget as HTMLInputElement).blur();
+                                            return;
+                                          }
+                                          if (event.key === "Escape") {
+                                            event.preventDefault();
+                                            updateOpportunityDraft(opportunity.id, {
+                                              nextSteps: opportunity.nextSteps || ""
+                                            });
+                                            setEditingOpportunityNextStepsId(null);
+                                          }
+                                        }}
+                                        placeholder="Add next steps..."
+                                        className="opportunity-next-steps-inline-input"
+                                        autoFocus
+                                      />
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        className={`opportunity-next-steps-inline-text ${
+                                          draft.nextSteps.trim() ? "has-value" : "is-empty"
+                                        }`}
+                                        onClick={() => setEditingOpportunityNextStepsId(opportunity.id)}
+                                      >
+                                        {draft.nextSteps.trim() || "Click to edit"}
+                                      </button>
+                                    )}
+                                    {savingOpportunityById[opportunity.id] ? (
+                                      <span className="opportunity-saving-indicator">Saving...</span>
+                                    ) : null}
+                                  </div>
+                                </div>
                                 <p className="muted opportunity-row-meta">
                                   {healthSystemName} · {opportunityTypeLabel} · {opportunityStageLabel} · Likelihood{" "}
                                   {likelihoodLabel} · Duration {durationLabel !== null ? `${durationLabel}d` : "—"} ·
                                   Est. close {estimatedCloseLabel} · Updated {formatTimestamp(opportunity.updatedAt)}
                                 </p>
-                                <div className="opportunity-list-next-steps">
-                                  <textarea
-                                    rows={2}
-                                    value={draft.nextSteps}
-                                    onChange={(event) =>
-                                      updateOpportunityDraft(opportunity.id, {
-                                        nextSteps: event.target.value
-                                      })
-                                    }
-                                    onBlur={() => void saveOpportunity(opportunity.id)}
-                                    onKeyDown={(event) => {
-                                      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                                        event.preventDefault();
-                                        (event.currentTarget as HTMLTextAreaElement).blur();
-                                      }
-                                    }}
-                                    placeholder="Add next steps..."
-                                    className="opportunity-next-steps-input"
-                                  />
-                                  {savingOpportunityById[opportunity.id] ? (
-                                    <span className="opportunity-saving-indicator">Saving...</span>
-                                  ) : null}
-                                </div>
                               </div>
                               <div className="contact-row-actions opportunity-list-row-actions">
                                 <button
@@ -4798,6 +4891,14 @@ export function PipelineOpportunityDetailView({
                                   onClick={() => openAddNoteForOpportunity(opportunity.id)}
                                 >
                                   Add note
+                                </button>
+                                <button
+                                  type="button"
+                                  className="opportunity-inline-link"
+                                  onClick={() => void deleteOpportunity(opportunity.id)}
+                                  disabled={Boolean(deletingOpportunityById[opportunity.id])}
+                                >
+                                  {deletingOpportunityById[opportunity.id] ? "Deleting..." : "Delete"}
                                 </button>
                               </div>
                             </div>
@@ -6161,6 +6262,28 @@ export function PipelineOpportunityDetailView({
                   Related Contacts
                 </button>
               ) : null}
+              {opportunityModal.mode === "edit" ? (
+                <button
+                  type="button"
+                  role="tab"
+                  className={`detail-tab ${opportunityModalTab === "notes" ? "active" : ""}`}
+                  aria-selected={opportunityModalTab === "notes"}
+                  onClick={() => setOpportunityModalTab("notes")}
+                >
+                  Notes
+                </button>
+              ) : null}
+              {opportunityModal.mode === "edit" ? (
+                <button
+                  type="button"
+                  role="tab"
+                  className={`detail-tab ${opportunityModalTab === "documents" ? "active" : ""}`}
+                  aria-selected={opportunityModalTab === "documents"}
+                  onClick={() => setOpportunityModalTab("documents")}
+                >
+                  Documents
+                </button>
+              ) : null}
             </div>
 
             {opportunityModal.mode === "create" ? (
@@ -6184,22 +6307,37 @@ export function PipelineOpportunityDetailView({
                       ))}
                     </select>
                   </div>
-                  <div>
-                    <label>Title</label>
-                    <input
-                      value={generateOpportunityTitle({
-                        companyName: item.name,
-                        healthSystemName:
-                          item.screening.healthSystems.find(
-                            (healthSystem) => healthSystem.healthSystemId === newOpportunityDraft.healthSystemId
-                          )?.healthSystemName || null,
-                        type: newOpportunityDraft.type
-                      })}
-                      readOnly
-                    />
-                    <p className="muted" style={{ marginTop: 4 }}>
-                      Auto-generated by the system.
-                    </p>
+                  <div className="detail-grid-full opportunity-modal-title-next-steps-row">
+                    <div>
+                      <label>Title</label>
+                      <input
+                        value={generateOpportunityTitle({
+                          companyName: item.name,
+                          healthSystemName:
+                            item.screening.healthSystems.find(
+                              (healthSystem) => healthSystem.healthSystemId === newOpportunityDraft.healthSystemId
+                            )?.healthSystemName || null,
+                          type: newOpportunityDraft.type
+                        })}
+                        readOnly
+                      />
+                      <p className="muted" style={{ marginTop: 4 }}>
+                        Auto-generated by the system.
+                      </p>
+                    </div>
+                    <div>
+                      <label>Next Steps</label>
+                      <input
+                        value={newOpportunityDraft.nextSteps}
+                        onChange={(event) =>
+                          setNewOpportunityDraft((current) => ({
+                            ...current,
+                            nextSteps: event.target.value
+                          }))
+                        }
+                        placeholder="Upcoming actions and owners"
+                      />
+                    </div>
                   </div>
                   <div>
                     <label>Stage</label>
@@ -6343,20 +6481,6 @@ export function PipelineOpportunityDetailView({
                       }
                     />
                   </div>
-                  <div className="detail-grid-full">
-                    <label>Next Steps</label>
-                    <textarea
-                      rows={3}
-                      value={newOpportunityDraft.nextSteps}
-                      onChange={(event) =>
-                        setNewOpportunityDraft((current) => ({
-                          ...current,
-                          nextSteps: event.target.value
-                        }))
-                      }
-                      placeholder="Upcoming actions and owners"
-                    />
-                  </div>
                   <div className="detail-grid-full opportunity-modal-notes-field">
                     <label>Opportunity Notes</label>
                     <RichTextArea
@@ -6396,6 +6520,9 @@ export function PipelineOpportunityDetailView({
               opportunityModalTab === "details" ? (
                 (() => {
                   const draft = opportunityDraftById[selectedOpportunityForModal.id] || toOpportunityDraft(selectedOpportunityForModal);
+                  const lockedHealthSystemId = selectedOpportunityForModal.healthSystem?.id || "";
+                  const hasLockedHealthSystem = Boolean(lockedHealthSystemId);
+                  const effectiveHealthSystemId = lockedHealthSystemId || draft.healthSystemId;
                   const availableHealthSystems = item.screening.healthSystems.map((entry) => ({
                     id: entry.healthSystemId,
                     name: entry.healthSystemName
@@ -6412,7 +6539,7 @@ export function PipelineOpportunityDetailView({
                   const draftTitle = generateOpportunityTitle({
                     companyName: item.name,
                     healthSystemName:
-                      availableHealthSystems.find((healthSystem) => healthSystem.id === draft.healthSystemId)?.name ||
+                      availableHealthSystems.find((healthSystem) => healthSystem.id === effectiveHealthSystemId)?.name ||
                       null,
                     type: draft.type
                   });
@@ -6442,12 +6569,26 @@ export function PipelineOpportunityDetailView({
                             ))}
                           </select>
                         </div>
-                        <div>
-                          <label>Title</label>
-                          <input value={draftTitle} readOnly />
-                          <p className="muted" style={{ marginTop: 4 }}>
-                            Auto-generated by the system.
-                          </p>
+                        <div className="detail-grid-full opportunity-modal-title-next-steps-row">
+                          <div>
+                            <label>Title</label>
+                            <input value={draftTitle} readOnly />
+                            <p className="muted" style={{ marginTop: 4 }}>
+                              Auto-generated by the system.
+                            </p>
+                          </div>
+                          <div>
+                            <label>Next Steps</label>
+                            <input
+                              value={draft.nextSteps}
+                              onChange={(event) =>
+                                updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                  nextSteps: event.target.value
+                                })
+                              }
+                              placeholder="Upcoming actions and owners"
+                            />
+                          </div>
                         </div>
                         <div>
                           <label>Stage</label>
@@ -6470,19 +6611,28 @@ export function PipelineOpportunityDetailView({
                         </div>
                         <div>
                           <label>Health System</label>
-                          <EntityLookupInput
-                            entityKind="HEALTH_SYSTEM"
-                            value={draft.healthSystemId}
-                            onChange={(nextValue) =>
-                              updateOpportunityDraft(selectedOpportunityForModal.id, {
-                                healthSystemId: nextValue
-                              })
-                            }
-                            initialOptions={availableHealthSystems}
-                            allowEmpty
-                            emptyLabel="No health system selected"
-                            autoOpenCreateOnEnterNoMatch
-                          />
+                          {hasLockedHealthSystem ? (
+                            <>
+                              <input value={selectedOpportunityForModal.healthSystem?.name || ""} readOnly />
+                              <p className="muted" style={{ marginTop: 4 }}>
+                                Locked after creation. Delete this opportunity if the health system is no longer valid.
+                              </p>
+                            </>
+                          ) : (
+                            <EntityLookupInput
+                              entityKind="HEALTH_SYSTEM"
+                              value={draft.healthSystemId}
+                              onChange={(nextValue) =>
+                                updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                  healthSystemId: nextValue
+                                })
+                              }
+                              initialOptions={availableHealthSystems}
+                              allowEmpty
+                              emptyLabel="No health system selected"
+                              autoOpenCreateOnEnterNoMatch
+                            />
+                          )}
                         </div>
                         <div>
                           <label>Likelihood to Close (%)</label>
@@ -6578,33 +6728,6 @@ export function PipelineOpportunityDetailView({
                             }
                           />
                         </div>
-                        <div className="detail-grid-full">
-                          <label>Next Steps</label>
-                          <textarea
-                            rows={3}
-                            value={draft.nextSteps}
-                            onChange={(event) =>
-                              updateOpportunityDraft(selectedOpportunityForModal.id, {
-                                nextSteps: event.target.value
-                              })
-                            }
-                            placeholder="Upcoming actions and owners"
-                          />
-                        </div>
-                        <div className="detail-grid-full opportunity-modal-notes-field">
-                          <label>Opportunity Notes</label>
-                          <RichTextArea
-                            value={draft.notes}
-                            onChange={(nextValue) =>
-                              updateOpportunityDraft(selectedOpportunityForModal.id, {
-                                notes: nextValue
-                              })
-                            }
-                            rows={10}
-                            className="opportunity-notes-editor"
-                            placeholder="Opportunity-specific context"
-                          />
-                        </div>
                       </div>
                       <div className="actions">
                         <button
@@ -6631,16 +6754,62 @@ export function PipelineOpportunityDetailView({
                     </div>
                   );
                 })()
-              ) : (
+              ) : opportunityModalTab === "contacts" ? (
                 (() => {
                   const draft = opportunityDraftById[selectedOpportunityForModal.id] || toOpportunityDraft(selectedOpportunityForModal);
+                  const lockedHealthSystemId = selectedOpportunityForModal.healthSystem?.id || "";
+                  const effectiveHealthSystemId = lockedHealthSystemId || draft.healthSystemId;
                   return (
                     <div className="detail-card opportunity-modal-card">
                       <div className="detail-section">
                         <p className="detail-label">Contracting Contacts</p>
                         {selectedOpportunityForModal.healthSystem &&
-                        draft.healthSystemId === selectedOpportunityForModal.healthSystem.id ? (
+                        effectiveHealthSystemId === selectedOpportunityForModal.healthSystem.id ? (
                           <>
+                            <div className="actions">
+                              <button
+                                type="button"
+                                className="ghost small contact-add-link"
+                                onClick={() =>
+                                  setShowAddOpportunityContactByOpportunityId((current) => ({
+                                    ...current,
+                                    [selectedOpportunityForModal.id]: !current[selectedOpportunityForModal.id]
+                                  }))
+                                }
+                              >
+                                {showAddOpportunityContactByOpportunityId[selectedOpportunityForModal.id]
+                                  ? "Cancel"
+                                  : "Add Contact"}
+                              </button>
+                            </div>
+                            {showAddOpportunityContactByOpportunityId[selectedOpportunityForModal.id] ? (
+                              <div className="actions relationship-inline-add">
+                                <EntityLookupInput
+                                  entityKind="CONTACT"
+                                  value={opportunityContactLookupByOpportunityId[selectedOpportunityForModal.id] || ""}
+                                  onChange={(nextValue) => {
+                                    setOpportunityContactLookupByOpportunityId((current) => ({
+                                      ...current,
+                                      [selectedOpportunityForModal.id]: nextValue
+                                    }));
+                                    if (!nextValue || addingOpportunityContactByOpportunityId[selectedOpportunityForModal.id]) {
+                                      return;
+                                    }
+                                    void addOpportunityContact(selectedOpportunityForModal.id, nextValue, null);
+                                  }}
+                                  className="relationship-inline-lookup"
+                                  placeholder="Search contacts (or Add New)"
+                                  contactCreateContext={{
+                                    parentType: "healthSystem",
+                                    parentId: selectedOpportunityForModal.healthSystem.id,
+                                    roleType: "EXECUTIVE"
+                                  }}
+                                  contactSearchHealthSystemId={selectedOpportunityForModal.healthSystem.id}
+                                  disabled={Boolean(addingOpportunityContactByOpportunityId[selectedOpportunityForModal.id])}
+                                  autoOpenCreateOnEnterNoMatch
+                                />
+                              </div>
+                            ) : null}
                             {selectedOpportunityForModal.contacts.length === 0 ? (
                               <p className="muted">No contracting contacts linked yet.</p>
                             ) : (
@@ -6652,85 +6821,57 @@ export function PipelineOpportunityDetailView({
                                     {link.contact.email ? ` | ${link.contact.email}` : ""}
                                   </div>
                                   <div className="contact-row-actions">
-                                    <input
+                                    <select
                                       value={opportunityContactRoleDraftByLinkId[link.id] ?? link.role ?? ""}
-                                      onChange={(event) =>
+                                      onChange={(event) => {
+                                        const nextRole = event.target.value;
                                         setOpportunityContactRoleDraftByLinkId((current) => ({
                                           ...current,
-                                          [link.id]: event.target.value
-                                        }))
-                                      }
-                                      placeholder="Role"
-                                    />
-                                    <button
-                                      type="button"
-                                      className="ghost small"
-                                      onClick={() => void saveOpportunityContactRole(link.id)}
+                                          [link.id]: nextRole
+                                        }));
+                                        void saveOpportunityContactRoleWithValue(link.id, nextRole);
+                                      }}
                                       disabled={Boolean(savingOpportunityContactRoleByLinkId[link.id])}
                                     >
-                                      {savingOpportunityContactRoleByLinkId[link.id] ? "Saving..." : "Save Role"}
-                                    </button>
+                                      <option value="">Role</option>
+                                      <option value="Contracting Lead">Contracting Lead</option>
+                                      <option value="Executive Sponsor">Executive Sponsor</option>
+                                      <option value="Clinical Sponsor">Clinical Sponsor</option>
+                                      <option value="Champion">Champion</option>
+                                      <option value="Evaluator">Evaluator</option>
+                                      <option value="Procurement">Procurement</option>
+                                      <option value="Legal">Legal</option>
+                                      {(() => {
+                                        const currentRole = (opportunityContactRoleDraftByLinkId[link.id] ?? link.role ?? "").trim();
+                                        const known = new Set([
+                                          "",
+                                          "Contracting Lead",
+                                          "Executive Sponsor",
+                                          "Clinical Sponsor",
+                                          "Champion",
+                                          "Evaluator",
+                                          "Procurement",
+                                          "Legal"
+                                        ]);
+                                        return currentRole && !known.has(currentRole) ? (
+                                          <option value={currentRole}>{currentRole}</option>
+                                        ) : null;
+                                      })()}
+                                    </select>
                                     <button
                                       type="button"
                                       className="ghost small"
                                       onClick={() => void deleteOpportunityContact(selectedOpportunityForModal.id, link.id)}
                                       disabled={Boolean(deletingOpportunityContactByLinkId[link.id])}
                                     >
-                                      {deletingOpportunityContactByLinkId[link.id] ? "Removing..." : "Remove"}
+                                      {deletingOpportunityContactByLinkId[link.id] ? "Removing..." : "Delete"}
                                     </button>
                                   </div>
                                 </div>
                               ))
                             )}
-                            <div className="detail-grid" style={{ marginTop: 10 }}>
-                              <div>
-                                <label>Add Contact</label>
-                                <EntityLookupInput
-                                  entityKind="CONTACT"
-                                  value={opportunityContactLookupByOpportunityId[selectedOpportunityForModal.id] || ""}
-                                  onChange={(nextValue) =>
-                                    setOpportunityContactLookupByOpportunityId((current) => ({
-                                      ...current,
-                                      [selectedOpportunityForModal.id]: nextValue
-                                    }))
-                                  }
-                                  contactCreateContext={{
-                                    parentType: "healthSystem",
-                                    parentId: selectedOpportunityForModal.healthSystem.id,
-                                    roleType: "EXECUTIVE"
-                                  }}
-                                  contactSearchHealthSystemId={selectedOpportunityForModal.healthSystem.id}
-                                  disabled={Boolean(addingOpportunityContactByOpportunityId[selectedOpportunityForModal.id])}
-                                />
-                              </div>
-                              <div>
-                                <label>Role (Optional)</label>
-                                <input
-                                  value={newOpportunityContactRoleByOpportunityId[selectedOpportunityForModal.id] || ""}
-                                  onChange={(event) =>
-                                    setNewOpportunityContactRoleByOpportunityId((current) => ({
-                                      ...current,
-                                      [selectedOpportunityForModal.id]: event.target.value
-                                    }))
-                                  }
-                                  placeholder="Contracting lead"
-                                />
-                              </div>
-                            </div>
-                            <div className="actions">
-                              <button
-                                type="button"
-                                className="ghost small"
-                                onClick={() => void addOpportunityContact(selectedOpportunityForModal.id)}
-                                disabled={Boolean(addingOpportunityContactByOpportunityId[selectedOpportunityForModal.id])}
-                              >
-                                {addingOpportunityContactByOpportunityId[selectedOpportunityForModal.id]
-                                  ? "Adding..."
-                                  : "Add Contact"}
-                              </button>
-                            </div>
                           </>
-                        ) : draft.healthSystemId ? (
+                        ) : effectiveHealthSystemId ? (
                           <p className="muted">
                             Save this opportunity in the Details tab before editing contacts for the updated health
                             system assignment.
@@ -6742,6 +6883,73 @@ export function PipelineOpportunityDetailView({
                     </div>
                   );
                 })()
+              ) : opportunityModalTab === "notes" ? (
+                (() => {
+                  const opportunityNotes = sortedNotes.filter((entry) =>
+                    (entry.affiliations || []).some(
+                      (affiliation) =>
+                        affiliation.kind === "opportunity" && affiliation.id === selectedOpportunityForModal.id
+                    )
+                  );
+                  return (
+                    <div className="detail-card opportunity-modal-card">
+                      <div className="detail-section">
+                        <p className="detail-label">Notes</p>
+                        <div className="actions">
+                          <button
+                            type="button"
+                            className="ghost small contact-add-link"
+                            onClick={() => {
+                              setNewNoteOpportunityId(selectedOpportunityForModal.id);
+                              setShowAddNoteModal(true);
+                            }}
+                          >
+                            Add Note
+                          </button>
+                        </div>
+                        {opportunityNotes.length === 0 ? <p className="muted">No notes yet.</p> : null}
+                        <div className="pipeline-doc-list">
+                          {opportunityNotes.map((entry) => (
+                            <div key={entry.id} className="detail-list-item">
+                              {entry.affiliations && entry.affiliations.length > 0 ? (
+                                <div className="pipeline-note-affiliation-tags">
+                                  {entry.affiliations.map((affiliation) => (
+                                    <span
+                                      key={`${entry.id}:${affiliation.kind}:${affiliation.id}`}
+                                      className={`pipeline-note-affiliation-tag ${affiliation.kind}`}
+                                    >
+                                      <strong>{noteAffiliationKindLabel(affiliation.kind)}:</strong> {affiliation.label}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
+                              <div
+                                className="inline-rich-text"
+                                dangerouslySetInnerHTML={{ __html: normalizeRichText(entry.note || "") }}
+                              />
+                              <p className="muted">
+                                Added {formatDate(entry.createdAt)} by {entry.createdByName}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="detail-card opportunity-modal-card">
+                  {item ? (
+                    <>
+                      <div className="detail-section">
+                        <p className="muted">Documents are managed at the company level and shown here for this opportunity.</p>
+                      </div>
+                      <EntityDocumentsPane entityPath="companies" entityId={item.id} onStatus={setStatus} />
+                    </>
+                  ) : (
+                    <p className="muted">Opportunity documents unavailable.</p>
+                  )}
+                </div>
               )
             ) : (
               <p className="muted">Opportunity not found.</p>

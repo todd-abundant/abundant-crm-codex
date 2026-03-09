@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { PipelineOpportunityDetailView } from "./pipeline-opportunity-detail";
 import { RichTextArea } from "./rich-text-area";
 import { DateInputField } from "./date-input-field";
+import { EntityLookupInput } from "./entity-lookup-input";
 import { parseDateInput, toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
 import { createDateDebugContext, debugDateLog, dateDebugHeaders } from "@/lib/date-debug";
 import {
@@ -235,8 +236,12 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
   const [undoToast, setUndoToast] = React.useState<UndoToast | null>(null);
   const [noteModal, setNoteModal] = React.useState<NoteModalState | null>(null);
   const [selectedDetailId, setSelectedDetailId] = React.useState<string | null>(null);
+  const [intakeAddLookupValue, setIntakeAddLookupValue] = React.useState("");
+  const [intakeAddModalSignal, setIntakeAddModalSignal] = React.useState(0);
+  const [highlightedItemId, setHighlightedItemId] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const undoTimeoutRef = React.useRef<number | null>(null);
+  const highlightTimeoutRef = React.useRef<number | null>(null);
   const suppressLeadSourceBlurRef = React.useRef(false);
   const cardCommitSequenceById = React.useRef<Record<string, number>>({});
   const intakeCommitSequenceById = React.useRef<Record<string, number>>({});
@@ -304,6 +309,9 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
       if (undoTimeoutRef.current) {
         window.clearTimeout(undoTimeoutRef.current);
       }
+      if (highlightTimeoutRef.current) {
+        window.clearTimeout(highlightTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -311,6 +319,22 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
     setSelectedDetailId(null);
     void loadBoard();
   }, [loadBoard]);
+
+  const handleIntakeCompanyCreated = React.useCallback(
+    async (option: { id: string; name: string }) => {
+      setStatus({ kind: "ok", text: `${option.name} added to Intake.` });
+      await loadBoard();
+      setIntakeAddLookupValue("");
+      setHighlightedItemId(option.id);
+      if (highlightTimeoutRef.current) {
+        window.clearTimeout(highlightTimeoutRef.current);
+      }
+      highlightTimeoutRef.current = window.setTimeout(() => {
+        setHighlightedItemId((current) => (current === option.id ? null : current));
+      }, 3200);
+    },
+    [loadBoard]
+  );
 
   React.useEffect(() => {
     if (!selectedDetailId) return;
@@ -1048,6 +1072,28 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
               </header>
 
               <div className="pipeline-column-body">
+                {column.key === "INTAKE" ? (
+                  <div className="pipeline-column-add-row">
+                    <button
+                      type="button"
+                      className="pipeline-column-add-button"
+                      onClick={() => setIntakeAddModalSignal((current) => current + 1)}
+                    >
+                      + Add New Company
+                    </button>
+                    <EntityLookupInput
+                      entityKind="COMPANY"
+                      value={intakeAddLookupValue}
+                      onChange={setIntakeAddLookupValue}
+                      companyCreateDefaults={{ companyType }}
+                      onEntityCreated={(created) => {
+                        void handleIntakeCompanyCreated(created);
+                      }}
+                      openAddModalSignal={intakeAddModalSignal}
+                      hideLookupField
+                    />
+                  </div>
+                ) : null}
                 {columnItems.length === 0 ? <p className="muted">No items in this stage.</p> : null}
 
                 {columnItems.map((item) => {
@@ -1062,7 +1108,7 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
                   return (
                     <div
                       key={item.id}
-                      className={`pipeline-card ${draggingId === item.id ? "dragging" : ""}`}
+                      className={`pipeline-card ${highlightedItemId === item.id ? "newly-added" : ""} ${draggingId === item.id ? "dragging" : ""}`}
                       draggable={updatingId !== item.id}
                       onDragStart={(event) => {
                         setDraggingId(item.id);

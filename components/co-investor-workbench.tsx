@@ -1930,28 +1930,28 @@ export function CoInvestorWorkbench() {
                     <div>
                       <p className="muted">Latest Interaction</p>
                       <strong>
-                        {relationshipHighlights.latestInteraction
-                          ? relationshipHighlights.latestInteraction.subject || relationshipHighlights.latestInteraction.interactionType
+                        {relationshipHighlights?.latestInteraction
+                          ? relationshipHighlights?.latestInteraction?.subject || relationshipHighlights?.latestInteraction?.interactionType
                           : "No interactions"}
                       </strong>
-                      {relationshipHighlights.latestInteraction && (
-                        <p className="muted">{formatDate(relationshipHighlights.latestInteraction.occurredAt)}</p>
+                      {relationshipHighlights?.latestInteraction && (
+                        <p className="muted">{formatDate(relationshipHighlights?.latestInteraction?.occurredAt)}</p>
                       )}
                     </div>
                     <div>
                       <p className="muted">Next Open Action</p>
-                      <strong>{relationshipHighlights.nextOpenAction?.title || "No open next actions"}</strong>
-                      {relationshipHighlights.nextOpenAction?.dueAt && (
-                        <p className="muted">Due {formatDate(relationshipHighlights.nextOpenAction.dueAt)}</p>
+                      <strong>{relationshipHighlights?.nextOpenAction?.title || "No open next actions"}</strong>
+                      {relationshipHighlights?.nextOpenAction?.dueAt && (
+                        <p className="muted">Due {formatDate(relationshipHighlights?.nextOpenAction?.dueAt)}</p>
                       )}
                     </div>
                     <div>
                       <p className="muted">Totals</p>
-                      <strong>{relationshipHighlights.totalInteractions} interactions</strong>
+                      <strong>{relationshipHighlights?.totalInteractions ?? 0} interactions</strong>
                     </div>
                     <div>
                       <p className="muted">Open Next Actions</p>
-                      <strong>{relationshipHighlights.openActions}</strong>
+                      <strong>{relationshipHighlights?.openActions ?? 0}</strong>
                     </div>
                   </div>
                 )}
@@ -2001,10 +2001,10 @@ export function CoInvestorWorkbench() {
                   </button>
                 </div>
 
-                {selectedRecord.interactions.length === 0 ? (
+                {(selectedRecord?.interactions ?? []).length === 0 ? (
                   <p className="muted">No interactions logged yet.</p>
                 ) : (
-                  selectedRecord.interactions.map((entry) => (
+                  (selectedRecord?.interactions || []).map((entry) => (
                     <div key={entry.id} className="detail-list-item">
                       {editingInteractionId === entry.id ? (
                         <>
@@ -2088,10 +2088,10 @@ export function CoInvestorWorkbench() {
                   </button>
                 </div>
 
-                {selectedRecord.nextActions.length === 0 ? (
+                {(selectedRecord?.nextActions ?? []).length === 0 ? (
                   <p className="muted">No open next actions yet.</p>
                 ) : (
-                  selectedRecord.nextActions.map((item) => (
+                  (selectedRecord?.nextActions || []).map((item) => (
                     <div key={item.id} className="detail-list-item">
                       {editingNextActionId === item.id ? (
                         <>
@@ -2212,10 +2212,10 @@ export function CoInvestorWorkbench() {
                     />
                   </div>
                 ) : null}
-                {selectedRecord.investments.length === 0 ? (
+                {(selectedRecord?.investments ?? []).length === 0 ? (
                   <p className="muted">No investments captured.</p>
                 ) : (
-                  selectedRecord.investments.map((investment) => (
+                  (selectedRecord?.investments || []).map((investment) => (
                     <div key={investment.id} className="detail-list-item contact-row">
                       <div className="contact-row-details">
                         <strong>{investment.portfolioCompanyName}</strong>
@@ -2272,10 +2272,10 @@ export function CoInvestorWorkbench() {
                     />
                   </div>
                 ) : null}
-                {selectedRecord.venturePartners.length === 0 ? (
+                {(selectedRecord?.venturePartners ?? []).length === 0 ? (
                   <p className="muted">No health system limited partners linked yet.</p>
                 ) : (
-                  selectedRecord.venturePartners.map((link) => {
+                  (selectedRecord?.venturePartners || []).map((link) => {
                     const location = formatLocation(link.healthSystem);
                     return (
                       <div key={link.id} className="detail-list-item">

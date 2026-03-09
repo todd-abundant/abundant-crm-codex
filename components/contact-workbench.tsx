@@ -8,7 +8,7 @@ import { EntityNotesPane } from "./entity-notes-pane";
 
 type ContactRoleType = "EXECUTIVE" | "VENTURE_PARTNER" | "INVESTOR_PARTNER" | "COMPANY_CONTACT" | "OTHER";
 type AssociationType = "HEALTH_SYSTEM" | "CO_INVESTOR" | "COMPANY";
-type DetailTab = "overview" | "associations" | "opportunities" | "notes" | "documents";
+type DetailTab = "overview" | "relationships" | "opportunities" | "notes" | "documents";
 type EntityKind = "HEALTH_SYSTEM" | "CO_INVESTOR" | "COMPANY";
 type StatusMessage = { kind: "ok" | "error"; text: string };
 
@@ -324,11 +324,12 @@ export function ContactWorkbench() {
   const [createPrincipalRelationshipTitle, setCreatePrincipalRelationshipTitle] = React.useState("");
   const [creatingContact, setCreatingContact] = React.useState(false);
 
-  const [associationModalOpen, setAssociationModalOpen] = React.useState(false);
-  const [newAssociationType, setNewAssociationType] = React.useState<AssociationType>("HEALTH_SYSTEM");
-  const [newAssociationTargetId, setNewAssociationTargetId] = React.useState("");
-  const [newAssociationRoleType, setNewAssociationRoleType] = React.useState<ContactRoleType>("EXECUTIVE");
-  const [newAssociationTitle, setNewAssociationTitle] = React.useState("");
+  const [showAddHealthSystemLookup, setShowAddHealthSystemLookup] = React.useState(false);
+  const [showAddCoInvestorLookup, setShowAddCoInvestorLookup] = React.useState(false);
+  const [showAddCompanyLookup, setShowAddCompanyLookup] = React.useState(false);
+  const [newHealthSystemAssociationId, setNewHealthSystemAssociationId] = React.useState("");
+  const [newCoInvestorAssociationId, setNewCoInvestorAssociationId] = React.useState("");
+  const [newCompanyAssociationId, setNewCompanyAssociationId] = React.useState("");
   const [savingAssociation, setSavingAssociation] = React.useState(false);
 
   const [editingAssociation, setEditingAssociation] = React.useState<EditingAssociation | null>(null);
@@ -368,12 +369,6 @@ export function ContactWorkbench() {
     !loadingRecords &&
     records.length === 0 &&
     (trim(filters.lookupQuery).length > 0 || Boolean(filters.entityType));
-
-  const associationTargetOptions = React.useMemo(() => {
-    if (newAssociationType === "HEALTH_SYSTEM") return referenceData.healthSystems;
-    if (newAssociationType === "CO_INVESTOR") return referenceData.coInvestors;
-    return referenceData.companies;
-  }, [newAssociationType, referenceData]);
 
   const createPrincipalOptions = React.useMemo(() => {
     if (createPrincipalType === "HEALTH_SYSTEM") return referenceData.healthSystems;
@@ -505,10 +500,20 @@ export function ContactWorkbench() {
   }, [selectedRecord]);
 
   React.useEffect(() => {
-    setNewAssociationRoleType(defaultRoleTypeForAssociation(newAssociationType));
-    setNewAssociationTargetId("");
-    setNewAssociationTitle("");
-  }, [newAssociationType]);
+    if (activeDetailTab !== "overview") return;
+    if (!selectedRecord || !detailDraft) return;
+    if (!overviewDirty) return;
+    if (savingOverview) return;
+    if (!trim(detailDraft.name)) return;
+    if (detailDraft.principalEntityType && !detailDraft.principalEntityId) return;
+
+    const draftSnapshot = detailDraft;
+    const timeout = window.setTimeout(() => {
+      void saveOverview(draftSnapshot);
+    }, 450);
+
+    return () => window.clearTimeout(timeout);
+  }, [activeDetailTab, detailDraft, overviewDirty, savingOverview, selectedRecord]);
 
   React.useEffect(() => {
     setCreatePrincipalRoleType(defaultRoleTypeForAssociation(createPrincipalType));
@@ -618,35 +623,35 @@ export function ContactWorkbench() {
     }
   }
 
-  async function saveOverview() {
-    if (!selectedRecord || !detailDraft) return;
+  async function saveOverview(draftOverride?: DetailDraft) {
+    const draft = draftOverride ?? detailDraft;
+    if (!selectedRecord || !draft) return;
 
-    if (!trim(detailDraft.name)) {
+    if (!trim(draft.name)) {
       setStatus({ kind: "error", text: "Contact name is required." });
       return;
     }
 
-    if (detailDraft.principalEntityType && !detailDraft.principalEntityId) {
+    if (draft.principalEntityType && !draft.principalEntityId) {
       setStatus({ kind: "error", text: "Select a principal entity record." });
       return;
     }
 
     setSavingOverview(true);
-    setStatus(null);
 
     try {
       const res = await fetch(`/api/contacts/${selectedRecord.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: detailDraft.name,
-          title: detailDraft.title,
-          email: detailDraft.email,
-          phone: detailDraft.phone,
-          linkedinUrl: detailDraft.linkedinUrl,
-          notes: detailDraft.notes,
-          principalEntityType: detailDraft.principalEntityType || null,
-          principalEntityId: detailDraft.principalEntityId || null
+          name: draft.name,
+          title: draft.title,
+          email: draft.email,
+          phone: draft.phone,
+          linkedinUrl: draft.linkedinUrl,
+          notes: draft.notes,
+          principalEntityType: draft.principalEntityType || null,
+          principalEntityId: draft.principalEntityId || null
         })
       });
       const payload = await res.json();
@@ -656,7 +661,6 @@ export function ContactWorkbench() {
       }
 
       await loadRecords({ preferredRecordId: selectedRecord.id });
-      setStatus({ kind: "ok", text: "Contact updated." });
     } catch (error) {
       setStatus({
         kind: "error",
@@ -694,9 +698,36 @@ export function ContactWorkbench() {
     }
   }
 
-  async function addAssociation() {
+  function closeAssociationLookup(associationType: AssociationType) {
+    if (associationType === "HEALTH_SYSTEM") {
+      setShowAddHealthSystemLookup(false);
+      setNewHealthSystemAssociationId("");
+      return;
+    }
+
+    if (associationType === "CO_INVESTOR") {
+      setShowAddCoInvestorLookup(false);
+      setNewCoInvestorAssociationId("");
+      return;
+    }
+
+    setShowAddCompanyLookup(false);
+    setNewCompanyAssociationId("");
+  }
+
+  function openAssociationLookup(associationType: AssociationType) {
+    setStatus(null);
+    setShowAddHealthSystemLookup(associationType === "HEALTH_SYSTEM");
+    setShowAddCoInvestorLookup(associationType === "CO_INVESTOR");
+    setShowAddCompanyLookup(associationType === "COMPANY");
+    setNewHealthSystemAssociationId("");
+    setNewCoInvestorAssociationId("");
+    setNewCompanyAssociationId("");
+  }
+
+  async function addAssociation(associationType: AssociationType, targetId: string) {
     if (!selectedRecord) return;
-    if (!newAssociationTargetId) {
+    if (!targetId) {
       setStatus({ kind: "error", text: "Select a record to associate." });
       return;
     }
@@ -709,10 +740,10 @@ export function ContactWorkbench() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          associationType: newAssociationType,
-          targetId: newAssociationTargetId,
-          roleType: newAssociationRoleType,
-          title: newAssociationTitle
+          associationType,
+          targetId,
+          roleType: defaultRoleTypeForAssociation(associationType),
+          title: ""
         })
       });
       const payload = await res.json();
@@ -721,11 +752,9 @@ export function ContactWorkbench() {
         throw new Error(payload.error || "Failed to add association");
       }
 
-      setAssociationModalOpen(false);
-      setNewAssociationTargetId("");
-      setNewAssociationTitle("");
+      closeAssociationLookup(associationType);
       await loadRecords({ preferredRecordId: selectedRecord.id });
-      setStatus({ kind: "ok", text: "Association added." });
+      setStatus({ kind: "ok", text: `${associationTypeLabel(associationType)} relationship added.` });
     } catch (error) {
       setStatus({
         kind: "error",
@@ -1126,11 +1155,11 @@ export function ContactWorkbench() {
                 <button
                   type="button"
                   role="tab"
-                  className={`detail-tab ${activeDetailTab === "associations" ? "active" : ""}`}
-                  aria-selected={activeDetailTab === "associations"}
-                  onClick={() => setActiveDetailTab("associations")}
+                  className={`detail-tab ${activeDetailTab === "relationships" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "relationships"}
+                  onClick={() => setActiveDetailTab("relationships")}
                 >
-                  Associations
+                  Relationships
                 </button>
                 <button
                   type="button"
@@ -1163,7 +1192,7 @@ export function ContactWorkbench() {
 
               {activeDetailTab === "overview" && detailDraft ? (
                 <div className="detail-card">
-                  <div className="detail-section" style={{ marginTop: 0 }}>
+                  <div className="detail-section" style={{ marginTop: 0, paddingTop: 8 }}>
                     <p className="detail-label">Principal Entity</p>
                     <p className="muted">
                       {selectedRecord.principalEntity
@@ -1270,7 +1299,7 @@ export function ContactWorkbench() {
                         placeholder="(555) 555-5555"
                       />
                     </div>
-                    <div>
+                    <div style={{ gridColumn: "1 / -1" }}>
                       <label>LinkedIn URL</label>
                       <input
                         value={detailDraft.linkedinUrl}
@@ -1282,7 +1311,7 @@ export function ContactWorkbench() {
                         placeholder="https://linkedin.com/in/..."
                       />
                     </div>
-                    <div>
+                    <div style={{ gridColumn: "1 / -1" }}>
                       <label>Internal Notes</label>
                       <textarea
                         value={detailDraft.notes}
@@ -1294,28 +1323,48 @@ export function ContactWorkbench() {
                       />
                     </div>
                   </div>
-                  <div className="actions">
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() => void saveOverview()}
-                      disabled={savingOverview || !overviewDirty}
-                    >
-                      {savingOverview ? "Saving..." : "Save Contact"}
-                    </button>
-                  </div>
                 </div>
               ) : null}
 
-              {activeDetailTab === "associations" ? (
+              {activeDetailTab === "relationships" ? (
                 <div className="detail-section">
-                  <div className="detail-action-bar">
-                    <button type="button" className="secondary" onClick={() => setAssociationModalOpen(true)}>
-                      Add Association
+                  <p className="detail-label">Health Systems</p>
+                  <div className="actions">
+                    <button
+                      type="button"
+                      className="ghost small contact-add-link"
+                      onClick={() => {
+                        if (showAddHealthSystemLookup) {
+                          closeAssociationLookup("HEALTH_SYSTEM");
+                          return;
+                        }
+                        openAssociationLookup("HEALTH_SYSTEM");
+                      }}
+                    >
+                      {showAddHealthSystemLookup ? "Cancel" : "Add Health System"}
                     </button>
                   </div>
-
-                  <p className="detail-label">Health Systems</p>
+                  {showAddHealthSystemLookup ? (
+                    <div className="actions relationship-inline-add">
+                      <EntityLookupInput
+                        entityKind="HEALTH_SYSTEM"
+                        value={newHealthSystemAssociationId}
+                        onChange={(nextId) => {
+                          setNewHealthSystemAssociationId(nextId);
+                          if (!nextId || savingAssociation) return;
+                          void addAssociation("HEALTH_SYSTEM", nextId);
+                        }}
+                        initialOptions={referenceData.healthSystems.map((item) => ({ id: item.id, name: item.name }))}
+                        className="relationship-inline-lookup"
+                        placeholder="Search health systems (or Add New)"
+                        disabled={savingAssociation}
+                        autoOpenCreateOnEnterNoMatch
+                        onEntityCreated={(option) =>
+                          updateReferenceDataForEntity("HEALTH_SYSTEM", { id: option.id, name: option.name })
+                        }
+                      />
+                    </div>
+                  ) : null}
                   {selectedRecord.healthSystemLinks.length === 0 ? <p className="muted">No health system links.</p> : null}
                   {selectedRecord.healthSystemLinks.map((link) => {
                     const associationKey = `HEALTH_SYSTEM:${link.id}`;
@@ -1342,7 +1391,7 @@ export function ContactWorkbench() {
                               onClick={() => void deleteAssociation("HEALTH_SYSTEM", link.id)}
                               disabled={isDeleting}
                             >
-                              {isDeleting ? "Removing..." : "Remove"}
+                              {isDeleting ? "Removing..." : "Delete"}
                             </button>
                           </div>
                         </div>
@@ -1394,6 +1443,42 @@ export function ContactWorkbench() {
                   })}
 
                   <p className="detail-label">Co-Investors</p>
+                  <div className="actions">
+                    <button
+                      type="button"
+                      className="ghost small contact-add-link"
+                      onClick={() => {
+                        if (showAddCoInvestorLookup) {
+                          closeAssociationLookup("CO_INVESTOR");
+                          return;
+                        }
+                        openAssociationLookup("CO_INVESTOR");
+                      }}
+                    >
+                      {showAddCoInvestorLookup ? "Cancel" : "Add Co-Investor"}
+                    </button>
+                  </div>
+                  {showAddCoInvestorLookup ? (
+                    <div className="actions relationship-inline-add">
+                      <EntityLookupInput
+                        entityKind="CO_INVESTOR"
+                        value={newCoInvestorAssociationId}
+                        onChange={(nextId) => {
+                          setNewCoInvestorAssociationId(nextId);
+                          if (!nextId || savingAssociation) return;
+                          void addAssociation("CO_INVESTOR", nextId);
+                        }}
+                        initialOptions={referenceData.coInvestors.map((item) => ({ id: item.id, name: item.name }))}
+                        className="relationship-inline-lookup"
+                        placeholder="Search co-investors (or Add New)"
+                        disabled={savingAssociation}
+                        autoOpenCreateOnEnterNoMatch
+                        onEntityCreated={(option) =>
+                          updateReferenceDataForEntity("CO_INVESTOR", { id: option.id, name: option.name })
+                        }
+                      />
+                    </div>
+                  ) : null}
                   {selectedRecord.coInvestorLinks.length === 0 ? <p className="muted">No co-investor links.</p> : null}
                   {selectedRecord.coInvestorLinks.map((link) => {
                     const associationKey = `CO_INVESTOR:${link.id}`;
@@ -1420,7 +1505,7 @@ export function ContactWorkbench() {
                               onClick={() => void deleteAssociation("CO_INVESTOR", link.id)}
                               disabled={isDeleting}
                             >
-                              {isDeleting ? "Removing..." : "Remove"}
+                              {isDeleting ? "Removing..." : "Delete"}
                             </button>
                           </div>
                         </div>
@@ -1472,6 +1557,48 @@ export function ContactWorkbench() {
                   })}
 
                   <p className="detail-label">Companies</p>
+                  <div className="actions">
+                    <button
+                      type="button"
+                      className="ghost small contact-add-link"
+                      onClick={() => {
+                        if (showAddCompanyLookup) {
+                          closeAssociationLookup("COMPANY");
+                          return;
+                        }
+                        openAssociationLookup("COMPANY");
+                      }}
+                    >
+                      {showAddCompanyLookup ? "Cancel" : "Add Company"}
+                    </button>
+                  </div>
+                  {showAddCompanyLookup ? (
+                    <div className="actions relationship-inline-add">
+                      <EntityLookupInput
+                        entityKind="COMPANY"
+                        value={newCompanyAssociationId}
+                        onChange={(nextId) => {
+                          setNewCompanyAssociationId(nextId);
+                          if (!nextId || savingAssociation) return;
+                          void addAssociation("COMPANY", nextId);
+                        }}
+                        initialOptions={referenceData.companies.map((item) => ({ id: item.id, name: item.name }))}
+                        className="relationship-inline-lookup"
+                        placeholder="Search companies (or Add New)"
+                        disabled={savingAssociation}
+                        autoOpenCreateOnEnterNoMatch
+                        companyCreateDefaults={{
+                          companyType: "STARTUP",
+                          primaryCategory: "OTHER",
+                          leadSourceType: "OTHER",
+                          leadSourceOther: "Added from contact relationship"
+                        }}
+                        onEntityCreated={(option) =>
+                          updateReferenceDataForEntity("COMPANY", { id: option.id, name: option.name })
+                        }
+                      />
+                    </div>
+                  ) : null}
                   {selectedRecord.companyLinks.length === 0 ? <p className="muted">No company links.</p> : null}
                   {selectedRecord.companyLinks.map((link) => {
                     const associationKey = `COMPANY:${link.id}`;
@@ -1498,7 +1625,7 @@ export function ContactWorkbench() {
                               onClick={() => void deleteAssociation("COMPANY", link.id)}
                               disabled={isDeleting}
                             >
-                              {isDeleting ? "Removing..." : "Remove"}
+                              {isDeleting ? "Removing..." : "Delete"}
                             </button>
                           </div>
                         </div>
@@ -1738,68 +1865,6 @@ export function ContactWorkbench() {
             <input
               value={createPrincipalRelationshipTitle}
               onChange={(event) => setCreatePrincipalRelationshipTitle(event.target.value)}
-              placeholder="Optional relationship title"
-            />
-          </div>
-        </div>
-      </AddRelationshipModal>
-
-      <AddRelationshipModal
-        open={associationModalOpen}
-        onClose={() => setAssociationModalOpen(false)}
-        onSubmit={() => void addAssociation()}
-        isSubmitting={savingAssociation}
-        submitDisabled={!newAssociationTargetId}
-        title="Add Association"
-        subtitle="Link this contact to a health system, co-investor, or company."
-        submitLabel="Add Association"
-      >
-        <div className="detail-grid">
-          <div>
-            <label>Association Type</label>
-            <select
-              value={newAssociationType}
-              onChange={(event) => setNewAssociationType(event.target.value as AssociationType)}
-            >
-              {associationTypeOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label>Role</label>
-            <select
-              value={newAssociationRoleType}
-              onChange={(event) => setNewAssociationRoleType(event.target.value as ContactRoleType)}
-            >
-              {roleTypeOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <label>Record</label>
-            <EntityLookupInput
-              entityKind={toEntityKind(newAssociationType)}
-              value={newAssociationTargetId}
-              onChange={setNewAssociationTargetId}
-              initialOptions={associationTargetOptions.map((item) => ({ id: item.id, name: item.name }))}
-              placeholder={`Search or add ${associationTypeLabel(newAssociationType)}`}
-              onEntityCreated={(option) =>
-                updateReferenceDataForEntity(newAssociationType, { id: option.id, name: option.name })
-              }
-              autoOpenCreateOnEnterNoMatch
-            />
-          </div>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <label>Relationship Title</label>
-            <input
-              value={newAssociationTitle}
-              onChange={(event) => setNewAssociationTitle(event.target.value)}
               placeholder="Optional relationship title"
             />
           </div>
