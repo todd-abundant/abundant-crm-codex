@@ -3329,7 +3329,7 @@ export function PipelineOpportunityDetailView({
       if (contactIdOverride) {
         setShowAddOpportunityContactByOpportunityId((current) => ({ ...current, [opportunityId]: false }));
         const previewParticipant = item.screening.healthSystems
-          .flatMap((entry) => entry.surveyParticipants)
+          .flatMap((entry) => entry.participants)
           .find((participant) => participant.contactId === contactId);
         setItem((current) => {
           if (!current) return current;
