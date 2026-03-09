@@ -52,6 +52,8 @@ type EntityLookupInputProps = {
   autoOpenCreateOnEnterNoMatch?: boolean;
 };
 
+const EMPTY_ENTITY_OPTIONS: EntityOption[] = [];
+
 const entityKindLabel: Record<EntityKind, string> = {
   HEALTH_SYSTEM: "health system",
   COMPANY: "company",
@@ -116,6 +118,13 @@ function verifyEndpointForKind(entityKind: EntityKind) {
   return null;
 }
 
+function processEndpointForKind(entityKind: EntityKind) {
+  if (entityKind === "HEALTH_SYSTEM") return "/api/health-systems/research-jobs/process";
+  if (entityKind === "COMPANY") return "/api/companies/research-jobs/process";
+  if (entityKind === "CO_INVESTOR") return "/api/co-investors/research-jobs/process";
+  return null;
+}
+
 function contactEndpointForContext(context: ContactCreateContext) {
   if (context.parentType === "company") return `/api/companies/${context.parentId}/contacts`;
   if (context.parentType === "healthSystem") return `/api/health-systems/${context.parentId}/contacts`;
@@ -126,7 +135,7 @@ export function EntityLookupInput({
   entityKind,
   value,
   onChange,
-  initialOptions = [],
+  initialOptions,
   placeholder,
   emptyLabel = "No selection",
   allowEmpty = false,
@@ -140,6 +149,7 @@ export function EntityLookupInput({
 }: EntityLookupInputProps) {
   const [query, setQuery] = React.useState("");
   const [open, setOpen] = React.useState(false);
+  const [resultsDirection, setResultsDirection] = React.useState<"down" | "up">("down");
   const [loading, setLoading] = React.useState(false);
   const [searchError, setSearchError] = React.useState<string | null>(null);
   const [results, setResults] = React.useState<EntityOption[]>([]);
@@ -158,23 +168,28 @@ export function EntityLookupInput({
   const [addPhone, setAddPhone] = React.useState("");
   const [addLinkedin, setAddLinkedin] = React.useState("");
   const [webCandidates, setWebCandidates] = React.useState<SearchCandidate[]>([]);
-  const [selectedWebCandidateIndex, setSelectedWebCandidateIndex] = React.useState(0);
+  const [selectedWebCandidateIndex, setSelectedWebCandidateIndex] = React.useState<number | null>(null);
   const [searchingWeb, setSearchingWeb] = React.useState(false);
   const [adding, setAdding] = React.useState(false);
   const [addError, setAddError] = React.useState<string | null>(null);
 
   const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const resultsRef = React.useRef<HTMLDivElement | null>(null);
   const lastSyncedValueRef = React.useRef<string>(value);
 
   const supportsWebLookup = entityKind !== "CONTACT";
+  const normalizedInitialOptions = React.useMemo(
+    () => initialOptions ?? EMPTY_ENTITY_OPTIONS,
+    [initialOptions]
+  );
 
   const allKnownOptions = React.useMemo(() => {
     const map = new Map<string, EntityOption>();
-    for (const item of initialOptions) map.set(item.id, item);
+    for (const item of normalizedInitialOptions) map.set(item.id, item);
     for (const item of createdOptions) map.set(item.id, item);
     for (const item of results) map.set(item.id, item);
     return map;
-  }, [initialOptions, createdOptions, results]);
+  }, [normalizedInitialOptions, createdOptions, results]);
 
   const selectedOption = value ? allKnownOptions.get(value) || null : null;
 
@@ -191,6 +206,60 @@ export function EntityLookupInput({
       document.removeEventListener("mousedown", onDocumentMouseDown);
     };
   }, []);
+
+  React.useEffect(() => {
+    if (!open) {
+      setResultsDirection("down");
+      return;
+    }
+
+    const recalcDirection = () => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      let clipTop = 0;
+      let clipBottom = window.innerHeight;
+      let parent = container.parentElement;
+      while (parent) {
+        const style = window.getComputedStyle(parent);
+        const overflowY = style.overflowY;
+        const overflow = style.overflow;
+        const clips =
+          overflowY === "auto" ||
+          overflowY === "scroll" ||
+          overflowY === "hidden" ||
+          overflowY === "clip" ||
+          overflow === "auto" ||
+          overflow === "scroll" ||
+          overflow === "hidden" ||
+          overflow === "clip";
+        if (clips) {
+          const rect = parent.getBoundingClientRect();
+          clipTop = Math.max(clipTop, rect.top);
+          clipBottom = Math.min(clipBottom, rect.bottom);
+          break;
+        }
+        parent = parent.parentElement;
+      }
+
+      const rect = container.getBoundingClientRect();
+      const estimatedHeight = Math.max(160, Math.min(280, resultsRef.current?.offsetHeight || 220));
+      const availableBelow = clipBottom - rect.bottom - 4;
+      const availableAbove = rect.top - clipTop - 4;
+      const shouldOpenUp = availableBelow < estimatedHeight && availableAbove > availableBelow;
+      setResultsDirection(shouldOpenUp ? "up" : "down");
+    };
+
+    const frameId = window.requestAnimationFrame(recalcDirection);
+    window.addEventListener("resize", recalcDirection);
+    window.addEventListener("scroll", recalcDirection, true);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", recalcDirection);
+      window.removeEventListener("scroll", recalcDirection, true);
+    };
+  }, [open, results.length, loading, searchError, query]);
 
   React.useEffect(() => {
     if (value === lastSyncedValueRef.current) return;
@@ -235,7 +304,7 @@ export function EntityLookupInput({
     if (!term) {
       setLoading(false);
       setSearchError(null);
-      setResults(initialOptions.slice(0, 12));
+      setResults(normalizedInitialOptions.slice(0, 12));
       return;
     }
 
@@ -281,7 +350,7 @@ export function EntityLookupInput({
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [open, query, disabled, entityKind, initialOptions, contactSearchHealthSystemId]);
+  }, [open, query, disabled, entityKind, normalizedInitialOptions, contactSearchHealthSystemId]);
 
   function selectOption(option: EntityOption) {
     onChange(option.id);
@@ -306,7 +375,7 @@ export function EntityLookupInput({
     setAddPhone("");
     setAddLinkedin("");
     setWebCandidates([]);
-    setSelectedWebCandidateIndex(0);
+    setSelectedWebCandidateIndex(null);
   }
 
   async function lookupWebCandidates() {
@@ -321,6 +390,8 @@ export function EntityLookupInput({
 
     setSearchingWeb(true);
     setAddError(null);
+    setWebCandidates([]);
+    setSelectedWebCandidateIndex(null);
     try {
       const res = await fetch(searchEndpoint, {
         method: "POST",
@@ -336,7 +407,7 @@ export function EntityLookupInput({
         ? ((payload as { candidates: SearchCandidate[] }).candidates || [])
         : [];
       setWebCandidates(candidates);
-      setSelectedWebCandidateIndex(0);
+      setSelectedWebCandidateIndex(null);
       if (candidates.length === 0) {
         setAddError("No web matches found. You can still create manually.");
       }
@@ -407,37 +478,19 @@ export function EntityLookupInput({
 
     let candidate: SearchCandidate = manualCandidate;
     if (addMode === "WEB") {
-      let candidates = webCandidates;
-      if (candidates.length === 0) {
-        const searchEndpoint = webSearchEndpointForKind(entityKind);
-        if (!searchEndpoint) {
-          throw new Error(`Web lookup is unavailable for ${entityKindLabel[entityKind]}.`);
-        }
-        const res = await fetch(searchEndpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: addName.trim() })
-        });
-        const payload = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error((payload as { error?: string }).error || "Failed to search the web.");
-        }
-        candidates = Array.isArray((payload as { candidates?: unknown[] }).candidates)
-          ? ((payload as { candidates: SearchCandidate[] }).candidates || [])
-          : [];
+      if (selectedWebCandidateIndex === null) {
+        throw new Error("Select a web match before adding.");
       }
-
-      if (candidates.length > 0) {
-        const idx = Math.min(Math.max(selectedWebCandidateIndex, 0), candidates.length - 1);
-        candidate = candidates[idx];
+      if (selectedWebCandidateIndex < 0 || selectedWebCandidateIndex >= webCandidates.length) {
+        throw new Error("Selected web match is unavailable. Search again and select a result.");
       }
+      candidate = webCandidates[selectedWebCandidateIndex];
     }
 
     const body: Record<string, unknown> = {};
     if (entityKind === "HEALTH_SYSTEM") {
       body.candidate = candidate;
       body.isAllianceMember = false;
-      body.isLimitedPartner = false;
     } else if (entityKind === "CO_INVESTOR") {
       body.candidate = candidate;
       body.isSeedInvestor = false;
@@ -473,6 +526,16 @@ export function EntityLookupInput({
         }
       }
       throw new Error((payload as { error?: string }).error || `Failed to add ${entityKindLabel[entityKind]}.`);
+    }
+
+    const processEndpoint = processEndpointForKind(entityKind);
+    if (processEndpoint) {
+      // Fire-and-forget so the newly queued research starts immediately.
+      void fetch(processEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ maxJobs: 1 })
+      }).catch(() => undefined);
     }
 
     if (entityKind === "HEALTH_SYSTEM") {
@@ -529,6 +592,10 @@ export function EntityLookupInput({
     }
   }
 
+  const webModeNeedsSelection =
+    entityKind !== "CONTACT" && addMode === "WEB" && selectedWebCandidateIndex === null;
+  const submitDisabled = adding || searchingWeb || webModeNeedsSelection;
+
   return (
     <div className={`entity-lookup ${className || ""}`} ref={containerRef}>
       <div className="entity-lookup-controls">
@@ -578,7 +645,10 @@ export function EntityLookupInput({
       {allowEmpty && !value && !query.trim() ? <p className="muted entity-lookup-meta">{emptyLabel}</p> : null}
 
       {open ? (
-        <div className="entity-lookup-results">
+        <div
+          ref={resultsRef}
+          className={`entity-lookup-results ${resultsDirection === "up" ? "upward" : ""}`}
+        >
           {loading ? <p className="muted">Searching…</p> : null}
           {searchError ? <p className="status error">{searchError}</p> : null}
           {!loading && !searchError ? (
@@ -657,27 +727,55 @@ export function EntityLookupInput({
               </div>
             ) : null}
 
-            <div className="detail-grid">
-              <div>
-                <label>Name</label>
-                <input
-                  value={addName}
-                  onChange={(event) => setAddName(event.target.value)}
-                  placeholder={`Enter ${entityKindLabel[entityKind]} name`}
-                />
-              </div>
-
-              {entityKind === "CONTACT" ? (
+            {entityKind === "CONTACT" || addMode === "MANUAL" ? (
+              <div className="detail-grid">
                 <div>
-                  <label>Title</label>
+                  <label>Name</label>
                   <input
-                    value={addTitle}
-                    onChange={(event) => setAddTitle(event.target.value)}
-                    placeholder="Optional"
+                    value={addName}
+                    onChange={(event) => setAddName(event.target.value)}
+                    placeholder={`Enter ${entityKindLabel[entityKind]} name`}
                   />
                 </div>
-              ) : null}
-            </div>
+
+                {entityKind === "CONTACT" ? (
+                  <div>
+                    <label>Title</label>
+                    <input
+                      value={addTitle}
+                      onChange={(event) => setAddTitle(event.target.value)}
+                      placeholder="Optional"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {entityKind !== "CONTACT" && addMode === "WEB" ? (
+              <div className="entity-lookup-search-block">
+                <label>Search by name</label>
+                <div className="entity-lookup-search-row">
+                  <input
+                    value={addName}
+                    onChange={(event) => setAddName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter") return;
+                      event.preventDefault();
+                      void lookupWebCandidates();
+                    }}
+                    placeholder={`Type a ${entityKindLabel[entityKind]} name`}
+                  />
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => void lookupWebCandidates()}
+                    disabled={searchingWeb || adding || addName.trim().length < 2}
+                  >
+                    {searchingWeb ? "Searching..." : "Search"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             {entityKind === "CONTACT" ? (
               <div className="detail-grid">
@@ -755,17 +853,11 @@ export function EntityLookupInput({
 
             {entityKind !== "CONTACT" && addMode === "WEB" ? (
               <div className="detail-section">
-                <div className="actions" style={{ marginTop: 0 }}>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => void lookupWebCandidates()}
-                    disabled={searchingWeb || adding || addName.trim().length < 2}
-                  >
-                    {searchingWeb ? "Searching..." : "Find Web Matches"}
-                  </button>
-                </div>
-                {webCandidates.length > 0 ? (
+                {searchingWeb ? (
+                  <p className="entity-lookup-search-progress" role="status" aria-live="polite">
+                    Searching web sources for matches...
+                  </p>
+                ) : webCandidates.length > 0 ? (
                   <div className="candidate-list candidate-list-modal">
                     {webCandidates.map((candidate, index) => (
                       <label
@@ -789,18 +881,15 @@ export function EntityLookupInput({
                     ))}
                   </div>
                 ) : (
-                  <p className="muted">No web candidate selected yet. You can still submit and use the typed name.</p>
+                  <p className="muted">No web candidates yet. Search by name above, then pick a result or keep your typed name.</p>
                 )}
               </div>
             ) : null}
 
             {addError ? <p className="status error">{addError}</p> : null}
 
-            <div className="actions">
-              <button type="button" className="ghost" onClick={() => setAddOpen(false)} disabled={adding}>
-                Cancel
-              </button>
-              <button type="button" className="primary" onClick={() => void submitAdd()} disabled={adding}>
+            <div className="actions entity-add-actions">
+              <button type="button" className="primary" onClick={() => void submitAdd()} disabled={submitDisabled}>
                 {adding
                   ? "Adding..."
                   : entityKind === "CONTACT"
@@ -808,6 +897,9 @@ export function EntityLookupInput({
                     : addMode === "WEB"
                       ? "Add + Queue Research"
                       : "Create"}
+              </button>
+              <button type="button" className="ghost" onClick={() => setAddOpen(false)} disabled={adding}>
+                Cancel
               </button>
             </div>
           </div>

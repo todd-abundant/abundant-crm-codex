@@ -147,16 +147,6 @@ export function ScreeningDetailSlide6Mock() {
 
   return (
     <main>
-      <section className="hero">
-        <div className="actions" style={{ marginTop: 0 }}>
-          <Link href="/pipeline" className="top-nav-link top-nav-link-quiet">
-            Back to Pipeline
-          </Link>
-        </div>
-        <h1>Screening Detail Mock (Slide 6)</h1>
-        <p>Static mock with editable fields for screening status tracking.</p>
-      </section>
-
       <section className="panel">
         <h2>Alliance Screening Status</h2>
         <p className="muted">

@@ -1038,14 +1038,6 @@ function recordProgressPhaseTiming(mode: AnalysisProgressMode, phase: string, el
 
   return (
     <main>
-      <section className="hero">
-        <h1>Transcript Member Insights (Test)</h1>
-        <p>
-          Select the company, paste a transcript, let AI identify speakers, classify participants, then extract member quotes for
-          sentiment and theme tagging.
-        </p>
-      </section>
-
       {stage === "setup" ? (
         <section className="panel">
           <h2>1) Paste Transcript</h2>

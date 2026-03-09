@@ -577,7 +577,7 @@ export async function searchCompanyCandidates(query: string): Promise<{
 
   const startMs = Date.now();
   const result = await getCachedLookup(
-    `company-candidates:${normalizedQuery}`,
+    `company-candidates:v2:${normalizedQuery}`,
     async () => {
       const client = getOpenAIClient();
       if (!client) {
@@ -603,7 +603,11 @@ export async function searchCompanyCandidates(query: string): Promise<{
               {
                 type: "input_text",
                 text:
-                  "Find up to 6 likely digital health company parent organizations that best match the query. Exclude products, business units, incubator programs, department pages, and news/listicle pages unless they are clearly independent companies. Prefer canonical company records with official websites. Return headquarters city/state/country and website to disambiguate results."
+                  "Find up to 6 likely US-based operating digital health companies that best match the query. " +
+                  "Focus on companies that build or deliver healthcare products/services (software, tech-enabled services, diagnostics, devices, clinical or operational workflows). " +
+                  "Exclude investors and finance entities: venture capital firms, private equity firms, investment funds, family offices, banks, brokerages, and advisory firms. " +
+                  "Also exclude products, business units, incubator/accelerator programs, department pages, and news/listicle pages unless they are clearly independent companies. " +
+                  "Prefer canonical company records with official websites. Return headquarters city/state/country and website to disambiguate results."
               }
             ]
           },
@@ -613,8 +617,8 @@ export async function searchCompanyCandidates(query: string): Promise<{
               {
                 type: "input_text",
                 text:
-                  `Find up to 6 likely digital health company parent organizations that best match "${normalizedQuery}". ` +
-                  "Do not return product names, program pages, or non-company entities."
+                  `Find up to 6 likely US-based operating digital health companies that best match "${normalizedQuery}". ` +
+                  "Do not return investors (VC/PE/funds/family offices), product names, program pages, or non-company entities."
               }
             ]
           }

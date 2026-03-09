@@ -10,13 +10,6 @@ export default async function HomePage() {
 
   return (
     <main>
-      <section className="hero">
-        <h1>Abundant CRM</h1>
-        <p>
-          Central workspace for entities, contacts, and pipeline workflows with role-based access control.
-        </p>
-      </section>
-
       <section className="panel">
         <h2>Overview</h2>
         <p className="muted">

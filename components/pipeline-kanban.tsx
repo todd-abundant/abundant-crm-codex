@@ -1015,25 +1015,6 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
 
   return (
     <main>
-      <section className="hero">
-        <h1>{companyTypeView.boardTitle}</h1>
-        <p>{companyTypeView.boardDescription} Click any card for full details.</p>
-        <div className="pipeline-view-selector">
-          <label htmlFor="pipeline-company-type">Pipeline Type</label>
-          <select
-            id="pipeline-company-type"
-            value={companyType}
-            onChange={(event) => handleCompanyTypeChange(event.target.value as PipelineCompanyType)}
-          >
-            {PIPELINE_COMPANY_TYPE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </section>
-
       {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
       {loading ? <p className="status">Loading pipeline board...</p> : null}
 
@@ -1651,19 +1632,7 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
 
       {selectedDetailId ? (
         <div className="pipeline-detail-backdrop" onMouseDown={closeDetailModal}>
-          <div className="pipeline-detail-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="pipeline-detail-modal-header">
-              <button
-                type="button"
-                className="modal-icon-close"
-                onClick={closeDetailModal}
-                aria-label="Close pipeline detail dialog"
-              >
-                <span aria-hidden="true">×</span>
-              </button>
-            </div>
-            <PipelineOpportunityDetailView itemId={selectedDetailId} inModal />
-          </div>
+          <PipelineOpportunityDetailView itemId={selectedDetailId} inModal onCloseModal={closeDetailModal} />
         </div>
       ) : null}
     </main>

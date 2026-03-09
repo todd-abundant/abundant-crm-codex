@@ -3,12 +3,6 @@ import { replaceHealthSystemContactLinks } from "@/lib/contact-links";
 import { enrichHealthSystemFromWeb } from "@/lib/research";
 import type { HealthSystemSearchCandidate } from "@/lib/schemas";
 
-function parseOptionalDate(value?: string | null): Date | null {
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
 function trimOrNull(value?: string | null): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
@@ -76,11 +70,9 @@ function isLikelyDuplicateCandidate(
 
 export async function verifyCandidateAndQueueResearch(params: {
   candidate: HealthSystemSearchCandidate;
-  isLimitedPartner: boolean;
   isAllianceMember: boolean;
-  limitedPartnerInvestmentUsd?: number | null;
 }) {
-  const { candidate, isLimitedPartner, isAllianceMember, limitedPartnerInvestmentUsd } = params;
+  const { candidate, isAllianceMember } = params;
 
   const result = await prisma.$transaction(async (tx) => {
     const existingHealthSystems = await tx.healthSystem.findMany({
@@ -112,11 +104,8 @@ export async function verifyCandidateAndQueueResearch(params: {
         headquartersCity: trimOrNull(candidate.headquartersCity),
         headquartersState: trimOrNull(candidate.headquartersState),
         headquartersCountry: trimOrNull(candidate.headquartersCountry),
-        isLimitedPartner,
-        limitedPartnerInvestmentUsd: isLimitedPartner ? (limitedPartnerInvestmentUsd ?? null) : null,
         isAllianceMember,
         researchStatus: "QUEUED",
-        researchNotes: trimOrNull(candidate.summary),
         researchError: null,
         researchUpdatedAt: new Date()
       }
@@ -231,13 +220,10 @@ export async function runQueuedResearchJobs(
         headquartersCountry: job.selectedCountry || job.healthSystem.headquartersCountry
       });
 
-      const keepLpFlag = job.healthSystem.isLimitedPartner || enriched.isLimitedPartner;
       const keepAllianceFlag = job.healthSystem.isAllianceMember || enriched.isAllianceMember;
 
       await prisma.$transaction(async (tx) => {
         await tx.executive.deleteMany({ where: { healthSystemId: job.healthSystemId } });
-        await tx.venturePartner.deleteMany({ where: { healthSystemId: job.healthSystemId } });
-        await tx.healthSystemInvestment.deleteMany({ where: { healthSystemId: job.healthSystemId } });
 
         await tx.healthSystem.update({
           where: { id: job.healthSystemId },
@@ -250,17 +236,9 @@ export async function runQueuedResearchJobs(
             headquartersCountry:
               trimOrNull(enriched.headquartersCountry) || job.healthSystem.headquartersCountry,
             netPatientRevenueUsd: enriched.netPatientRevenueUsd ?? null,
-            isLimitedPartner: keepLpFlag,
-            limitedPartnerInvestmentUsd: keepLpFlag
-              ? (enriched.limitedPartnerInvestmentUsd ?? job.healthSystem.limitedPartnerInvestmentUsd)
-              : null,
             isAllianceMember: keepAllianceFlag,
-            hasInnovationTeam: enriched.hasInnovationTeam ?? null,
-            hasVentureTeam: enriched.hasVentureTeam ?? null,
-            ventureTeamSummary: trimOrNull(enriched.ventureTeamSummary),
             researchStatus: "COMPLETED",
             researchError: null,
-            researchNotes: trimOrNull(enriched.researchNotes),
             researchUpdatedAt: new Date()
           }
         });
@@ -281,30 +259,6 @@ export async function runQueuedResearchJobs(
           });
         }
 
-        if (enriched.venturePartners.length > 0) {
-          await tx.venturePartner.createMany({
-            data: enriched.venturePartners.map((entry) => ({
-              healthSystemId: job.healthSystemId,
-              name: entry.name,
-              title: trimOrNull(entry.title),
-              profileUrl: trimOrNull(entry.url)
-            }))
-          });
-        }
-
-        if (enriched.investments.length > 0) {
-          await tx.healthSystemInvestment.createMany({
-            data: enriched.investments.map((entry) => ({
-              healthSystemId: job.healthSystemId,
-              portfolioCompanyName: entry.portfolioCompanyName,
-              investmentAmountUsd: entry.investmentAmountUsd ?? null,
-              investmentDate: parseOptionalDate(entry.investmentDate),
-              leadPartnerName: trimOrNull(entry.leadPartnerName),
-              sourceUrl: trimOrNull(entry.sourceUrl)
-            }))
-          });
-        }
-
         await replaceHealthSystemContactLinks(tx, job.healthSystemId, [
           ...enriched.executives.map((entry) => ({
             name: entry.name,
@@ -313,14 +267,6 @@ export async function runQueuedResearchJobs(
             phone: trimOrNull(entry.phone),
             linkedinUrl: trimOrNull(entry.url),
             roleType: "EXECUTIVE" as const
-          })),
-          ...enriched.venturePartners.map((entry) => ({
-            name: entry.name,
-            title: trimOrNull(entry.title),
-            email: trimOrNull(entry.email),
-            phone: trimOrNull(entry.phone),
-            linkedinUrl: trimOrNull(entry.url),
-            roleType: "VENTURE_PARTNER" as const
           }))
         ]);
       });

@@ -21,7 +21,7 @@ export function AppHeader({
 }) {
   const pathname = usePathname();
   const closeTimerRef = React.useRef<number | null>(null);
-  const [openDropdownId, setOpenDropdownId] = React.useState<"entities" | "pipeline" | "tests" | null>(null);
+  const [openDropdownId, setOpenDropdownId] = React.useState<"entities" | "pipeline" | "beta" | null>(null);
   const isIsolatedSurvey = pathname.startsWith("/survey/live/");
 
   const clearCloseTimer = React.useCallback(() => {
@@ -36,7 +36,7 @@ export function AppHeader({
   }, [clearCloseTimer]);
 
   const openDropdown = React.useCallback(
-    (dropdownId: "entities" | "pipeline" | "tests") => {
+    (dropdownId: "entities" | "pipeline" | "beta") => {
       clearCloseTimer();
       setOpenDropdownId(dropdownId);
     },
@@ -44,7 +44,7 @@ export function AppHeader({
   );
 
   const scheduleCloseDropdown = React.useCallback(
-    (dropdownId: "entities" | "pipeline" | "tests", delayMs = 140) => {
+    (dropdownId: "entities" | "pipeline" | "beta", delayMs = 140) => {
       clearCloseTimer();
       closeTimerRef.current = window.setTimeout(() => {
         setOpenDropdownId((currentId) => (currentId === dropdownId ? null : currentId));
@@ -55,7 +55,7 @@ export function AppHeader({
   );
 
   const toggleDropdown = React.useCallback(
-    (dropdownId: "entities" | "pipeline" | "tests") => {
+    (dropdownId: "entities" | "pipeline" | "beta") => {
       clearCloseTimer();
       setOpenDropdownId((currentId) => (currentId === dropdownId ? null : dropdownId));
     },
@@ -63,7 +63,7 @@ export function AppHeader({
   );
 
   const handleDropdownBlur = React.useCallback(
-    (event: React.FocusEvent<HTMLElement>, dropdownId: "entities" | "pipeline" | "tests") => {
+    (event: React.FocusEvent<HTMLElement>, dropdownId: "entities" | "pipeline" | "beta") => {
       const nextTarget = event.relatedTarget as Node | null;
       if (nextTarget && event.currentTarget.contains(nextTarget)) return;
       scheduleCloseDropdown(dropdownId, 0);
@@ -72,7 +72,7 @@ export function AppHeader({
   );
 
   const handleDropdownEscape = React.useCallback(
-    (event: React.KeyboardEvent<HTMLElement>, dropdownId: "entities" | "pipeline" | "tests") => {
+    (event: React.KeyboardEvent<HTMLElement>, dropdownId: "entities" | "pipeline" | "beta") => {
       if (event.key !== "Escape") return;
       event.preventDefault();
       scheduleCloseDropdown(dropdownId, 0);
@@ -180,45 +180,26 @@ export function AppHeader({
                 Reports
               </Link>
               <div
-                className={`top-nav-dropdown ${openDropdownId === "tests" ? "open" : ""}`}
-                onMouseEnter={() => openDropdown("tests")}
-                onMouseLeave={() => scheduleCloseDropdown("tests")}
-                onFocusCapture={() => openDropdown("tests")}
-                onBlurCapture={(event) => handleDropdownBlur(event, "tests")}
-                onKeyDown={(event) => handleDropdownEscape(event, "tests")}
+                className={`top-nav-dropdown ${openDropdownId === "beta" ? "open" : ""}`}
+                onMouseEnter={() => openDropdown("beta")}
+                onMouseLeave={() => scheduleCloseDropdown("beta")}
+                onFocusCapture={() => openDropdown("beta")}
+                onBlurCapture={(event) => handleDropdownBlur(event, "beta")}
+                onKeyDown={(event) => handleDropdownEscape(event, "beta")}
               >
                 <button
                   type="button"
                   className="top-nav-link top-nav-dropdown-toggle"
-                  aria-expanded={openDropdownId === "tests"}
+                  aria-expanded={openDropdownId === "beta"}
                   aria-haspopup="true"
-                  onClick={() => toggleDropdown("tests")}
+                  onClick={() => toggleDropdown("beta")}
                 >
-                  <span>Tests</span>
+                  <span>Beta</span>
                   <span className="top-nav-dropdown-caret" aria-hidden="true">
                     ▾
                   </span>
                 </button>
-                <div className="top-nav-dropdown-menu" role="menu" aria-label="Tests">
-                  <Link href="/tests" className="top-nav-dropdown-link" role="menuitem" onClick={closeOpenDropdowns}>
-                    All Tests
-                  </Link>
-                  <Link
-                    href="/tests/snov-contact-lookup"
-                    className="top-nav-dropdown-link"
-                    role="menuitem"
-                    onClick={closeOpenDropdowns}
-                  >
-                    Snov Contact Lookup
-                  </Link>
-                  <Link
-                    href="/tests/zoom-webinar-import"
-                    className="top-nav-dropdown-link"
-                    role="menuitem"
-                    onClick={closeOpenDropdowns}
-                  >
-                    Zoom Webinar Import
-                  </Link>
+                <div className="top-nav-dropdown-menu" role="menu" aria-label="Beta">
                   <Link
                     href="/tests/transcript-member-insights"
                     className="top-nav-dropdown-link"
@@ -227,16 +208,8 @@ export function AppHeader({
                   >
                     Transcript Member Insights
                   </Link>
-                  <Link
-                    href="/tests/bookyourdata-contact-lookup"
-                    className="top-nav-dropdown-link"
-                    role="menuitem"
-                    onClick={closeOpenDropdowns}
-                  >
-                    BookYourData Contact Lookup
-                  </Link>
                   <Link href="/workbench" className="top-nav-dropdown-link" role="menuitem" onClick={closeOpenDropdowns}>
-                    Workbench (beta)
+                    Workbench
                   </Link>
                 </div>
               </div>

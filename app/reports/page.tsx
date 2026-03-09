@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { EntityLookupInput } from "@/components/entity-lookup-input";
 
 type ReportPreset = {
   key: string;
@@ -10,6 +11,7 @@ type ReportPreset = {
     status: "open" | "closed";
     types: string[];
   };
+  isCustom?: boolean;
 };
 
 type ReportRow = {
@@ -64,6 +66,8 @@ type FilterOption = {
   name: string;
 };
 
+const CUSTOM_REPORT_PRESETS_STORAGE_KEY = "abundant-opportunity-report-presets";
+
 const opportunityTypeOptions: Array<{ value: string; label: string }> = [
   { value: "SCREENING_LOI", label: "Screening LOI" },
   { value: "COMMERCIAL_CONTRACT", label: "Commercial Contract" },
@@ -117,6 +121,40 @@ function parseNullableNumber(value: string) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function makeCustomReportKey() {
+  return `custom_report_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeSavedPreset(raw: unknown): ReportPreset | null {
+  if (!raw || typeof raw !== "object") return null;
+  const item = raw as {
+    key?: unknown;
+    name?: unknown;
+    description?: unknown;
+    defaults?: {
+      status?: unknown;
+      types?: unknown;
+    };
+    isCustom?: unknown;
+  };
+  if (typeof item.key !== "string" || !item.key.trim()) return null;
+  if (typeof item.name !== "string" || !item.name.trim()) return null;
+  const defaults = item.defaults;
+  if (!defaults || typeof defaults !== "object") return null;
+  const status = defaults.status === "all" || defaults.status === "open" || defaults.status === "closed" ? defaults.status : "all";
+  if (typeof defaults.types !== "undefined" && !Array.isArray(defaults.types)) return null;
+  const types = Array.isArray(defaults.types)
+    ? defaults.types.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  return {
+    key: item.key,
+    name: item.name,
+    description: typeof item.description === "string" ? item.description : "",
+    defaults: { status, types },
+    isCustom: true
+  };
+}
+
 export default function ReportsPage() {
   const [presets, setPresets] = React.useState<ReportPreset[]>([]);
   const [rows, setRows] = React.useState<ReportRow[]>([]);
@@ -146,6 +184,15 @@ export default function ReportsPage() {
   const [draftHealthSystemIdFilter, setDraftHealthSystemIdFilter] = React.useState<string>("");
   const [draftCreatedFromFilter, setDraftCreatedFromFilter] = React.useState<string>("");
   const [draftCreatedToFilter, setDraftCreatedToFilter] = React.useState<string>("");
+  const [isReportMenuOpen, setIsReportMenuOpen] = React.useState(false);
+  const [customPresets, setCustomPresets] = React.useState<ReportPreset[]>([]);
+  const [isCreatingCustomReport, setIsCreatingCustomReport] = React.useState(false);
+  const [draftReportName, setDraftReportName] = React.useState("");
+  const [draftReportDescription, setDraftReportDescription] = React.useState("");
+  const [reportPresetSaveError, setReportPresetSaveError] = React.useState<string | null>(null);
+  const [isSavingCustomReport, setIsSavingCustomReport] = React.useState(false);
+  const [editingNextStepId, setEditingNextStepId] = React.useState<string | null>(null);
+  const [editingNextStepDraft, setEditingNextStepDraft] = React.useState("");
 
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -153,6 +200,20 @@ export default function ReportsPage() {
   const [savingNextStepId, setSavingNextStepId] = React.useState<string | null>(null);
   const [activeOpportunityModalDraft, setActiveOpportunityModalDraft] = React.useState<OpportunityEditDraft | null>(null);
   const [savingOpportunityModal, setSavingOpportunityModal] = React.useState(false);
+
+  const upsertCompanyOption = React.useCallback((option: { id: string; name: string }) => {
+    setCompanies((current) => {
+      if (current.some((entry) => entry.id === option.id)) return current;
+      return [option, ...current];
+    });
+  }, []);
+
+  const upsertHealthSystemOption = React.useCallback((option: { id: string; name: string }) => {
+    setHealthSystems((current) => {
+      if (current.some((entry) => entry.id === option.id)) return current;
+      return [option, ...current];
+    });
+  }, []);
 
   const applyPreset = React.useCallback((preset: ReportPreset) => {
     setSelectedPreset(preset.key);
@@ -163,9 +224,11 @@ export default function ReportsPage() {
     setHealthSystemIdFilter("");
     setCreatedFromFilter("");
     setCreatedToFilter("");
+    setIsReportMenuOpen(false);
   }, []);
 
   const openFilterModal = React.useCallback(() => {
+    setIsCreatingCustomReport(false);
     setDraftStatusFilter(statusFilter);
     setDraftTypeFilter(typeFilter);
     setDraftStageFilter(stageFilter);
@@ -173,6 +236,9 @@ export default function ReportsPage() {
     setDraftHealthSystemIdFilter(healthSystemIdFilter);
     setDraftCreatedFromFilter(createdFromFilter);
     setDraftCreatedToFilter(createdToFilter);
+    setDraftReportName("");
+    setDraftReportDescription("");
+    setReportPresetSaveError(null);
     setIsFilterModalOpen(true);
   }, [
     companyIdFilter,
@@ -184,7 +250,68 @@ export default function ReportsPage() {
     typeFilter
   ]);
 
+  const openCustomReportBuilder = React.useCallback(() => {
+    setIsCreatingCustomReport(true);
+    setDraftStatusFilter(statusFilter);
+    setDraftTypeFilter(typeFilter);
+    setDraftStageFilter(stageFilter);
+    setDraftCompanyIdFilter(companyIdFilter);
+    setDraftHealthSystemIdFilter(healthSystemIdFilter);
+    setDraftCreatedFromFilter(createdFromFilter);
+    setDraftCreatedToFilter(createdToFilter);
+    const selected = presets.find((entry) => entry.key === selectedPreset);
+    setDraftReportName(`${selected?.name || "New"} Report`);
+    setDraftReportDescription(selected?.description || "");
+    setReportPresetSaveError(null);
+    setIsReportMenuOpen(false);
+    setIsFilterModalOpen(true);
+  }, [
+    companyIdFilter,
+    createdFromFilter,
+    createdToFilter,
+    healthSystemIdFilter,
+    presets,
+    selectedPreset,
+    stageFilter,
+    statusFilter,
+    typeFilter
+  ]);
+
+  const allPresets = React.useMemo(() => [...presets, ...customPresets], [customPresets, presets]);
+  const selectedPresetLabel = React.useMemo(() => {
+    return allPresets.find((entry) => entry.key === selectedPreset)?.name || "Select report";
+  }, [allPresets, selectedPreset]);
+  const selectedPresetDescription = React.useMemo(() => {
+    return allPresets.find((entry) => entry.key === selectedPreset)?.description || "Custom report";
+  }, [allPresets, selectedPreset]);
+
   const applyDraftFilters = React.useCallback(() => {
+    if (isCreatingCustomReport) {
+      const name = draftReportName.trim();
+      if (!name) {
+        setReportPresetSaveError("Give your report a name before saving.");
+        return;
+      }
+
+      const nextPreset: ReportPreset = {
+        key: makeCustomReportKey(),
+        name,
+        description: draftReportDescription.trim(),
+        defaults: {
+          status: draftStatusFilter,
+          types: draftTypeFilter ? [draftTypeFilter] : []
+        },
+        isCustom: true
+      };
+      setIsSavingCustomReport(true);
+      setCustomPresets((current) => [nextPreset, ...current]);
+      setSelectedPreset(nextPreset.key);
+      setReportPresetSaveError(null);
+      setIsSavingCustomReport(false);
+    } else {
+      setReportPresetSaveError(null);
+    }
+
     setStatusFilter(draftStatusFilter);
     setTypeFilter(draftTypeFilter);
     setStageFilter(draftStageFilter);
@@ -192,6 +319,7 @@ export default function ReportsPage() {
     setHealthSystemIdFilter(draftHealthSystemIdFilter);
     setCreatedFromFilter(draftCreatedFromFilter);
     setCreatedToFilter(draftCreatedToFilter);
+    setIsCreatingCustomReport(false);
     setIsFilterModalOpen(false);
   }, [
     draftCompanyIdFilter,
@@ -199,8 +327,11 @@ export default function ReportsPage() {
     draftCreatedToFilter,
     draftHealthSystemIdFilter,
     draftStageFilter,
+    draftReportDescription,
+    draftReportName,
     draftStatusFilter,
-    draftTypeFilter
+    draftTypeFilter,
+    isCreatingCustomReport
   ]);
 
   const clearAppliedFilters = React.useCallback(() => {
@@ -223,6 +354,25 @@ export default function ReportsPage() {
     setDraftCreatedFromFilter("");
     setDraftCreatedToFilter("");
   }, []);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(CUSTOM_REPORT_PRESETS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      const normalized = parsed.map((entry) => normalizeSavedPreset(entry)).filter(Boolean) as ReportPreset[];
+      setCustomPresets(normalized);
+    } catch {
+      // Ignore invalid stored values to avoid blocking report loading.
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(CUSTOM_REPORT_PRESETS_STORAGE_KEY, JSON.stringify(customPresets));
+  }, [customPresets]);
 
   React.useEffect(() => {
     let active = true;
@@ -313,8 +463,6 @@ export default function ReportsPage() {
     const companyName = companies.find((entry) => entry.id === companyIdFilter)?.name || null;
     const healthSystemName = healthSystems.find((entry) => entry.id === healthSystemIdFilter)?.name || null;
     const rows: string[] = [];
-    if (statusFilter !== "all") rows.push(`Status: ${statusFilter}`);
-    if (typeFilter) rows.push(`Type: ${typeFilter}`);
     if (stageFilter) rows.push(`Win/Loss: ${stageFilter}`);
     if (companyName) rows.push(`Company: ${companyName}`);
     if (healthSystemName) rows.push(`Health System: ${healthSystemName}`);
@@ -328,9 +476,7 @@ export default function ReportsPage() {
     createdToFilter,
     healthSystemIdFilter,
     healthSystems,
-    stageFilter,
-    statusFilter,
-    typeFilter
+    stageFilter
   ]);
 
   React.useEffect(() => {
@@ -397,12 +543,16 @@ export default function ReportsPage() {
     });
   }
 
-  async function saveInlineNextStep(row: ReportRow) {
-    const nextValue = (inlineNextStepsById[row.id] || "").trim();
+  async function saveInlineNextStep(row: ReportRow, nextStepOverride?: string) {
+    const nextValue = (nextStepOverride ?? inlineNextStepsById[row.id] ?? "").trim();
     const currentValue = (row.nextSteps || "").trim();
-    if (nextValue === currentValue) return;
-
     setSavingNextStepId(row.id);
+    if (nextValue === currentValue) {
+      setSavingNextStepId(null);
+      setEditingNextStepId(null);
+      return;
+    }
+
     try {
       const res = await fetch(`/api/pipeline/opportunities/${row.company.id}/opportunities`, {
         method: "PATCH",
@@ -434,6 +584,7 @@ export default function ReportsPage() {
       setError(null);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to update next step.");
+      setEditingNextStepId(null);
       setInlineNextStepsById((current) => ({
         ...current,
         [row.id]: row.nextSteps || ""
@@ -499,31 +650,67 @@ export default function ReportsPage() {
 
   return (
     <main>
-      <section className="hero">
-        <h1>Opportunity Reports</h1>
-        <p>Salesforce-style filtering for Screening and Commercial Acceleration opportunities.</p>
-      </section>
-
       <section className="panel">
-        <h2>System Reports</h2>
-        <p className="muted">Administrators can evolve these presets; users can layer their own filters.</p>
-        <div className="actions" style={{ marginTop: 10 }}>
-          {presets.map((preset) => (
-            <button
-              key={preset.key}
-              type="button"
-              className={preset.key === selectedPreset ? "secondary small" : "ghost small"}
-              onClick={() => applyPreset(preset)}
+        <div className="report-toolbar">
+          <div className="report-toolbar-title-row">
+            <h2>Report</h2>
+            <div
+              className="report-selector-shell"
+              onMouseEnter={() => setIsReportMenuOpen(true)}
+              onMouseLeave={() => setIsReportMenuOpen(false)}
+              onFocus={() => setIsReportMenuOpen(true)}
+              onBlur={(event) => {
+                const target = event.relatedTarget as HTMLElement | null;
+                if (!event.currentTarget.contains(target)) {
+                  setIsReportMenuOpen(false);
+                }
+              }}
             >
-              {preset.name}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="report-filter-bar">
-          <div className="report-filter-summary">
+              <button
+                type="button"
+                className="report-selector-field"
+                onClick={() => setIsReportMenuOpen((open) => !open)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    setIsReportMenuOpen(false);
+                  }
+                }}
+                aria-label={`Select report, current report is ${selectedPresetLabel}`}
+              >
+                <span>{selectedPresetLabel}</span>
+                <span className="report-selector-caret" aria-hidden="true" />
+              </button>
+              <div className={`report-selector-menu ${isReportMenuOpen ? "open" : ""}`}>
+                <div className="report-selector-group-title">Saved Reports</div>
+                {allPresets.length === 0 ? (
+                  <p className="muted">No saved reports.</p>
+                ) : (
+                  allPresets.map((preset) => (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      className={`report-selector-option ${preset.key === selectedPreset ? "active" : ""}`}
+                      onClick={() => applyPreset(preset)}
+                    >
+                      {preset.name}
+                    </button>
+                  ))
+                )}
+                <div className="report-selector-divider" />
+                <button
+                  type="button"
+                  className="report-selector-option report-selector-option-primary"
+                  onClick={openCustomReportBuilder}
+                >
+                  + New Report
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="report-toolbar-meta">
+            <p className="muted" style={{ margin: 0 }}>
+              {selectedPresetDescription}
+            </p>
             {activeFilterPills.length > 0 ? (
               <div className="report-filter-chip-row">
                 {activeFilterPills.map((entry) => (
@@ -533,7 +720,7 @@ export default function ReportsPage() {
                 ))}
               </div>
             ) : (
-              <p className="muted">No filters applied.</p>
+              <span className="muted">No additional filters applied.</span>
             )}
           </div>
           <div className="actions">
@@ -548,85 +735,102 @@ export default function ReportsPage() {
       </section>
 
       <section className="panel">
-        <h2>Summary</h2>
-        <div className="chip-row">
-          <span className="chip">Total: {summary.total}</span>
-          <span className="chip">Open: {summary.openCount}</span>
-          <span className="chip">Closed: {summary.closedCount}</span>
-          <span className="chip">Won: {summary.wonCount}</span>
-          <span className="chip">Lost: {summary.lostCount}</span>
-        </div>
-      </section>
-
-      <section className="panel">
         <h2>Report Rows</h2>
         {loading ? <p className="muted">Loading report...</p> : null}
         {!loading && error ? <p className="status error">{error}</p> : null}
         {!loading && !error && rows.length === 0 ? <p className="muted">No opportunities match your filters.</p> : null}
 
         {!loading && !error && rows.length > 0 ? (
-          <div className="table-wrap" style={{ marginTop: 10 }}>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Company</th>
-                  <th>Opportunity</th>
-                  <th>Health System</th>
-                  <th>Stage</th>
-                  <th>Next Step</th>
-                  <th>Likelihood</th>
-                  <th>Contract Price</th>
-                  <th>Expected Close</th>
-                  <th>Created</th>
-                  <th>Contacts</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.company.name}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className="report-opportunity-link"
-                        onClick={() => openOpportunityModal(row)}
-                      >
-                        {row.title}
-                      </button>
-                    </td>
-                    <td>{row.healthSystem?.name || "-"}</td>
-                    <td>{row.stage}</td>
-                    <td>
-                      <input
-                        className="report-next-step-input"
-                        value={inlineNextStepsById[row.id] || ""}
-                        onChange={(event) =>
-                          setInlineNextStepsById((current) => ({
-                            ...current,
-                            [row.id]: event.target.value
-                          }))
-                        }
-                        onBlur={() => void saveInlineNextStep(row)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            (event.currentTarget as HTMLInputElement).blur();
-                          }
-                        }}
-                        disabled={savingNextStepId === row.id}
-                        placeholder="Add next step..."
-                      />
-                    </td>
-                    <td>{row.likelihoodPercent === null ? "-" : `${row.likelihoodPercent}%`}</td>
-                    <td>{formatCurrency(row.contractPriceUsd)}</td>
-                    <td>{formatDate(row.estimatedCloseDate)}</td>
-                    <td>{formatDate(row.createdAt)}</td>
-                    <td>{row.contactCount}</td>
+          <>
+            <div className="table-wrap report-table-wrap" style={{ marginTop: 10 }}>
+              <table className="table report-table">
+                <thead>
+                  <tr>
+                    <th>Company</th>
+                    <th>Opportunity</th>
+                    <th>Health System</th>
+                    <th>Stage</th>
+                    <th>Next Step</th>
+                    <th>Likelihood</th>
+                    <th>Contract Price</th>
+                    <th>Expected Close</th>
+                    <th>Contacts</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.company.name}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="report-opportunity-link"
+                          onClick={() => openOpportunityModal(row)}
+                        >
+                          {row.title}
+                        </button>
+                      </td>
+                      <td>{row.healthSystem?.name || "-"}</td>
+                      <td>{row.stage}</td>
+                      <td>
+                        <div className="report-next-step-cell">
+                          {editingNextStepId === row.id ? (
+                            <input
+                              className="report-next-step-input"
+                              autoFocus
+                              value={editingNextStepDraft}
+                              onChange={(event) => setEditingNextStepDraft(event.target.value)}
+                              onBlur={() => {
+                                void saveInlineNextStep(row, editingNextStepDraft);
+                                setEditingNextStepId(null);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  event.currentTarget.blur();
+                                }
+                                if (event.key === "Escape") {
+                                  event.preventDefault();
+                                  setInlineNextStepsById((current) => ({
+                                    ...current,
+                                    [row.id]: row.nextSteps || ""
+                                  }));
+                                  setEditingNextStepId(null);
+                                }
+                              }}
+                              disabled={savingNextStepId === row.id}
+                              placeholder="Add next step..."
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              className={`report-next-step-display ${inlineNextStepsById[row.id] ? "" : "empty"}`}
+                              onClick={() => {
+                                setEditingNextStepDraft(inlineNextStepsById[row.id] || "");
+                                setEditingNextStepId(row.id);
+                              }}
+                            >
+                              {inlineNextStepsById[row.id]?.trim() || "Add next step"}
+                            </button>
+                          )}
+                          {savingNextStepId === row.id ? <span className="muted">Saving…</span> : null}
+                        </div>
+                      </td>
+                      <td>{row.likelihoodPercent === null ? "-" : `${row.likelihoodPercent}%`}</td>
+                      <td>{formatCurrency(row.contractPriceUsd)}</td>
+                      <td>{formatDate(row.estimatedCloseDate)}</td>
+                      <td>{row.contactCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="chip-row report-summary-bottom">
+              <span className="chip">Total: {summary.total}</span>
+              <span className="chip">Won: {summary.wonCount}</span>
+              <span className="chip">Lost: {summary.lostCount}</span>
+            </div>
+          </>
         ) : null}
       </section>
 
@@ -664,21 +868,21 @@ export default function ReportsPage() {
               </div>
               <div>
                 <label>Health System</label>
-                <select
+                <EntityLookupInput
+                  entityKind="HEALTH_SYSTEM"
                   value={activeOpportunityModalDraft.healthSystemId}
-                  onChange={(event) =>
+                  onChange={(nextValue) =>
                     setActiveOpportunityModalDraft((current) =>
-                      current ? { ...current, healthSystemId: event.target.value } : current
+                      current ? { ...current, healthSystemId: nextValue } : current
                     )
                   }
-                >
-                  <option value="">No health system</option>
-                  {healthSystems.map((healthSystem) => (
-                    <option key={healthSystem.id} value={healthSystem.id}>
-                      {healthSystem.name}
-                    </option>
-                  ))}
-                </select>
+                  initialOptions={healthSystems}
+                  allowEmpty
+                  emptyLabel="No health system"
+                  placeholder="Search health systems"
+                  autoOpenCreateOnEnterNoMatch
+                  onEntityCreated={upsertHealthSystemOption}
+                />
               </div>
               <div>
                 <label>Stage</label>
@@ -809,6 +1013,29 @@ export default function ReportsPage() {
             aria-label="Opportunity report filters"
           >
             <h2>Report Filters</h2>
+            {isCreatingCustomReport ? (
+              <>
+                <div className="detail-grid">
+                  <div>
+                    <label>Report Name</label>
+                    <input
+                      value={draftReportName}
+                      onChange={(event) => setDraftReportName(event.target.value)}
+                      placeholder="e.g. Screening Pipeline"
+                    />
+                  </div>
+                  <div>
+                    <label>Description</label>
+                    <input
+                      value={draftReportDescription}
+                      onChange={(event) => setDraftReportDescription(event.target.value)}
+                      placeholder="Optional"
+                    />
+                  </div>
+                </div>
+                {reportPresetSaveError ? <p className="status error">{reportPresetSaveError}</p> : null}
+              </>
+            ) : null}
             <div className="detail-grid">
               <div>
                 <label>Status</label>
@@ -842,28 +1069,31 @@ export default function ReportsPage() {
               </div>
               <div>
                 <label>Company</label>
-                <select value={draftCompanyIdFilter} onChange={(event) => setDraftCompanyIdFilter(event.target.value)}>
-                  <option value="">All Companies</option>
-                  {companies.map((company) => (
-                    <option key={company.id} value={company.id}>
-                      {company.name}
-                    </option>
-                  ))}
-                </select>
+                <EntityLookupInput
+                  entityKind="COMPANY"
+                  value={draftCompanyIdFilter}
+                  onChange={setDraftCompanyIdFilter}
+                  initialOptions={companies}
+                  allowEmpty
+                  emptyLabel="All Companies"
+                  placeholder="Search companies"
+                  autoOpenCreateOnEnterNoMatch
+                  onEntityCreated={upsertCompanyOption}
+                />
               </div>
               <div>
                 <label>Health System</label>
-                <select
+                <EntityLookupInput
+                  entityKind="HEALTH_SYSTEM"
                   value={draftHealthSystemIdFilter}
-                  onChange={(event) => setDraftHealthSystemIdFilter(event.target.value)}
-                >
-                  <option value="">All Health Systems</option>
-                  {healthSystems.map((healthSystem) => (
-                    <option key={healthSystem.id} value={healthSystem.id}>
-                      {healthSystem.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setDraftHealthSystemIdFilter}
+                  initialOptions={healthSystems}
+                  allowEmpty
+                  emptyLabel="All Health Systems"
+                  placeholder="Search health systems"
+                  autoOpenCreateOnEnterNoMatch
+                  onEntityCreated={upsertHealthSystemOption}
+                />
               </div>
               <div>
                 <label>Date Created (From)</label>
@@ -889,8 +1119,13 @@ export default function ReportsPage() {
               <button type="button" className="ghost small" onClick={() => setIsFilterModalOpen(false)}>
                 Cancel
               </button>
-              <button type="button" className="secondary small" onClick={applyDraftFilters}>
-                Apply Filters
+              <button
+                type="button"
+                className="secondary small"
+                onClick={() => void applyDraftFilters()}
+                disabled={isCreatingCustomReport && isSavingCustomReport}
+              >
+                {isCreatingCustomReport ? (isSavingCustomReport ? "Saving..." : "Save Report") : "Apply Filters"}
               </button>
             </div>
           </section>

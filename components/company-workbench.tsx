@@ -152,9 +152,7 @@ type DetailDraft = {
   name: string;
   legalName: string;
   website: string;
-  headquartersCity: string;
-  headquartersState: string;
-  headquartersCountry: string;
+  headquartersLocation: string;
   companyType: CompanyType;
   primaryCategory: PrimaryCategory;
   primaryCategoryOther: string;
@@ -191,7 +189,7 @@ type DetailDraft = {
   }>;
 };
 
-type DetailTab = "overview" | "at-a-glance" | "documents" | "notes" | "contacts" | "relationships" | "pipeline";
+type DetailTab = "overview" | "documents" | "notes" | "contacts" | "relationships" | "pipeline";
 
 const companyHealthSystemRelationshipOptions: Array<{ value: "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"; label: string }> =
   [
@@ -263,6 +261,31 @@ function formatLocation(record: {
   headquartersCountry?: string | null;
 }) {
   return [record.headquartersCity, record.headquartersState, record.headquartersCountry].filter(Boolean).join(", ");
+}
+
+function parseHeadquartersLocation(location: string) {
+  const parts = location
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  if (parts.length === 0) {
+    return { headquartersCity: "", headquartersState: "", headquartersCountry: "" };
+  }
+
+  if (parts.length === 1) {
+    return { headquartersCity: parts[0], headquartersState: "", headquartersCountry: "" };
+  }
+
+  if (parts.length === 2) {
+    return { headquartersCity: parts[0], headquartersState: parts[1], headquartersCountry: "" };
+  }
+
+  return {
+    headquartersCity: parts[0],
+    headquartersState: parts[1],
+    headquartersCountry: parts.slice(2).join(", ")
+  };
 }
 
 function toDateInputValue(value: string | null | undefined) {
@@ -389,9 +412,7 @@ function draftFromRecord(record: CompanyRecord): DetailDraft {
     name: record.name || "",
     legalName: record.legalName || "",
     website: record.website || "",
-    headquartersCity: record.headquartersCity || "",
-    headquartersState: record.headquartersState || "",
-    headquartersCountry: record.headquartersCountry || "",
+    headquartersLocation: formatLocation(record),
     companyType: record.companyType || "STARTUP",
     primaryCategory: record.primaryCategory || "OTHER",
     primaryCategoryOther: record.primaryCategoryOther || "",
@@ -1318,6 +1339,8 @@ export function CompanyWorkbench() {
   async function saveSelectedRecordEdits(draftToSave: DetailDraft | null = detailDraft) {
     if (!selectedRecord || !draftToSave) return;
 
+    const parsedHeadquartersLocation = parseHeadquartersLocation(draftToSave.headquartersLocation);
+
     setStatus(null);
     const normalizedHealthSystemLinks = draftToSave.healthSystemLinks.map((link) => ({
       ...link,
@@ -1344,9 +1367,9 @@ export function CompanyWorkbench() {
           name: draftToSave.name,
           legalName: draftToSave.legalName,
           website: draftToSave.website,
-          headquartersCity: draftToSave.headquartersCity,
-          headquartersState: draftToSave.headquartersState,
-          headquartersCountry: draftToSave.headquartersCountry,
+          headquartersCity: parsedHeadquartersLocation.headquartersCity,
+          headquartersState: parsedHeadquartersLocation.headquartersState,
+          headquartersCountry: parsedHeadquartersLocation.headquartersCountry,
           companyType: draftToSave.companyType,
           primaryCategory: draftToSave.primaryCategory,
           primaryCategoryOther: draftToSave.primaryCategoryOther,
@@ -1570,14 +1593,6 @@ export function CompanyWorkbench() {
 
   return (
     <main>
-      <section className="hero">
-        <h1>Company Pipeline</h1>
-        <p>
-          Search companies in your CRM list. As you type, the list narrows instantly. If no match exists,
-          create a new company and launch research automatically.
-        </p>
-      </section>
-
       <div className="grid">
         <section className="panel" aria-label="List panel">
           <label htmlFor="search-company">Search</label>
@@ -1880,12 +1895,12 @@ export function CompanyWorkbench() {
           {status && <p className={`status ${status.kind}`}>{status.text}</p>}
         </section>
 
-        <section className="panel" aria-label="Detail panel">
-          {!selectedRecord || !detailDraft ? (
-            <p className="muted">Select a company from the list to view details.</p>
-          ) : (
-            <div className="detail-card">
-              <div className="detail-head">
+          <section className="panel entity-detail-panel" aria-label="Detail panel">
+            {!selectedRecord || !detailDraft ? (
+              <p className="muted">Select a company from the list to view details.</p>
+            ) : (
+              <div className="detail-card">
+              <div className="detail-head detail-head-minimal">
                 <h3>{selectedRecord.name}</h3>
               </div>
 
@@ -1898,15 +1913,6 @@ export function CompanyWorkbench() {
                   onClick={() => setActiveDetailTab("overview")}
                 >
                   Overview
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  className={`detail-tab ${activeDetailTab === "at-a-glance" ? "active" : ""}`}
-                  aria-selected={activeDetailTab === "at-a-glance"}
-                  onClick={() => setActiveDetailTab("at-a-glance")}
-                >
-                  At a Glance
                 </button>
                 <button
                   type="button"
@@ -1979,19 +1985,15 @@ export function CompanyWorkbench() {
                   onSave={(value) => updateDetailDraft({ googleTranscriptUrl: value })}
                 />
                 <InlineTextField
-                  label="HQ City"
-                  value={detailDraft.headquartersCity}
-                  onSave={(value) => updateDetailDraft({ headquartersCity: value })}
-                />
-                <InlineTextField
-                  label="HQ State"
-                  value={detailDraft.headquartersState}
-                  onSave={(value) => updateDetailDraft({ headquartersState: value })}
-                />
-                <InlineTextField
-                  label="HQ Country"
-                  value={detailDraft.headquartersCountry}
-                  onSave={(value) => updateDetailDraft({ headquartersCountry: value })}
+                  label={
+                    <>
+                      <span>Location</span>
+                      <span className="inline-field-label-suffix">(City, State, Country)</span>
+                    </>
+                  }
+                  value={detailDraft.headquartersLocation}
+                  placeholder="City, State, Country"
+                  onSave={(value) => updateDetailDraft({ headquartersLocation: value })}
                 />
                 <InlineSelectField
                   label="Company Type"
@@ -2129,59 +2131,6 @@ export function CompanyWorkbench() {
                 />
               </div>
 
-                </>
-              )}
-
-              {activeDetailTab === "at-a-glance" && (
-                <>
-                  <div className="detail-section">
-                    <p className="detail-label">At a Glance</p>
-                    <InlineTextareaField
-                      multiline
-                      label="Problem"
-                      value={detailDraft.atAGlanceProblem}
-                      rows={12}
-                      enableFormatting
-                      stripFormattingOnPaste
-                      onSave={(value) => updateDetailDraft({ atAGlanceProblem: value })}
-                    />
-                    <InlineTextareaField
-                      multiline
-                      label="The Solution"
-                      value={detailDraft.atAGlanceSolution}
-                      rows={12}
-                      enableFormatting
-                      stripFormattingOnPaste
-                      onSave={(value) => updateDetailDraft({ atAGlanceSolution: value })}
-                    />
-                    <InlineTextareaField
-                      multiline
-                      label="The Impact"
-                      value={detailDraft.atAGlanceImpact}
-                      rows={12}
-                      enableFormatting
-                      stripFormattingOnPaste
-                      onSave={(value) => updateDetailDraft({ atAGlanceImpact: value })}
-                    />
-                    <InlineTextareaField
-                      multiline
-                      label="Key Strengths"
-                      value={detailDraft.atAGlanceKeyStrengths}
-                      rows={12}
-                      enableFormatting
-                      stripFormattingOnPaste
-                      onSave={(value) => updateDetailDraft({ atAGlanceKeyStrengths: value })}
-                    />
-                    <InlineTextareaField
-                      multiline
-                      label="Key Considerations"
-                      value={detailDraft.atAGlanceKeyConsiderations}
-                      rows={12}
-                      enableFormatting
-                      stripFormattingOnPaste
-                      onSave={(value) => updateDetailDraft({ atAGlanceKeyConsiderations: value })}
-                    />
-                  </div>
                 </>
               )}
 
@@ -2333,7 +2282,6 @@ export function CompanyWorkbench() {
                           <div className="contact-row-details">
                             <strong>{contactNameParts(link.contact.name).displayName}</strong>
                             {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
-                            {` | ${link.roleType}`}
                             {link.contact.email ? ` | ${link.contact.email}` : ""}
                             {link.contact.phone ? ` | ${link.contact.phone}` : ""}
                             {link.contact.linkedinUrl && (

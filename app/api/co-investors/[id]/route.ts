@@ -28,6 +28,21 @@ export async function PATCH(
       },
       include: {
         partners: true,
+        venturePartners: {
+          include: {
+            healthSystem: {
+              select: {
+                id: true,
+                name: true,
+                website: true,
+                headquartersCity: true,
+                headquartersState: true,
+                headquartersCountry: true
+              }
+            }
+          },
+          orderBy: { createdAt: "desc" }
+        },
         contactLinks: {
           include: { contact: true }
         },

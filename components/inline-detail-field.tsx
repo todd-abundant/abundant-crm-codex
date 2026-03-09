@@ -14,7 +14,7 @@ type SelectOption = {
 
 type TextFieldProps = {
   kind: "text";
-  label: string;
+  label: React.ReactNode;
   value: string;
   onSave: (value: string) => void;
   inputType?: "text" | "number" | "date";
@@ -34,7 +34,7 @@ type NoteInsightPayload = {
 
 type TextAreaFieldProps = {
   kind: "textarea";
-  label: string;
+  label: React.ReactNode;
   value: string;
   onSave: (value: string) => void;
   placeholder?: string;
@@ -48,7 +48,7 @@ type TextAreaFieldProps = {
 
 type SelectFieldProps = {
   kind: "select";
-  label: string;
+  label: React.ReactNode;
   value: string;
   onSave: (value: string) => void;
   options: SelectOption[];
@@ -57,7 +57,7 @@ type SelectFieldProps = {
 
 type BooleanFieldProps = {
   kind: "boolean";
-  label: string;
+  label: React.ReactNode;
   value: boolean;
   onSave: (value: boolean) => void;
   trueLabel?: string;

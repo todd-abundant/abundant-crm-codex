@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { EntityLookupInput } from "./entity-lookup-input";
 
 type AdminSurveyCompany = {
   id: string;
@@ -407,6 +408,32 @@ export function AdminSurveyManagement() {
   const [origin, setOrigin] = React.useState("");
   const [loadingResults, setLoadingResults] = React.useState(false);
   const [results, setResults] = React.useState<SurveyResultsPayload | null>(null);
+
+  const companyLookupOptions = React.useMemo(
+    () => companies.map((company) => ({ id: company.id, name: company.name })),
+    [companies]
+  );
+  const handleCompanySelected = React.useCallback((nextCompanyId: string) => {
+    setSelectedCompanyId(nextCompanyId);
+    setSelectedSessionId("");
+  }, []);
+  const handleCompanyCreated = React.useCallback((option: { id: string; name: string }) => {
+    setCompanies((current) => {
+      if (current.some((entry) => entry.id === option.id)) return current;
+      return [
+        {
+          id: option.id,
+          name: option.name,
+          phase: "",
+          phaseLabel: "Not set",
+          isScreeningStage: false
+        },
+        ...current
+      ];
+    });
+    setSelectedCompanyId(option.id);
+    setSelectedSessionId("");
+  }, []);
 
   const selectedCompany = companies.find((entry) => entry.id === selectedCompanyId) || null;
   const selectedSession = sessions.find((entry) => entry.id === selectedSessionId) || null;
@@ -1918,22 +1945,17 @@ export function AdminSurveyManagement() {
             </button>
           </div>
 
-          <label htmlFor="admin-survey-company-select">Company</label>
-          <select
-            id="admin-survey-company-select"
+          <label>Company</label>
+          <EntityLookupInput
+            entityKind="COMPANY"
             value={selectedCompanyId}
-            onChange={(event) => {
-              setSelectedCompanyId(event.target.value);
-              setSelectedSessionId("");
-            }}
+            onChange={handleCompanySelected}
+            initialOptions={companyLookupOptions}
+            placeholder="Search companies"
+            autoOpenCreateOnEnterNoMatch
+            onEntityCreated={handleCompanyCreated}
             disabled={loadingCompanies}
-          >
-            {companies.map((company) => (
-              <option key={company.id} value={company.id}>
-                {company.name}
-              </option>
-            ))}
-          </select>
+          />
           <p className="muted">{selectedCompany?.phaseLabel || "No company selected"}</p>
 
           <div className="actions">
@@ -2023,22 +2045,17 @@ export function AdminSurveyManagement() {
 
               <div className="detail-grid">
                 <div>
-                  <label htmlFor="admin-edit-survey-company">Company</label>
-                  <select
-                    id="admin-edit-survey-company"
+                  <label>Company</label>
+                  <EntityLookupInput
+                    entityKind="COMPANY"
                     value={selectedCompanyId}
-                    onChange={(event) => {
-                      setSelectedCompanyId(event.target.value);
-                      setSelectedSessionId("");
-                    }}
+                    onChange={handleCompanySelected}
+                    initialOptions={companyLookupOptions}
+                    placeholder="Search companies"
+                    autoOpenCreateOnEnterNoMatch
+                    onEntityCreated={handleCompanyCreated}
                     disabled={loadingCompanies}
-                  >
-                    {companies.map((company) => (
-                      <option key={company.id} value={company.id}>
-                        {company.name}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
                 <div>
                   <label>Pipeline Stage</label>

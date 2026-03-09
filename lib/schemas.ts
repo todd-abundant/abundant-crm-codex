@@ -50,9 +50,6 @@ export const healthSystemInputSchema = z.object({
   isLimitedPartner: z.boolean().default(false),
   limitedPartnerInvestmentUsd: z.number().nonnegative().optional().nullable(),
   isAllianceMember: z.boolean().default(false),
-  hasInnovationTeam: z.boolean().optional().nullable(),
-  hasVentureTeam: z.boolean().optional().nullable(),
-  ventureTeamSummary: z.string().optional(),
   executives: z.array(personSchema).default([]),
   venturePartners: z.array(personSchema).default([]),
   investments: z.array(investmentSchema).default([]),
@@ -72,9 +69,6 @@ export const healthSystemUpdateSchema = z.object({
   isLimitedPartner: z.boolean().default(false),
   limitedPartnerInvestmentUsd: z.number().nonnegative().optional().nullable(),
   isAllianceMember: z.boolean().default(false),
-  hasInnovationTeam: z.boolean().optional().nullable(),
-  hasVentureTeam: z.boolean().optional().nullable(),
-  ventureTeamSummary: z.string().optional(),
   researchNotes: z.string().optional()
 });
 

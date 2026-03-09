@@ -7,6 +7,21 @@ export async function GET() {
     const coInvestors = await prisma.coInvestor.findMany({
       include: {
         partners: true,
+        venturePartners: {
+          include: {
+            healthSystem: {
+              select: {
+                id: true,
+                name: true,
+                website: true,
+                headquartersCity: true,
+                headquartersState: true,
+                headquartersCountry: true
+              }
+            }
+          },
+          orderBy: { createdAt: "desc" }
+        },
         contactLinks: {
           include: { contact: true }
         },
@@ -85,6 +100,21 @@ export async function POST(request: Request) {
       },
       include: {
         partners: true,
+        venturePartners: {
+          include: {
+            healthSystem: {
+              select: {
+                id: true,
+                name: true,
+                website: true,
+                headquartersCity: true,
+                headquartersState: true,
+                headquartersCountry: true
+              }
+            }
+          },
+          orderBy: { createdAt: "desc" }
+        },
         contactLinks: {
           include: { contact: true }
         },

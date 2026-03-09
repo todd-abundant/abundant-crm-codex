@@ -11,11 +11,6 @@ export function AdminControlCenter({ currentUserId }: { currentUserId: string })
 
   return (
     <main>
-      <section className="hero">
-        <h1>Administration</h1>
-        <p>Manage user permissions and webinar survey templates/sessions.</p>
-      </section>
-
       <section className="panel">
         <div className="detail-tabs" role="tablist" aria-label="Administration sections">
           <button

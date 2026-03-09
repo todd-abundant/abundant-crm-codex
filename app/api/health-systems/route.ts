@@ -68,9 +68,6 @@ export async function POST(request: Request) {
           ? (input.limitedPartnerInvestmentUsd ?? null)
           : null,
         isAllianceMember: input.isAllianceMember,
-        hasInnovationTeam: input.hasInnovationTeam ?? null,
-        hasVentureTeam: input.hasVentureTeam ?? null,
-        ventureTeamSummary: input.ventureTeamSummary || null,
         researchStatus: "DRAFT",
         researchNotes: input.researchNotes || null,
         researchUpdatedAt: new Date(),

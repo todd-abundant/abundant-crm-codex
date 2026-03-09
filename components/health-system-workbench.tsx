@@ -1,16 +1,13 @@
-/* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   InlineBooleanField,
-  InlineSelectField,
   InlineTextField
 } from "./inline-detail-field";
 import { SearchMatchModal } from "./search-match-modal";
 import { EntityLookupInput } from "./entity-lookup-input";
 import { AddContactModal } from "./add-contact-modal";
-import { AddRelationshipModal } from "./add-relationship-modal";
 import { EntityDocumentsPane } from "./entity-documents-pane";
 import { EntityNotesPane } from "./entity-notes-pane";
 
@@ -45,8 +42,6 @@ type HealthSystemRecord = {
   isLimitedPartner: boolean;
   limitedPartnerInvestmentUsd?: number | string | null;
   isAllianceMember: boolean;
-  hasInnovationTeam?: boolean | null;
-  hasVentureTeam?: boolean | null;
   researchStatus: "DRAFT" | "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
   researchError?: string | null;
   contactLinks: Array<{
@@ -92,71 +87,6 @@ type CompanyOption = {
   name: string;
 };
 
-const LOGO_TARGET_HEIGHT_PX = 96;
-const LOGO_MAX_DATA_URL_BYTES = 2_500_000;
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-      } else {
-        reject(new Error("Failed to process uploaded logo."));
-      }
-    };
-    reader.onerror = () => reject(new Error("Failed to process uploaded logo."));
-    reader.readAsDataURL(file);
-  });
-}
-
-function renderLogoToWebp(source: string, targetHeight: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => {
-      if (!image.naturalWidth || !image.naturalHeight) {
-        reject(new Error("Uploaded logo has no dimensions."));
-        return;
-      }
-
-      const aspectRatio = image.naturalWidth / image.naturalHeight;
-      const targetWidth = Math.max(1, Math.round(aspectRatio * targetHeight));
-
-      const canvas = document.createElement("canvas");
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-
-      const context = canvas.getContext("2d");
-      if (!context) {
-        reject(new Error("Unable to process logo in this browser."));
-        return;
-      }
-
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(image, 0, 0, targetWidth, targetHeight);
-      resolve(canvas.toDataURL("image/webp", 0.9));
-    };
-    image.onerror = () => reject(new Error("Failed to process uploaded logo."));
-    image.src = source;
-  });
-}
-
-function sanitizeLogoUpload(file: File, targetHeight: number) {
-  if (!file.type.startsWith("image/")) {
-    throw new Error("Logo upload must be an image file.");
-  }
-
-  return Promise.resolve(file)
-    .then(readFileAsDataUrl)
-    .then((dataUrl) => renderLogoToWebp(dataUrl, targetHeight))
-    .then((dataUrl) => {
-      if (dataUrl.length > LOGO_MAX_DATA_URL_BYTES) {
-        throw new Error("Processed logo is too large.");
-      }
-      return dataUrl;
-    });
-}
-
 const companyHealthSystemRelationshipOptions: Array<{ value: "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"; label: string }> = [
   { value: "CUSTOMER", label: "Vendor" },
   { value: "SPIN_OUT_PARTNER", label: "Spin-out Partner" },
@@ -168,15 +98,11 @@ type DetailDraft = {
   name: string;
   legalName: string;
   website: string;
-  headquartersCity: string;
-  headquartersState: string;
-  headquartersCountry: string;
+  headquartersLocation: string;
   netPatientRevenueUsd: string;
   isLimitedPartner: boolean;
   limitedPartnerInvestmentUsd: string;
   isAllianceMember: boolean;
-  hasInnovationTeam: "null" | "true" | "false";
-  hasVentureTeam: "null" | "true" | "false";
 };
 
 type DetailTab = "overview" | "documents" | "notes" | "contacts" | "relationships";
@@ -189,6 +115,31 @@ function formatLocation(record: {
   return [record.headquartersCity, record.headquartersState, record.headquartersCountry]
     .filter(Boolean)
     .join(", ");
+}
+
+function parseHeadquartersLocation(location: string) {
+  const parts = location
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  if (parts.length === 0) {
+    return { headquartersCity: "", headquartersState: "", headquartersCountry: "" };
+  }
+
+  if (parts.length === 1) {
+    return { headquartersCity: parts[0], headquartersState: "", headquartersCountry: "" };
+  }
+
+  if (parts.length === 2) {
+    return { headquartersCity: parts[0], headquartersState: parts[1], headquartersCountry: "" };
+  }
+
+  return {
+    headquartersCity: parts[0],
+    headquartersState: parts[1],
+    headquartersCountry: parts.slice(2).join(", ")
+  };
 }
 
 function normalizeForMatch(value?: string | null) {
@@ -260,11 +211,6 @@ function findDuplicateRecord(records: HealthSystemRecord[], candidate: SearchCan
   }) || null;
 }
 
-function toNullableBoolean(value: "null" | "true" | "false") {
-  if (value === "null") return null;
-  return value === "true";
-}
-
 function toNullableNumber(value: string): number | null {
   const normalized = value.trim().replace(/[$,\s]/g, "");
   if (!normalized) return null;
@@ -307,25 +253,11 @@ function draftFromRecord(record: HealthSystemRecord): DetailDraft {
     name: record.name || "",
     legalName: record.legalName || "",
     website: record.website || "",
-    headquartersCity: record.headquartersCity || "",
-    headquartersState: record.headquartersState || "",
-    headquartersCountry: record.headquartersCountry || "",
+    headquartersLocation: formatLocation(record),
     netPatientRevenueUsd: record.netPatientRevenueUsd?.toString() || "",
     isLimitedPartner: record.isLimitedPartner,
     limitedPartnerInvestmentUsd: record.limitedPartnerInvestmentUsd?.toString() || "",
-    isAllianceMember: record.isAllianceMember,
-    hasInnovationTeam:
-      record.hasInnovationTeam === null || record.hasInnovationTeam === undefined
-        ? "null"
-        : record.hasInnovationTeam
-          ? "true"
-          : "false",
-    hasVentureTeam:
-      record.hasVentureTeam === null || record.hasVentureTeam === undefined
-        ? "null"
-        : record.hasVentureTeam
-          ? "true"
-          : "false"
+    isAllianceMember: record.isAllianceMember
   };
 }
 
@@ -381,12 +313,8 @@ export function HealthSystemWorkbench() {
   const [deletingContactLinkId, setDeletingContactLinkId] = useState<string | null>(null);
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [addingInvestment, setAddingInvestment] = useState(false);
-  const [addInvestmentRelationshipModalOpen, setAddInvestmentRelationshipModalOpen] = useState(false);
   const [investmentCompanyId, setInvestmentCompanyId] = useState("");
-  const [investmentAmount, setInvestmentAmount] = useState("");
-  const [investmentDate, setInvestmentDate] = useState("");
-  const [investmentLeadPartnerName, setInvestmentLeadPartnerName] = useState("");
-  const [investmentSourceUrl, setInvestmentSourceUrl] = useState("");
+  const [showAddInvestmentLookup, setShowAddInvestmentLookup] = useState(false);
   const [editingInvestmentLinkId, setEditingInvestmentLinkId] = useState<string | null>(null);
   const [editingInvestmentCompanyId, setEditingInvestmentCompanyId] = useState("");
   const [editingInvestmentAmount, setEditingInvestmentAmount] = useState("");
@@ -396,13 +324,8 @@ export function HealthSystemWorkbench() {
   const [updatingInvestment, setUpdatingInvestment] = useState(false);
   const [deletingInvestmentLinkId, setDeletingInvestmentLinkId] = useState<string | null>(null);
   const [addingCustomer, setAddingCustomer] = useState(false);
-  const [addCustomerRelationshipModalOpen, setAddCustomerRelationshipModalOpen] = useState(false);
   const [customerCompanyId, setCustomerCompanyId] = useState("");
-  const [customerRelationshipType, setCustomerRelationshipType] = useState<
-    "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
-  >("CUSTOMER");
-  const [customerNotes, setCustomerNotes] = useState("");
-  const [customerAnnualContractValue, setCustomerAnnualContractValue] = useState("");
+  const [showAddCustomerLookup, setShowAddCustomerLookup] = useState(false);
   const [editingCustomerLinkId, setEditingCustomerLinkId] = useState<string | null>(null);
   const [editingCustomerCompanyId, setEditingCustomerCompanyId] = useState("");
   const [editingCustomerRelationshipType, setEditingCustomerRelationshipType] = useState<
@@ -413,12 +336,9 @@ export function HealthSystemWorkbench() {
   const [updatingCustomer, setUpdatingCustomer] = useState(false);
   const [deletingCustomerLinkId, setDeletingCustomerLinkId] = useState<string | null>(null);
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTab>("overview");
-  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
-  const [isDeletingLogo, setIsDeletingLogo] = useState(false);
   const [keepListView, setKeepListView] = useState(false);
   const candidateSearchCacheRef = useRef<Record<string, SearchCandidate[]>>({});
   const candidateSearchAbortRef = useRef<AbortController | null>(null);
-  const logoUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const hasPending = useMemo(
     () => records.some((record) => record.researchStatus === "QUEUED" || record.researchStatus === "RUNNING"),
@@ -838,131 +758,14 @@ export function HealthSystemWorkbench() {
     }
   }
 
-  function getLogoUploadButtonText() {
-    if (isUploadingLogo) return "Uploading...";
-    if (!selectedRecord) return "Upload";
-    return selectedRecord.logoUrl ? "Replace" : "Upload";
-  }
-
-  function clearLogoInput() {
-    if (logoUploadInputRef.current) {
-      logoUploadInputRef.current.value = "";
-    }
-  }
-
-  async function uploadLogoForSelectedRecord(file: File) {
-    if (!selectedRecord) return;
-
-    setIsUploadingLogo(true);
-    setStatus(null);
-
-    try {
-      const logoUrl = await sanitizeLogoUpload(file, LOGO_TARGET_HEIGHT_PX);
-      const res = await fetch(`/api/health-systems/${selectedRecord.id}/logo`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ logoUrl })
-      });
-
-      const payload = await res.json();
-      if (!res.ok) {
-        throw new Error(payload.error || "Failed to upload logo");
-      }
-
-      setStatus({ kind: "ok", text: `Logo uploaded for ${payload.healthSystem?.name || selectedRecord.name}.` });
-      await loadRecords();
-    } catch (error) {
-      setStatus({
-        kind: "error",
-        text: error instanceof Error ? error.message : "Failed to upload logo"
-      });
-    } finally {
-      setIsUploadingLogo(false);
-      clearLogoInput();
-    }
-  }
-
-  async function deleteLogoForSelectedRecord() {
-    if (!selectedRecord || !selectedRecord.logoUrl) return;
-    const confirmDelete = window.confirm(`Remove logo from ${selectedRecord.name}?`);
-    if (!confirmDelete) return;
-
-    setIsDeletingLogo(true);
-    setStatus(null);
-
-    try {
-      const res = await fetch(`/api/health-systems/${selectedRecord.id}/logo`, {
-        method: "DELETE"
-      });
-      const payload = await res.json();
-      if (!res.ok) {
-        throw new Error(payload.error || "Failed to delete logo");
-      }
-
-      setStatus({ kind: "ok", text: `Logo removed from ${payload.healthSystem?.name || selectedRecord.name}.` });
-      await loadRecords();
-    } catch (error) {
-      setStatus({
-        kind: "error",
-        text: error instanceof Error ? error.message : "Failed to remove logo"
-      });
-    } finally {
-      setIsDeletingLogo(false);
-    }
-  }
-
-  function handleLogoInputChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) {
-      clearLogoInput();
-      return;
-    }
-
-    if (!selectedRecord) {
-      clearLogoInput();
-      return;
-    }
-
-    void uploadLogoForSelectedRecord(file);
-  }
-
   function resetInvestmentForm() {
     setInvestmentCompanyId("");
-    setInvestmentAmount("");
-    setInvestmentDate("");
-    setInvestmentLeadPartnerName("");
-    setInvestmentSourceUrl("");
-  }
-
-  function openInvestmentRelationshipModal() {
-    setStatus(null);
-    resetInvestmentForm();
-    setAddInvestmentRelationshipModalOpen(true);
-  }
-
-  function closeInvestmentRelationshipModal() {
-    if (addingInvestment) return;
-    setAddInvestmentRelationshipModalOpen(false);
-    resetInvestmentForm();
+    setShowAddInvestmentLookup(false);
   }
 
   function resetCustomerForm() {
     setCustomerCompanyId("");
-    setCustomerRelationshipType("CUSTOMER");
-    setCustomerNotes("");
-    setCustomerAnnualContractValue("");
-  }
-
-  function openCustomerRelationshipModal() {
-    setStatus(null);
-    resetCustomerForm();
-    setAddCustomerRelationshipModalOpen(true);
-  }
-
-  function closeCustomerRelationshipModal() {
-    if (addingCustomer) return;
-    setAddCustomerRelationshipModalOpen(false);
-    resetCustomerForm();
+    setShowAddCustomerLookup(false);
   }
 
   function resetEditingInvestmentForm() {
@@ -1005,9 +808,10 @@ export function HealthSystemWorkbench() {
     setStatus(null);
   }
 
-  async function addInvestmentToSelectedRecord() {
+  async function addInvestmentToSelectedRecord(nextCompanyId?: string) {
     if (!selectedRecord) return;
-    if (!investmentCompanyId) {
+    const companyId = (nextCompanyId ?? investmentCompanyId).trim();
+    if (!companyId) {
       setStatus({ kind: "error", text: "Select a company." });
       return;
     }
@@ -1020,11 +824,7 @@ export function HealthSystemWorkbench() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          companyId: investmentCompanyId,
-          investmentAmountUsd: toNullableNumber(investmentAmount),
-          investmentDate: investmentDate || null,
-          leadPartnerName: investmentLeadPartnerName,
-          sourceUrl: investmentSourceUrl
+          companyId
         })
       });
 
@@ -1035,11 +835,10 @@ export function HealthSystemWorkbench() {
 
       setStatus({
         kind: "ok",
-        text: `${payload.investment?.company?.name || getCompanyNameById(investmentCompanyId)} linked as investment.`
+        text: `${payload.investment?.company?.name || getCompanyNameById(companyId)} linked as investment.`
       });
       resetInvestmentForm();
       await loadRecords();
-      closeInvestmentRelationshipModal();
     } catch (error) {
       setStatus({
         kind: "error",
@@ -1095,9 +894,10 @@ export function HealthSystemWorkbench() {
     }
   }
 
-  async function addCustomerToSelectedRecord() {
+  async function addCustomerToSelectedRecord(nextCompanyId?: string) {
     if (!selectedRecord) return;
-    if (!customerCompanyId) {
+    const companyId = (nextCompanyId ?? customerCompanyId).trim();
+    if (!companyId) {
       setStatus({ kind: "error", text: "Select a company." });
       return;
     }
@@ -1110,10 +910,8 @@ export function HealthSystemWorkbench() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          companyId: customerCompanyId,
-          relationshipType: customerRelationshipType,
-          notes: customerNotes,
-          annualContractValueUsd: toNullableNumber(customerAnnualContractValue)
+          companyId,
+          relationshipType: "CUSTOMER"
         })
       });
 
@@ -1124,11 +922,10 @@ export function HealthSystemWorkbench() {
 
       setStatus({
         kind: "ok",
-        text: `${payload.link?.company?.name || getCompanyNameById(customerCompanyId)} linked as vendor.`
+        text: `${payload.link?.company?.name || getCompanyNameById(companyId)} linked as vendor.`
       });
       resetCustomerForm();
       await loadRecords();
-      closeCustomerRelationshipModal();
     } catch (error) {
       setStatus({
         kind: "error",
@@ -1274,6 +1071,8 @@ export function HealthSystemWorkbench() {
   async function saveSelectedRecordEdits(draftToSave: DetailDraft | null = detailDraft) {
     if (!selectedRecord || !draftToSave) return;
 
+    const parsedLocation = parseHeadquartersLocation(draftToSave.headquartersLocation);
+
     setStatus(null);
 
     try {
@@ -1284,15 +1083,13 @@ export function HealthSystemWorkbench() {
           name: draftToSave.name,
           legalName: draftToSave.legalName,
           website: draftToSave.website,
-          headquartersCity: draftToSave.headquartersCity,
-          headquartersState: draftToSave.headquartersState,
-          headquartersCountry: draftToSave.headquartersCountry,
+          headquartersCity: parsedLocation.headquartersCity,
+          headquartersState: parsedLocation.headquartersState,
+          headquartersCountry: parsedLocation.headquartersCountry,
           netPatientRevenueUsd: toNullableNumber(draftToSave.netPatientRevenueUsd),
           isLimitedPartner: draftToSave.isLimitedPartner,
           limitedPartnerInvestmentUsd: toNullableNumber(draftToSave.limitedPartnerInvestmentUsd),
           isAllianceMember: draftToSave.isAllianceMember,
-          hasInnovationTeam: toNullableBoolean(draftToSave.hasInnovationTeam),
-          hasVentureTeam: toNullableBoolean(draftToSave.hasVentureTeam)
         })
       });
 
@@ -1473,8 +1270,6 @@ export function HealthSystemWorkbench() {
       setDetailDraft(null);
       setDraftRecordId(null);
       setAddContactModalOpen(false);
-      setAddCustomerRelationshipModalOpen(false);
-      setAddInvestmentRelationshipModalOpen(false);
       resetEditingContactForm();
       resetInvestmentForm();
       resetEditingInvestmentForm();
@@ -1491,21 +1286,13 @@ export function HealthSystemWorkbench() {
       setDraftRecordId(selectedRecord.id);
       setActiveDetailTab("overview");
       setAddContactModalOpen(false);
-      setAddCustomerRelationshipModalOpen(false);
-      setAddInvestmentRelationshipModalOpen(false);
+      resetInvestmentForm();
+      resetCustomerForm();
     }
   }, [selectedRecord, draftRecordId]);
 
   return (
     <main>
-      <section className="hero">
-        <h1>Abundant CRM</h1>
-        <p>
-          Search health systems in your CRM list. As you type, the list narrows instantly. If no match
-          exists, create a new health system and launch research automatically.
-        </p>
-      </section>
-
       <div className="grid health-system-workbench-layout">
         <section className="panel health-system-list-panel" aria-label="List panel">
           <div className="health-system-panel-scroll">
@@ -1669,49 +1456,11 @@ export function HealthSystemWorkbench() {
               <p className="muted">Select a health system from the list to view details.</p>
             ) : (
               <div className="detail-card">
-              <div className="detail-head">
+              <div className="detail-head detail-head-minimal">
                 <div className="health-system-head-main">
-                  {selectedRecord.logoUrl ? (
-                    <img
-                      className="health-system-logo-preview"
-                      src={selectedRecord.logoUrl}
-                      alt={`${selectedRecord.name} logo`}
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="health-system-logo-preview-placeholder">No Logo</div>
-                  )}
                   <h3>{selectedRecord.name}</h3>
                 </div>
-                <div className="health-system-head-actions">
-                  <input
-                    ref={logoUploadInputRef}
-                    className="health-system-logo-input"
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoInputChange}
-                  />
-                  <button
-                    type="button"
-                    className="ghost small"
-                    onClick={() => logoUploadInputRef.current?.click()}
-                    disabled={isUploadingLogo || isDeletingLogo}
-                  >
-                    {getLogoUploadButtonText()} logo
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost small"
-                    onClick={() => void deleteLogoForSelectedRecord()}
-                    disabled={isDeletingLogo || isUploadingLogo || !selectedRecord.logoUrl}
-                  >
-                    {isDeletingLogo ? "Removing..." : "Remove"}
-                  </button>
-                </div>
               </div>
-              <p className="muted health-system-logo-help">
-                Logos are converted to WebP at 96px height and capped at 2.5MB.
-              </p>
 
               <div className="detail-tabs" role="tablist" aria-label="Health system detail sections">
                 <button
@@ -1780,25 +1529,21 @@ export function HealthSystemWorkbench() {
                   onSave={(value) => updateDetailDraft({ website: value })}
                 />
                 <InlineTextField
-                  label="Net Patient Revenue (USD)"
-                  value={detailDraft.netPatientRevenueUsd}
-                  inputType="number"
+                  label="Net Patient Revenue"
+                  value={detailDraft.netPatientRevenueUsd ? formatUsd(detailDraft.netPatientRevenueUsd) : ""}
+                  inputType="text"
                   onSave={(value) => updateDetailDraft({ netPatientRevenueUsd: value })}
                 />
                 <InlineTextField
-                  label="HQ City"
-                  value={detailDraft.headquartersCity}
-                  onSave={(value) => updateDetailDraft({ headquartersCity: value })}
-                />
-                <InlineTextField
-                  label="HQ State"
-                  value={detailDraft.headquartersState}
-                  onSave={(value) => updateDetailDraft({ headquartersState: value })}
-                />
-                <InlineTextField
-                  label="HQ Country"
-                  value={detailDraft.headquartersCountry}
-                  onSave={(value) => updateDetailDraft({ headquartersCountry: value })}
+                  label={
+                    <>
+                      <span>Location</span>
+                      <span className="inline-field-label-suffix">(City, State, Country)</span>
+                    </>
+                  }
+                  value={detailDraft.headquartersLocation}
+                  placeholder="City, State, Country"
+                  onSave={(value) => updateDetailDraft({ headquartersLocation: value })}
                 />
                 <InlineBooleanField
                   label="Limited Partner"
@@ -1826,30 +1571,6 @@ export function HealthSystemWorkbench() {
                   onSave={(value) => updateDetailDraft({ isAllianceMember: value })}
                   trueLabel="Yes"
                   falseLabel="No"
-                />
-                <InlineSelectField
-                  label="Innovation Team"
-                  value={detailDraft.hasInnovationTeam}
-                  onSave={(value) =>
-                    updateDetailDraft({ hasInnovationTeam: value as "null" | "true" | "false" })
-                  }
-                  options={[
-                    { value: "null", label: "Unknown" },
-                    { value: "true", label: "Yes" },
-                    { value: "false", label: "No" }
-                  ]}
-                />
-                <InlineSelectField
-                  label="Venture Team"
-                  value={detailDraft.hasVentureTeam}
-                  onSave={(value) =>
-                    updateDetailDraft({ hasVentureTeam: value as "null" | "true" | "false" })
-                  }
-                  options={[
-                    { value: "null", label: "Unknown" },
-                    { value: "true", label: "Yes" },
-                    { value: "false", label: "No" }
-                  ]}
                 />
               </div>
 
@@ -2007,7 +1728,6 @@ export function HealthSystemWorkbench() {
                           <div className="contact-row-details">
                             <strong>{contactNameParts(link.contact.name).displayName}</strong>
                             {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
-                            {` | ${link.roleType}`}
                             {link.contact.email ? ` | ${link.contact.email}` : ""}
                             {link.contact.phone ? ` | ${link.contact.phone}` : ""}
                             {link.contact.linkedinUrl && (
@@ -2086,15 +1806,52 @@ export function HealthSystemWorkbench() {
                   <button
                     type="button"
                     className="ghost small contact-add-link"
-                    onClick={() => void openCustomerRelationshipModal()}
+                    onClick={() => {
+                      if (showAddCustomerLookup) {
+                        resetCustomerForm();
+                        return;
+                      }
+                      setStatus(null);
+                      setShowAddCustomerLookup(true);
+                    }}
                   >
-                    Add Vendor
+                    {showAddCustomerLookup ? "Cancel" : "Add Vendor"}
                   </button>
                 </div>
+                {showAddCustomerLookup ? (
+                  <div className="actions relationship-inline-add">
+                    <EntityLookupInput
+                      entityKind="COMPANY"
+                      value={customerCompanyId}
+                      onChange={(nextId) => {
+                        setCustomerCompanyId(nextId);
+                        if (!nextId || addingCustomer) return;
+                        void addCustomerToSelectedRecord(nextId);
+                      }}
+                      initialOptions={companies.map((company) => ({
+                        id: company.id,
+                        name: company.name
+                      }))}
+                      className="relationship-inline-lookup"
+                      placeholder="Search companies (or Add New)"
+                      disabled={addingCustomer}
+                      autoOpenCreateOnEnterNoMatch
+                      companyCreateDefaults={{
+                        companyType: "STARTUP",
+                        primaryCategory: "OTHER",
+                        leadSourceType: "OTHER",
+                        leadSourceOther: "Added from health system vendor"
+                      }}
+                      onEntityCreated={(option) => addCompanyOption(option)}
+                    />
+                  </div>
+                ) : null}
                 {selectedRecord.customerLinks.length === 0 ? (
                   <p className="muted">No vendors linked yet.</p>
                 ) : (
-                  selectedRecord.customerLinks.map((link) => (
+                  selectedRecord.customerLinks.map((link) => {
+                    const annualContractValue = link.annualContractValueUsd ?? link.investmentAmountUsd;
+                    return (
                     <div key={link.id} className="detail-list-item">
                       {editingCustomerLinkId === link.id ? (
                         <div className="detail-card">
@@ -2110,6 +1867,7 @@ export function HealthSystemWorkbench() {
                                   name: company.name
                                 }))}
                                 placeholder="Search companies"
+                                autoOpenCreateOnEnterNoMatch
                                 companyCreateDefaults={{
                                   companyType: "STARTUP",
                                   primaryCategory: "OTHER",
@@ -2168,14 +1926,20 @@ export function HealthSystemWorkbench() {
                           </div>
                         </div>
                       ) : (
-                        <div>
-                          <strong>
-                            <a href={`/companies/${link.company.id}`}>{link.company.name}</a>
-                          </strong>
-                          {` | Relationship: ${link.relationshipType}`}
-                          {` | Annual Contract Value: ${formatUsd(link.annualContractValueUsd ?? link.investmentAmountUsd)}`}
-                          {link.notes ? ` | ${link.notes}` : ""}
-                          <div className="actions">
+                        <div className="contact-row">
+                          <div className="contact-row-details">
+                            <strong>
+                              <a href={`/companies/${link.company.id}`}>{link.company.name}</a>
+                            </strong>
+                            <p className="muted">
+                              Relationship: {link.relationshipType}
+                              {annualContractValue !== null && annualContractValue !== undefined
+                                ? ` | Annual Contract Value: ${formatUsd(annualContractValue)}`
+                                : ""}
+                              {link.notes ? ` | ${link.notes}` : ""}
+                            </p>
+                          </div>
+                          <div className="contact-row-actions">
                             <button
                               className="ghost small"
                               onClick={() => beginEditingCustomer(link)}
@@ -2194,73 +1958,9 @@ export function HealthSystemWorkbench() {
                         </div>
                       )}
                     </div>
-                  ))
+                    );
+                  })
                 )}
-                <AddRelationshipModal
-                  open={addCustomerRelationshipModalOpen}
-                  onClose={closeCustomerRelationshipModal}
-                  onSubmit={() => void addCustomerToSelectedRecord()}
-                  isSubmitting={addingCustomer}
-                  title="Add Vendor"
-                  submitLabel="Add Vendor"
-                  submitDisabled={!customerCompanyId}
-                >
-                  <div className="detail-grid">
-                    <div>
-                      <label>Company</label>
-                      <EntityLookupInput
-                        entityKind="COMPANY"
-                        value={customerCompanyId}
-                        onChange={setCustomerCompanyId}
-                        initialOptions={companies.map((company) => ({
-                          id: company.id,
-                          name: company.name
-                        }))}
-                        placeholder="Search companies"
-                        companyCreateDefaults={{
-                          companyType: "STARTUP",
-                          primaryCategory: "OTHER",
-                          leadSourceType: "OTHER",
-                                  leadSourceOther: "Added from health system vendor"
-                        }}
-                        onEntityCreated={(option) => addCompanyOption(option)}
-                      />
-                    </div>
-                    <div>
-                      <label>Relationship Type</label>
-                      <select
-                        value={customerRelationshipType}
-                        onChange={(event) =>
-                          setCustomerRelationshipType(
-                            event.target.value as "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
-                          )
-                        }
-                      >
-                        {companyHealthSystemRelationshipOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label>Notes</label>
-                      <input
-                        value={customerNotes}
-                        onChange={(event) => setCustomerNotes(event.target.value)}
-                        placeholder="Notes"
-                      />
-                    </div>
-                    <div>
-                      <label>Annual Contract Value (USD)</label>
-                      <input
-                        value={customerAnnualContractValue}
-                        onChange={(event) => setCustomerAnnualContractValue(event.target.value)}
-                        placeholder="2500000"
-                      />
-                    </div>
-                  </div>
-                </AddRelationshipModal>
               </div>
 
               <div className="detail-section">
@@ -2269,11 +1969,46 @@ export function HealthSystemWorkbench() {
                   <button
                     type="button"
                     className="ghost small contact-add-link"
-                    onClick={() => void openInvestmentRelationshipModal()}
+                    onClick={() => {
+                      if (showAddInvestmentLookup) {
+                        resetInvestmentForm();
+                        return;
+                      }
+                      setStatus(null);
+                      setShowAddInvestmentLookup(true);
+                    }}
                   >
-                    Add Investment
+                    {showAddInvestmentLookup ? "Cancel" : "Add Investment"}
                   </button>
                 </div>
+                {showAddInvestmentLookup ? (
+                  <div className="actions relationship-inline-add">
+                    <EntityLookupInput
+                      entityKind="COMPANY"
+                      value={investmentCompanyId}
+                      onChange={(nextId) => {
+                        setInvestmentCompanyId(nextId);
+                        if (!nextId || addingInvestment) return;
+                        void addInvestmentToSelectedRecord(nextId);
+                      }}
+                      initialOptions={companies.map((company) => ({
+                        id: company.id,
+                        name: company.name
+                      }))}
+                      className="relationship-inline-lookup"
+                      placeholder="Search companies (or Add New)"
+                      disabled={addingInvestment}
+                      autoOpenCreateOnEnterNoMatch
+                      companyCreateDefaults={{
+                        companyType: "STARTUP",
+                        primaryCategory: "OTHER",
+                        leadSourceType: "OTHER",
+                        leadSourceOther: "Added from health system investment"
+                      }}
+                      onEntityCreated={(option) => addCompanyOption(option)}
+                    />
+                  </div>
+                ) : null}
                 {selectedRecord.investments.length === 0 ? (
                   <p className="muted">No investments captured.</p>
                 ) : (
@@ -2293,6 +2028,7 @@ export function HealthSystemWorkbench() {
                                   name: company.name
                                 }))}
                                 placeholder="Search companies"
+                                autoOpenCreateOnEnterNoMatch
                                 companyCreateDefaults={{
                                   companyType: "STARTUP",
                                   primaryCategory: "OTHER",
@@ -2353,20 +2089,23 @@ export function HealthSystemWorkbench() {
                           </div>
                         </div>
                       ) : (
-                        <div>
-                          <strong>{investment.company?.name || investment.portfolioCompanyName}</strong> | Amount:
-                          {" "}
-                          {formatUsd(investment.investmentAmountUsd)} | Date: {formatDate(investment.investmentDate)}
-                          {" "}| Lead: {investment.leadPartnerName || "-"}
-                          {investment.sourceUrl && (
-                            <>
-                              {" "}-{" "}
-                              <a href={investment.sourceUrl} target="_blank" rel="noreferrer">
-                                source
-                              </a>
-                            </>
-                          )}
-                          <div className="actions">
+                        <div className="contact-row">
+                          <div className="contact-row-details">
+                            <strong>{investment.company?.name || investment.portfolioCompanyName}</strong>
+                            <p className="muted">
+                              Amount: {formatUsd(investment.investmentAmountUsd)} | Date: {formatDate(investment.investmentDate)}{" "}
+                              | Lead: {investment.leadPartnerName || "-"}
+                              {investment.sourceUrl ? (
+                                <>
+                                  {" "} |{" "}
+                                  <a href={investment.sourceUrl} target="_blank" rel="noreferrer">
+                                    Source
+                                  </a>
+                                </>
+                              ) : null}
+                            </p>
+                          </div>
+                          <div className="contact-row-actions">
                             <button
                               className="ghost small"
                               onClick={() => beginEditingInvestment(investment)}
@@ -2392,70 +2131,6 @@ export function HealthSystemWorkbench() {
                     </div>
                   ))
                 )}
-                <AddRelationshipModal
-                  open={addInvestmentRelationshipModalOpen}
-                  onClose={closeInvestmentRelationshipModal}
-                  onSubmit={() => void addInvestmentToSelectedRecord()}
-                  isSubmitting={addingInvestment}
-                  title="Add Investment"
-                  submitLabel="Add Investment"
-                  submitDisabled={!investmentCompanyId}
-                >
-                  <div className="detail-grid">
-                    <div>
-                      <label>Company</label>
-                      <EntityLookupInput
-                        entityKind="COMPANY"
-                        value={investmentCompanyId}
-                        onChange={setInvestmentCompanyId}
-                        initialOptions={companies.map((company) => ({
-                          id: company.id,
-                          name: company.name
-                        }))}
-                        placeholder="Search companies"
-                        companyCreateDefaults={{
-                          companyType: "STARTUP",
-                          primaryCategory: "OTHER",
-                          leadSourceType: "OTHER",
-                          leadSourceOther: "Added from health system investment"
-                        }}
-                        onEntityCreated={(option) => addCompanyOption(option)}
-                      />
-                    </div>
-                    <div>
-                      <label>Investment Amount (USD)</label>
-                      <input
-                        value={investmentAmount}
-                        onChange={(event) => setInvestmentAmount(event.target.value)}
-                        placeholder="2500000"
-                      />
-                    </div>
-                    <div>
-                      <label>Investment Date</label>
-                      <input
-                        value={investmentDate}
-                        onChange={(event) => setInvestmentDate(event.target.value)}
-                        placeholder="YYYY-MM-DD"
-                      />
-                    </div>
-                    <div>
-                      <label>Lead Partner</label>
-                      <input
-                        value={investmentLeadPartnerName}
-                        onChange={(event) => setInvestmentLeadPartnerName(event.target.value)}
-                        placeholder="Lead partner name"
-                      />
-                    </div>
-                    <div>
-                      <label>Source URL</label>
-                      <input
-                        value={investmentSourceUrl}
-                        onChange={(event) => setInvestmentSourceUrl(event.target.value)}
-                        placeholder="https://source.example.com"
-                      />
-                    </div>
-                  </div>
-                </AddRelationshipModal>
               </div>
 
                 </>

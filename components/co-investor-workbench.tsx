@@ -9,6 +9,7 @@ import {
 import { DateInputField } from "./date-input-field";
 import { SearchMatchModal } from "./search-match-modal";
 import { AddContactModal } from "./add-contact-modal";
+import { EntityLookupInput } from "./entity-lookup-input";
 import { EntityDocumentsPane } from "./entity-documents-pane";
 import { EntityNotesPane } from "./entity-notes-pane";
 import { RichTextArea } from "./rich-text-area";
@@ -82,6 +83,20 @@ type CoInvestorRecord = {
     };
   }>;
   partners: Array<{ id: string; name: string; title?: string | null; profileUrl?: string | null }>;
+  venturePartners: Array<{
+    id: string;
+    healthSystemId: string;
+    title?: string | null;
+    profileUrl?: string | null;
+    healthSystem: {
+      id: string;
+      name: string;
+      website?: string | null;
+      headquartersCity?: string | null;
+      headquartersState?: string | null;
+      headquartersCountry?: string | null;
+    };
+  }>;
   investments: Array<{
     id: string;
     portfolioCompanyName: string;
@@ -99,9 +114,7 @@ type DetailDraft = {
   name: string;
   legalName: string;
   website: string;
-  headquartersCity: string;
-  headquartersState: string;
-  headquartersCountry: string;
+  headquartersLocation: string;
   isSeedInvestor: boolean;
   isSeriesAInvestor: boolean;
   investmentNotes: string;
@@ -116,6 +129,31 @@ function formatLocation(record: {
   return [record.headquartersCity, record.headquartersState, record.headquartersCountry]
     .filter(Boolean)
     .join(", ");
+}
+
+function parseHeadquartersLocation(location: string) {
+  const parts = location
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  if (parts.length === 0) {
+    return { headquartersCity: "", headquartersState: "", headquartersCountry: "" };
+  }
+
+  if (parts.length === 1) {
+    return { headquartersCity: parts[0], headquartersState: "", headquartersCountry: "" };
+  }
+
+  if (parts.length === 2) {
+    return { headquartersCity: parts[0], headquartersState: parts[1], headquartersCountry: "" };
+  }
+
+  return {
+    headquartersCity: parts[0],
+    headquartersState: parts[1],
+    headquartersCountry: parts.slice(2).join(", ")
+  };
 }
 
 function normalizeForMatch(value?: string | null) {
@@ -277,9 +315,7 @@ function draftFromRecord(record: CoInvestorRecord): DetailDraft {
     name: record.name || "",
     legalName: record.legalName || "",
     website: record.website || "",
-    headquartersCity: record.headquartersCity || "",
-    headquartersState: record.headquartersState || "",
-    headquartersCountry: record.headquartersCountry || "",
+    headquartersLocation: formatLocation(record),
     isSeedInvestor: record.isSeedInvestor,
     isSeriesAInvestor: record.isSeriesAInvestor,
     investmentNotes: record.investmentNotes || "",
@@ -325,6 +361,16 @@ export function CoInvestorWorkbench() {
   );
   const [updatingContact, setUpdatingContact] = React.useState(false);
   const [deletingContactLinkId, setDeletingContactLinkId] = React.useState<string | null>(null);
+  const [showAddLimitedPartnerLookup, setShowAddLimitedPartnerLookup] = React.useState(false);
+  const [limitedPartnerHealthSystemId, setLimitedPartnerHealthSystemId] = React.useState("");
+  const [addingLimitedPartner, setAddingLimitedPartner] = React.useState(false);
+  const [showAddInvestmentLookup, setShowAddInvestmentLookup] = React.useState(false);
+  const [investmentCompanyId, setInvestmentCompanyId] = React.useState("");
+  const [addingInvestment, setAddingInvestment] = React.useState(false);
+  const [editingLimitedPartnerLinkId, setEditingLimitedPartnerLinkId] = React.useState<string | null>(null);
+  const [editingLimitedPartnerHealthSystemId, setEditingLimitedPartnerHealthSystemId] = React.useState("");
+  const [updatingLimitedPartner, setUpdatingLimitedPartner] = React.useState(false);
+  const [deletingLimitedPartnerLinkId, setDeletingLimitedPartnerLinkId] = React.useState<string | null>(null);
   const [keepListView, setKeepListView] = React.useState(false);
   const [newIsSeedInvestor, setNewIsSeedInvestor] = React.useState(false);
   const [newIsSeriesAInvestor, setNewIsSeriesAInvestor] = React.useState(false);
@@ -770,6 +816,172 @@ export function CoInvestorWorkbench() {
     }
   }
 
+  function resetLimitedPartnerForm() {
+    setLimitedPartnerHealthSystemId("");
+    setShowAddLimitedPartnerLookup(false);
+  }
+
+  function resetInvestmentForm() {
+    setInvestmentCompanyId("");
+    setShowAddInvestmentLookup(false);
+  }
+
+  function resetEditingLimitedPartnerForm() {
+    setEditingLimitedPartnerLinkId(null);
+    setEditingLimitedPartnerHealthSystemId("");
+  }
+
+  function beginEditingLimitedPartner(link: CoInvestorRecord["venturePartners"][number]) {
+    setEditingLimitedPartnerLinkId(link.id);
+    setEditingLimitedPartnerHealthSystemId(link.healthSystemId);
+    setStatus(null);
+  }
+
+  async function addLimitedPartnerToSelectedRecord(nextHealthSystemId?: string) {
+    if (!selectedRecord) return;
+    const healthSystemId = (nextHealthSystemId ?? limitedPartnerHealthSystemId).trim();
+    if (!healthSystemId) {
+      setStatus({ kind: "error", text: "Select a health system." });
+      return;
+    }
+
+    setAddingLimitedPartner(true);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/co-investors/${selectedRecord.id}/health-systems`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ healthSystemId })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to add health system limited partner");
+      }
+
+      const label = payload?.link?.healthSystem?.name || "Health system";
+      setStatus({ kind: "ok", text: `${label} linked as a health system limited partner.` });
+      resetLimitedPartnerForm();
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add health system limited partner"
+      });
+    } finally {
+      setAddingLimitedPartner(false);
+    }
+  }
+
+  async function updateLimitedPartnerForSelectedRecord(linkId: string) {
+    if (!selectedRecord) return;
+    const healthSystemId = editingLimitedPartnerHealthSystemId.trim();
+    if (!healthSystemId) {
+      setStatus({ kind: "error", text: "Select a health system." });
+      return;
+    }
+
+    setUpdatingLimitedPartner(true);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/co-investors/${selectedRecord.id}/health-systems`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linkId, healthSystemId })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to update health system limited partner");
+      }
+
+      const label = payload?.link?.healthSystem?.name || "Health system";
+      setStatus({ kind: "ok", text: `${label} limited partner link updated.` });
+      resetEditingLimitedPartnerForm();
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update health system limited partner"
+      });
+    } finally {
+      setUpdatingLimitedPartner(false);
+    }
+  }
+
+  async function deleteLimitedPartnerFromSelectedRecord(linkId: string, healthSystemName: string) {
+    if (!selectedRecord) return;
+    const confirmDelete = window.confirm(`Remove ${healthSystemName} as a health system limited partner?`);
+    if (!confirmDelete) return;
+
+    setDeletingLimitedPartnerLinkId(linkId);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/co-investors/${selectedRecord.id}/health-systems`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linkId })
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to delete health system limited partner");
+      }
+
+      if (editingLimitedPartnerLinkId === linkId) {
+        resetEditingLimitedPartnerForm();
+      }
+
+      setStatus({ kind: "ok", text: `${healthSystemName} removed from limited partners.` });
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to delete health system limited partner"
+      });
+    } finally {
+      setDeletingLimitedPartnerLinkId(null);
+    }
+  }
+
+  async function addInvestmentToSelectedRecord(nextCompanyId?: string) {
+    if (!selectedRecord) return;
+    const companyId = (nextCompanyId ?? investmentCompanyId).trim();
+    if (!companyId) {
+      setStatus({ kind: "error", text: "Select a company." });
+      return;
+    }
+
+    setAddingInvestment(true);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/co-investors/${selectedRecord.id}/investments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to add investment");
+      }
+
+      const name = payload?.investment?.portfolioCompanyName || "Company";
+      setStatus({
+        kind: "ok",
+        text: payload?.created === false ? `${name} is already in investments.` : `${name} added to investments.`
+      });
+      resetInvestmentForm();
+      await loadRecords();
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add investment"
+      });
+    } finally {
+      setAddingInvestment(false);
+    }
+  }
+
   function updateDetailDraft(patch: Partial<DetailDraft>) {
     setDetailDraft((current) => {
       if (!current || !selectedRecord) {
@@ -792,6 +1004,8 @@ export function CoInvestorWorkbench() {
   async function saveSelectedRecordEdits(draftToSave: DetailDraft | null = detailDraft) {
     if (!selectedRecord || !draftToSave) return;
 
+    const parsedHeadquartersLocation = parseHeadquartersLocation(draftToSave.headquartersLocation);
+
     setStatus(null);
 
     try {
@@ -802,9 +1016,9 @@ export function CoInvestorWorkbench() {
           name: draftToSave.name,
           legalName: draftToSave.legalName,
           website: draftToSave.website,
-          headquartersCity: draftToSave.headquartersCity,
-          headquartersState: draftToSave.headquartersState,
-          headquartersCountry: draftToSave.headquartersCountry,
+          headquartersCity: parsedHeadquartersLocation.headquartersCity,
+          headquartersState: parsedHeadquartersLocation.headquartersState,
+          headquartersCountry: parsedHeadquartersLocation.headquartersCountry,
           isSeedInvestor: draftToSave.isSeedInvestor,
           isSeriesAInvestor: draftToSave.isSeriesAInvestor,
           investmentNotes: draftToSave.investmentNotes,
@@ -1236,12 +1450,15 @@ export function CoInvestorWorkbench() {
       setDetailDraft(null);
       setDraftRecordId(null);
       setAddContactModalOpen(false);
+      resetLimitedPartnerForm();
+      resetEditingLimitedPartnerForm();
       resetEditingContactForm();
       setDeletingContactLinkId(null);
       setEditingInteractionId(null);
       setEditingNextActionId(null);
       setDeletingInteractionId(null);
       setDeletingNextActionId(null);
+      setDeletingLimitedPartnerLinkId(null);
       return;
     }
 
@@ -1250,19 +1467,13 @@ export function CoInvestorWorkbench() {
       setDraftRecordId(selectedRecord.id);
       setActiveDetailTab("overview");
       setAddContactModalOpen(false);
+      resetLimitedPartnerForm();
+      resetEditingLimitedPartnerForm();
     }
   }, [selectedRecord, draftRecordId]);
 
   return (
     <main>
-      <section className="hero">
-        <h1>Co-Investor Network</h1>
-        <p>
-          Search co-investors in your CRM list. As you type, the list narrows instantly. If no match
-          exists, create a new co-investor and launch research automatically.
-        </p>
-      </section>
-
       <div className="grid">
         <section className="panel" aria-label="List panel">
           <label htmlFor="search-co-investor">Search</label>
@@ -1410,12 +1621,12 @@ export function CoInvestorWorkbench() {
           {status && <p className={`status ${status.kind}`}>{status.text}</p>}
         </section>
 
-          <section className="panel" aria-label="Detail panel">
+          <section className="panel entity-detail-panel" aria-label="Detail panel">
             {!selectedRecord || !detailDraft ? (
               <p className="muted">Select a co-investor from the list to view details.</p>
             ) : (
               <div className="detail-card">
-                <div className="detail-head">
+                <div className="detail-head detail-head-minimal">
                   <h3>{selectedRecord.name}</h3>
                 </div>
 
@@ -1446,19 +1657,15 @@ export function CoInvestorWorkbench() {
                     onSave={(value) => updateDetailDraft({ website: value })}
                   />
                   <InlineTextField
-                    label="HQ City"
-                    value={detailDraft.headquartersCity}
-                    onSave={(value) => updateDetailDraft({ headquartersCity: value })}
-                  />
-                  <InlineTextField
-                    label="HQ State"
-                    value={detailDraft.headquartersState}
-                    onSave={(value) => updateDetailDraft({ headquartersState: value })}
-                  />
-                  <InlineTextField
-                    label="HQ Country"
-                    value={detailDraft.headquartersCountry}
-                    onSave={(value) => updateDetailDraft({ headquartersCountry: value })}
+                    label={
+                      <>
+                        <span>Location</span>
+                        <span className="inline-field-label-suffix">(City, State, Country)</span>
+                      </>
+                    }
+                    value={detailDraft.headquartersLocation}
+                    placeholder="City, State, Country"
+                    onSave={(value) => updateDetailDraft({ headquartersLocation: value })}
                   />
                   <InlineBooleanField
                     label="Seed Investor"
@@ -1645,7 +1852,6 @@ export function CoInvestorWorkbench() {
                           <div className="contact-row-details">
                             <strong>{contactNameParts(link.contact.name).displayName}</strong>
                             {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
-                            {` | ${link.roleType}`}
                             {link.contact.email ? ` | ${link.contact.email}` : ""}
                             {link.contact.phone ? ` | ${link.contact.phone}` : ""}
                             {link.contact.linkedinUrl && (
@@ -1713,7 +1919,7 @@ export function CoInvestorWorkbench() {
                   </>
                 )}
 
-                {activeDetailTab === "relationships" && (
+                {activeDetailTab === "relationships" && false && (
                   <>
               <div className="detail-section">
                 <p className="detail-label">Relationship Highlights</p>
@@ -1858,7 +2064,7 @@ export function CoInvestorWorkbench() {
                   </>
                 )}
 
-                {activeDetailTab === "relationships" && (
+                {activeDetailTab === "relationships" && false && (
                   <>
               <div className="detail-section">
                 <p className="detail-label">Next Actions</p>
@@ -1966,51 +2172,183 @@ export function CoInvestorWorkbench() {
                 {activeDetailTab === "relationships" && (
                   <>
               <div className="detail-section">
-                <p className="detail-label">Co-Investor Partners</p>
-                {selectedRecord.partners.length === 0 ? (
-                  <p className="muted">No partners captured.</p>
+                <p className="detail-label">Investments</p>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="ghost small contact-add-link"
+                    onClick={() => {
+                      if (showAddInvestmentLookup) {
+                        resetInvestmentForm();
+                        return;
+                      }
+                      setStatus(null);
+                      setShowAddInvestmentLookup(true);
+                    }}
+                  >
+                    {showAddInvestmentLookup ? "Cancel" : "Add Investment"}
+                  </button>
+                </div>
+                {showAddInvestmentLookup ? (
+                  <div className="actions relationship-inline-add">
+                    <EntityLookupInput
+                      entityKind="COMPANY"
+                      value={investmentCompanyId}
+                      onChange={(nextId) => {
+                        setInvestmentCompanyId(nextId);
+                        if (!nextId || addingInvestment) return;
+                        void addInvestmentToSelectedRecord(nextId);
+                      }}
+                      className="relationship-inline-lookup"
+                      placeholder="Search companies (or Add New)"
+                      autoOpenCreateOnEnterNoMatch
+                      disabled={addingInvestment}
+                      companyCreateDefaults={{
+                        companyType: "STARTUP",
+                        primaryCategory: "OTHER",
+                        leadSourceType: "OTHER",
+                        leadSourceOther: "Added from co-investor investment"
+                      }}
+                    />
+                  </div>
+                ) : null}
+                {selectedRecord.investments.length === 0 ? (
+                  <p className="muted">No investments captured.</p>
                 ) : (
-                  selectedRecord.partners.map((partner) => (
-                    <div key={partner.id} className="detail-list-item">
-                      <strong>{partner.name}</strong>
-                      {partner.title ? `, ${partner.title}` : ""}
-                      {partner.profileUrl && (
-                        <>
-                          {" "}-{" "}
-                          <a href={partner.profileUrl} target="_blank" rel="noreferrer">
-                            profile
-                          </a>
-                        </>
-                      )}
+                  selectedRecord.investments.map((investment) => (
+                    <div key={investment.id} className="detail-list-item contact-row">
+                      <div className="contact-row-details">
+                        <strong>{investment.portfolioCompanyName}</strong>
+                        <p className="muted">
+                          Amount: {formatUsd(investment.investmentAmountUsd)} | Date: {formatDate(investment.investmentDate)}
+                          {" | "}Stage: {investment.investmentStage || "-"} | Lead: {investment.leadPartnerName || "-"}
+                          {investment.sourceUrl ? (
+                            <>
+                              {" "} |{" "}
+                              <a href={investment.sourceUrl} target="_blank" rel="noreferrer">
+                                Source
+                              </a>
+                            </>
+                          ) : null}
+                        </p>
+                      </div>
                     </div>
                   ))
                 )}
               </div>
 
               <div className="detail-section">
-                <p className="detail-label">Investments</p>
-                {selectedRecord.investments.length === 0 ? (
-                  <p className="muted">No investments captured.</p>
+                <p className="detail-label">Health System Limited Partners</p>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="ghost small contact-add-link"
+                    onClick={() => {
+                      if (showAddLimitedPartnerLookup) {
+                        resetLimitedPartnerForm();
+                        return;
+                      }
+                      setStatus(null);
+                      setShowAddLimitedPartnerLookup(true);
+                    }}
+                  >
+                    {showAddLimitedPartnerLookup ? "Cancel" : "Add Health System Limited Partner"}
+                  </button>
+                </div>
+                {showAddLimitedPartnerLookup ? (
+                  <div className="actions relationship-inline-add">
+                    <EntityLookupInput
+                      entityKind="HEALTH_SYSTEM"
+                      value={limitedPartnerHealthSystemId}
+                      onChange={(nextId) => {
+                        setLimitedPartnerHealthSystemId(nextId);
+                        if (!nextId || addingLimitedPartner) return;
+                        void addLimitedPartnerToSelectedRecord(nextId);
+                      }}
+                      className="relationship-inline-lookup"
+                      placeholder="Search health systems (or Add New)"
+                      autoOpenCreateOnEnterNoMatch
+                      disabled={addingLimitedPartner}
+                    />
+                  </div>
+                ) : null}
+                {selectedRecord.venturePartners.length === 0 ? (
+                  <p className="muted">No health system limited partners linked yet.</p>
                 ) : (
-                  selectedRecord.investments.map((investment) => (
-                    <div key={investment.id} className="detail-list-item">
-                      <strong>{investment.portfolioCompanyName}</strong> | Amount: {formatUsd(investment.investmentAmountUsd)}
-                      {" | "}
-                      Date: {formatDate(investment.investmentDate)}
-                      {" | "}
-                      Stage: {investment.investmentStage || "-"}
-                      {" | "}
-                      Lead: {investment.leadPartnerName || "-"}
-                      {investment.sourceUrl && (
-                        <>
-                          {" "}-{" "}
-                          <a href={investment.sourceUrl} target="_blank" rel="noreferrer">
-                            source
-                          </a>
-                        </>
-                      )}
-                    </div>
-                  ))
+                  selectedRecord.venturePartners.map((link) => {
+                    const location = formatLocation(link.healthSystem);
+                    return (
+                      <div key={link.id} className="detail-list-item">
+                        {editingLimitedPartnerLinkId === link.id ? (
+                          <div className="actions relationship-inline-add">
+                            <EntityLookupInput
+                              entityKind="HEALTH_SYSTEM"
+                              value={editingLimitedPartnerHealthSystemId}
+                              onChange={setEditingLimitedPartnerHealthSystemId}
+                              className="relationship-inline-lookup"
+                              placeholder="Search health systems (or Add New)"
+                              autoOpenCreateOnEnterNoMatch
+                              disabled={updatingLimitedPartner}
+                            />
+                            <button
+                              type="button"
+                              className="secondary small"
+                              onClick={() => void updateLimitedPartnerForSelectedRecord(link.id)}
+                              disabled={!editingLimitedPartnerHealthSystemId || updatingLimitedPartner}
+                            >
+                              {updatingLimitedPartner ? "Saving..." : "Save"}
+                            </button>
+                            <button
+                              type="button"
+                              className="ghost small"
+                              onClick={resetEditingLimitedPartnerForm}
+                              disabled={updatingLimitedPartner}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="contact-row">
+                            <div className="contact-row-details">
+                              <strong>
+                                <a href={`/health-systems/${link.healthSystem.id}`}>{link.healthSystem.name}</a>
+                              </strong>
+                              <p className="muted">
+                                {location || "Location unknown"}
+                                {link.healthSystem.website ? (
+                                  <>
+                                    {" "} |{" "}
+                                    <a href={link.healthSystem.website} target="_blank" rel="noreferrer">
+                                      Website
+                                    </a>
+                                  </>
+                                ) : null}
+                              </p>
+                            </div>
+                            <div className="contact-row-actions">
+                              <button
+                                type="button"
+                                className="ghost small"
+                                onClick={() => beginEditingLimitedPartner(link)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="ghost small"
+                                onClick={() =>
+                                  deleteLimitedPartnerFromSelectedRecord(link.id, link.healthSystem.name)
+                                }
+                                disabled={deletingLimitedPartnerLinkId === link.id}
+                              >
+                                {deletingLimitedPartnerLinkId === link.id ? "Removing..." : "Delete"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
                 )}
               </div>
                   </>

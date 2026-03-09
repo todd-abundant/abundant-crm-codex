@@ -24,14 +24,9 @@ export async function PATCH(
         ? (input.limitedPartnerInvestmentUsd ?? null)
         : null,
       isAllianceMember: input.isAllianceMember,
-      hasInnovationTeam: input.hasInnovationTeam ?? null,
-      hasVentureTeam: input.hasVentureTeam ?? null,
       researchUpdatedAt: new Date()
     };
 
-    if (input.ventureTeamSummary !== undefined) {
-      data.ventureTeamSummary = input.ventureTeamSummary || null;
-    }
     if (input.researchNotes !== undefined) {
       data.researchNotes = input.researchNotes || null;
     }

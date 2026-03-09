@@ -937,14 +937,6 @@ export function ContactWorkbench() {
 
   return (
     <main>
-      <section className="hero">
-        <h1>Contact Relationship Hub</h1>
-        <p>
-          Use one smart lookup to find contacts across core fields and entity relationships, then create and manage
-          records in a single workflow.
-        </p>
-      </section>
-
       {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
 
       <section className="grid health-system-workbench-layout">
@@ -995,6 +987,8 @@ export function ContactWorkbench() {
                     key={option.label}
                     type="button"
                     className={`contact-lookup-type-filter ${isActive ? "active" : ""}`}
+                    aria-label={option.label}
+                    title={option.label}
                     onClick={() =>
                       setFilters((current) => ({
                         ...current,
@@ -1007,7 +1001,6 @@ export function ContactWorkbench() {
                       associationType={option.value || "ALL"}
                       className="contact-lookup-type-filter-icon"
                     />
-                    <span>{option.label}</span>
                   </button>
                 );
               })}
@@ -1084,9 +1077,7 @@ export function ContactWorkbench() {
                         </div>
 
                         <p className="contact-list-principal">
-                          {record.principalEntity
-                            ? `Principal: ${associationTypeLabel(record.principalEntity.type)} · ${record.principalEntity.name}`
-                            : "Principal: Not set"}
+                          {record.principalEntity ? record.principalEntity.name : "No principal"}
                         </p>
                       </div>
 
@@ -1105,10 +1096,10 @@ export function ContactWorkbench() {
           </div>
         </aside>
 
-        <section className="panel health-system-detail-panel">
+        <section className="panel health-system-detail-panel entity-detail-panel">
           {selectedRecord ? (
             <div className="health-system-panel-scroll">
-              <div className="detail-head">
+              <div className="detail-head detail-head-minimal">
                 <h3>{selectedRecord.name}</h3>
                 <div className="actions">
                   <button

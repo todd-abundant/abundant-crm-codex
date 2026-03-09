@@ -5,14 +5,11 @@ import { verifyCandidateAndQueueResearch } from "@/lib/research-jobs";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { candidate, isAllianceMember, isLimitedPartner, limitedPartnerInvestmentUsd } =
-      verifyCandidateRequestSchema.parse(body);
+    const { candidate, isAllianceMember } = verifyCandidateRequestSchema.parse(body);
 
     const created = await verifyCandidateAndQueueResearch({
       candidate,
-      isAllianceMember,
-      isLimitedPartner,
-      limitedPartnerInvestmentUsd
+      isAllianceMember
     });
 
     return NextResponse.json({

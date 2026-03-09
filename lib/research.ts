@@ -18,13 +18,9 @@ export const emptyHealthSystemDraft: HealthSystemInput = {
   isLimitedPartner: false,
   limitedPartnerInvestmentUsd: null,
   isAllianceMember: false,
-  hasInnovationTeam: null,
-  hasVentureTeam: null,
-  ventureTeamSummary: "",
   executives: [],
   venturePartners: [],
-  investments: [],
-  researchNotes: ""
+  investments: []
 };
 
 const searchSchema = {
@@ -68,12 +64,7 @@ const enrichmentSchema = {
     headquartersState: { type: "string" },
     headquartersCountry: { type: "string" },
     netPatientRevenueUsd: { type: ["number", "null"] },
-    isLimitedPartner: { type: "boolean" },
-    limitedPartnerInvestmentUsd: { type: ["number", "null"] },
     isAllianceMember: { type: "boolean" },
-    hasInnovationTeam: { type: ["boolean", "null"] },
-    hasVentureTeam: { type: ["boolean", "null"] },
-    ventureTeamSummary: { type: "string" },
     executives: {
       type: "array",
       items: {
@@ -88,46 +79,12 @@ const enrichmentSchema = {
         },
         required: ["name"]
       }
-    },
-    venturePartners: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          name: { type: "string" },
-          title: { type: "string" },
-          email: { type: "string" },
-          phone: { type: "string" },
-          url: { type: "string" }
-        },
-        required: ["name"]
-      }
-    },
-    investments: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          portfolioCompanyName: { type: "string" },
-          investmentAmountUsd: { type: ["number", "null"] },
-          investmentDate: { type: ["string", "null"] },
-          leadPartnerName: { type: "string" },
-          sourceUrl: { type: "string" }
-        },
-        required: ["portfolioCompanyName"]
-      }
-    },
-    researchNotes: { type: "string" }
+    }
   },
   required: [
     "name",
-    "isLimitedPartner",
     "isAllianceMember",
-    "executives",
-    "venturePartners",
-    "investments"
+    "executives"
   ]
 };
 
@@ -319,9 +276,7 @@ export async function enrichHealthSystemFromWeb(seed: MinimalHealthSystem): Prom
       website: compactText(seed.website),
       headquartersCity: compactText(seed.headquartersCity),
       headquartersState: compactText(seed.headquartersState),
-      headquartersCountry: compactText(seed.headquartersCountry),
-      researchNotes:
-        "OPENAI_API_KEY missing. Record was queued but auto-research could not run. Add API key and rerun queued jobs."
+      headquartersCountry: compactText(seed.headquartersCountry)
     });
   }
 
@@ -360,7 +315,7 @@ export async function enrichHealthSystemFromWeb(seed: MinimalHealthSystem): Prom
               `HQ state: ${compactText(seed.headquartersState) || "unknown"}. ` +
               `HQ country: ${compactText(seed.headquartersCountry) || "unknown"}. ` +
               `Website: ${compactText(seed.website) || "unknown"}. ` +
-              `Include executive team, innovation/venture team presence, venture partners, and venture investments. ` +
+              `Include executive team members and confirm core organization details. ` +
               `When available, include public executive/partner email addresses and phone numbers.`
           }
         ]
@@ -377,8 +332,7 @@ export async function enrichHealthSystemFromWeb(seed: MinimalHealthSystem): Prom
       website: compactText(seed.website),
       headquartersCity: compactText(seed.headquartersCity),
       headquartersState: compactText(seed.headquartersState),
-      headquartersCountry: compactText(seed.headquartersCountry),
-      researchNotes: "Research ran but structured extraction failed validation."
+      headquartersCountry: compactText(seed.headquartersCountry)
     });
   }
 

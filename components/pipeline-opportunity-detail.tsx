@@ -15,7 +15,6 @@ import { EntityLookupInput } from "./entity-lookup-input";
 import { ScreeningSurveySessionSelector } from "./screening-survey-session-selector";
 import { InlineSelectField, InlineTextField, InlineTextareaField } from "./inline-detail-field";
 import { normalizeRichText, RichTextArea } from "./rich-text-area";
-import { CompanyReportComposer } from "./company-report-composer";
 import {
   inferGoogleDocumentTitle,
   MAX_COMPANY_DOCUMENT_FILE_BYTES,
@@ -252,7 +251,6 @@ type IntakeDetailTab =
   | "opportunities"
   | "screening-materials"
   | "intake-materials"
-  | "reports"
   | "notes"
   | "documents";
 
@@ -1065,10 +1063,12 @@ function emptyQualitativeFeedbackDraft(healthSystemId: string): QualitativeFeedb
 
 export function PipelineOpportunityDetailView({
   itemId,
-  inModal = false
+  inModal = false,
+  onCloseModal
 }: {
   itemId: string;
   inModal?: boolean;
+  onCloseModal?: () => void;
 }) {
   const [item, setItem] = React.useState<PipelineOpportunityDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -4431,20 +4431,28 @@ export function PipelineOpportunityDetailView({
   );
 
   return (
-    <ContentWrapper className={inModal ? "pipeline-detail-content" : undefined}>
-      <section className="hero">
-        {!inModal ? (
-          <div className="actions" style={{ marginTop: 0 }}>
-            <Link href="/pipeline" className="top-nav-link top-nav-link-quiet">
-              Back to Pipeline Board
-            </Link>
+    <ContentWrapper
+      className={inModal ? "pipeline-detail-content" : undefined}
+      role={inModal ? "dialog" : undefined}
+      aria-modal={inModal ? true : undefined}
+      onMouseDown={inModal ? (event: React.MouseEvent) => event.stopPropagation() : undefined}
+    >
+      <section className={inModal ? "panel pipeline-detail-panel" : "panel"}>
+        {inModal ? (
+          <div className="detail-head">
+            <h3>{item.name}</h3>
+            {onCloseModal ? (
+              <button
+                type="button"
+                className="modal-icon-close"
+                onClick={onCloseModal}
+                aria-label="Close pipeline detail dialog"
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            ) : null}
           </div>
         ) : null}
-        <h1>{item.name}</h1>
-        <p>{item.location || "Location unavailable"}</p>
-      </section>
-
-      <section className="panel">
         <div className="detail-tabs" role="tablist" aria-label="Pipeline intake detail sections">
           <button
             type="button"
@@ -4489,15 +4497,6 @@ export function PipelineOpportunityDetailView({
           <button
             type="button"
             role="tab"
-            className={`detail-tab ${activeIntakeDetailTab === "reports" ? "active" : ""}`}
-            aria-selected={activeIntakeDetailTab === "reports"}
-            onClick={() => setActiveIntakeDetailTab("reports")}
-          >
-            Reports
-          </button>
-          <button
-            type="button"
-            role="tab"
             className={`detail-tab ${activeIntakeDetailTab === "notes" ? "active" : ""}`}
             aria-selected={activeIntakeDetailTab === "notes"}
             onClick={() => setActiveIntakeDetailTab("notes")}
@@ -4515,12 +4514,52 @@ export function PipelineOpportunityDetailView({
           </button>
         </div>
         <div className="pipeline-detail-tab-panel">
+        {activeIntakeDetailTab === "intake-materials" ? (
+          <div className="detail-tabs detail-subtabs" role="tablist" aria-label="Intake materials sections">
+            <button
+              type="button"
+              role="tab"
+              className={`detail-tab ${activeIntakeMaterialsTab === "at-a-glance" ? "active" : ""}`}
+              aria-selected={activeIntakeMaterialsTab === "at-a-glance"}
+              onClick={() => setActiveIntakeMaterialsTab("at-a-glance")}
+            >
+              At-A-Glance
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={`detail-tab ${activeIntakeMaterialsTab === "venture-studio-criteria" ? "active" : ""}`}
+              aria-selected={activeIntakeMaterialsTab === "venture-studio-criteria"}
+              onClick={() => setActiveIntakeMaterialsTab("venture-studio-criteria")}
+            >
+              VS Criteria
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={`detail-tab ${activeIntakeMaterialsTab === "market-landscape" ? "active" : ""}`}
+              aria-selected={activeIntakeMaterialsTab === "market-landscape"}
+              onClick={() => setActiveIntakeMaterialsTab("market-landscape")}
+            >
+              Market Landscape
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={`detail-tab ${activeIntakeMaterialsTab === "market-landscape-option-1" ? "active" : ""}`}
+              aria-selected={activeIntakeMaterialsTab === "market-landscape-option-1"}
+              onClick={() => setActiveIntakeMaterialsTab("market-landscape-option-1")}
+            >
+              Market Landscape Option 1
+            </button>
+          </div>
+        ) : null}
+        <div className="pipeline-detail-tab-content">
 
         {activeIntakeDetailTab === "pipeline-status" || (activeIntakeDetailTab === "opportunities" && showOpportunitiesTab) ? (
           <>
             {activeIntakeDetailTab === "pipeline-status" ? (
               <>
-                <h2>Pipeline Status</h2>
             <div className="row">
               <div>
                 <InlineSelectField
@@ -4664,7 +4703,6 @@ export function PipelineOpportunityDetailView({
 
             {activeIntakeDetailTab === "opportunities" && showOpportunitiesTab ? (
               <>
-                <h2>Opportunities</h2>
                 <div className="detail-section">
                   <p className="detail-label">Open Opportunities</p>
                   <p className="muted">
@@ -4678,16 +4716,6 @@ export function PipelineOpportunityDetailView({
 
                   {openOpportunities.length > 0 ? (
                     <div className="opportunity-list">
-                      <div className="opportunity-list-header">
-                        <span>Opportunity</span>
-                        <span>Health System</span>
-                        <span>Likelihood</span>
-                        <span>Duration</span>
-                        <span>Est. Close</span>
-                        <span>Next Steps</span>
-                        <span>Add a Note</span>
-                        <span>Last Modified</span>
-                      </div>
                       {openOpportunities.map((opportunity) => {
                         const draft = opportunityDraftById[opportunity.id] || toOpportunityDraft(opportunity);
                         const availableHealthSystems = item.screening.healthSystems.map((entry) => ({
@@ -4717,121 +4745,75 @@ export function PipelineOpportunityDetailView({
                           : opportunity.estimatedCloseDate
                             ? formatDate(opportunity.estimatedCloseDate)
                             : "—";
+                        const durationLabel = computeOpportunityDurationDays(
+                          opportunity.createdAt,
+                          opportunity.closedAt
+                        );
+                        const likelihoodLabel = draft.likelihoodPercent ? `${draft.likelihoodPercent}%` : "—";
 
                         return (
-                          <div key={opportunity.id} className="opportunity-list-row">
-                            <div className="opportunity-list-cell opportunity-list-opportunity">
-                              <button
-                                type="button"
-                                className="opportunity-name-link"
-                                onClick={() => openEditOpportunityModal(opportunity.id)}
-                              >
-                                {opportunity.title}
-                              </button>
-                              <p className="muted">
-                                {opportunityTypeLabel} · {opportunityStageLabel}
-                              </p>
+                          <div key={opportunity.id} className="detail-list-item">
+                            <div className="contact-row opportunity-list-row-compact">
+                              <div className="contact-row-details opportunity-list-row-details">
+                                <button
+                                  type="button"
+                                  className="opportunity-name-link"
+                                  onClick={() => openEditOpportunityModal(opportunity.id)}
+                                >
+                                  {opportunity.title}
+                                </button>
+                                <p className="muted opportunity-row-meta">
+                                  {healthSystemName} · {opportunityTypeLabel} · {opportunityStageLabel} · Likelihood{" "}
+                                  {likelihoodLabel} · Duration {durationLabel !== null ? `${durationLabel}d` : "—"} ·
+                                  Est. close {estimatedCloseLabel} · Updated {formatTimestamp(opportunity.updatedAt)}
+                                </p>
+                                <div className="opportunity-list-next-steps">
+                                  <textarea
+                                    rows={2}
+                                    value={draft.nextSteps}
+                                    onChange={(event) =>
+                                      updateOpportunityDraft(opportunity.id, {
+                                        nextSteps: event.target.value
+                                      })
+                                    }
+                                    onBlur={() => void saveOpportunity(opportunity.id)}
+                                    onKeyDown={(event) => {
+                                      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                                        event.preventDefault();
+                                        (event.currentTarget as HTMLTextAreaElement).blur();
+                                      }
+                                    }}
+                                    placeholder="Add next steps..."
+                                    className="opportunity-next-steps-input"
+                                  />
+                                  {savingOpportunityById[opportunity.id] ? (
+                                    <span className="opportunity-saving-indicator">Saving...</span>
+                                  ) : null}
+                                </div>
+                              </div>
+                              <div className="contact-row-actions opportunity-list-row-actions">
+                                <button
+                                  type="button"
+                                  className="opportunity-inline-link"
+                                  onClick={() => openAddNoteForOpportunity(opportunity.id)}
+                                >
+                                  Add note
+                                </button>
+                              </div>
                             </div>
-                            <div className="opportunity-list-cell">{healthSystemName}</div>
-                            <div className="opportunity-list-cell">
-                              {draft.likelihoodPercent ? `${draft.likelihoodPercent}%` : "—"}
-                            </div>
-                            <div className="opportunity-list-cell">
-                              {computeOpportunityDurationDays(opportunity.createdAt, opportunity.closedAt) ?? "—"}
-                            </div>
-                            <div className="opportunity-list-cell">{estimatedCloseLabel}</div>
-                            <div className="opportunity-list-cell opportunity-list-next-steps">
-                              <textarea
-                                rows={2}
-                                value={draft.nextSteps}
-                                onChange={(event) =>
-                                  updateOpportunityDraft(opportunity.id, {
-                                    nextSteps: event.target.value
-                                  })
-                                }
-                                onBlur={() => void saveOpportunity(opportunity.id)}
-                                onKeyDown={(event) => {
-                                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                                    event.preventDefault();
-                                    (event.currentTarget as HTMLTextAreaElement).blur();
-                                  }
-                                }}
-                                placeholder="Add next steps..."
-                                className="opportunity-next-steps-input"
-                              />
-                              {savingOpportunityById[opportunity.id] ? (
-                                <span className="opportunity-saving-indicator">Saving...</span>
-                              ) : null}
-                            </div>
-                            <div className="opportunity-list-cell">
-                              <button
-                                type="button"
-                                className="opportunity-inline-link"
-                                onClick={() => openAddNoteForOpportunity(opportunity.id)}
-                              >
-                                Add note
-                              </button>
-                            </div>
-                            <div className="opportunity-list-cell">{formatTimestamp(opportunity.updatedAt)}</div>
                           </div>
                         );
                       })}
                     </div>
                   ) : null}
-
-                  <button type="button" className="opportunity-add-link" onClick={openCreateOpportunityModal}>
-                    + Add new opportunity
-                  </button>
                 </div>
               </>
             ) : null}
           </>
 	        ) : null}
 
-        {activeIntakeDetailTab === "intake-materials" ? (
-          <div className="detail-tabs detail-subtabs" role="tablist" aria-label="Intake materials sections">
-            <button
-              type="button"
-              role="tab"
-              className={`detail-tab ${activeIntakeMaterialsTab === "at-a-glance" ? "active" : ""}`}
-              aria-selected={activeIntakeMaterialsTab === "at-a-glance"}
-              onClick={() => setActiveIntakeMaterialsTab("at-a-glance")}
-            >
-              At-A-Glance
-            </button>
-            <button
-              type="button"
-              role="tab"
-              className={`detail-tab ${activeIntakeMaterialsTab === "venture-studio-criteria" ? "active" : ""}`}
-              aria-selected={activeIntakeMaterialsTab === "venture-studio-criteria"}
-              onClick={() => setActiveIntakeMaterialsTab("venture-studio-criteria")}
-            >
-              VS Criteria
-            </button>
-            <button
-              type="button"
-              role="tab"
-              className={`detail-tab ${activeIntakeMaterialsTab === "market-landscape" ? "active" : ""}`}
-              aria-selected={activeIntakeMaterialsTab === "market-landscape"}
-              onClick={() => setActiveIntakeMaterialsTab("market-landscape")}
-            >
-              Market Landscape
-            </button>
-            <button
-              type="button"
-              role="tab"
-              className={`detail-tab ${activeIntakeMaterialsTab === "market-landscape-option-1" ? "active" : ""}`}
-              aria-selected={activeIntakeMaterialsTab === "market-landscape-option-1"}
-              onClick={() => setActiveIntakeMaterialsTab("market-landscape-option-1")}
-            >
-              Market Landscape Option 1
-            </button>
-          </div>
-        ) : null}
-
         {activeIntakeDetailTab === "intake-materials" && activeIntakeMaterialsTab === "at-a-glance" ? (
           <>
-            <h2>At-A-Glance</h2>
             <div className="actions" style={{ marginTop: 0 }}>
               <button className="secondary small" type="button" onClick={openAtAGlancePreview}>
                 Preview Format
@@ -4861,7 +4843,6 @@ export function PipelineOpportunityDetailView({
 
         {activeIntakeDetailTab === "intake-materials" && activeIntakeMaterialsTab === "venture-studio-criteria" ? (
           <>
-            <h2>Venture Studio Criteria</h2>
             <div className="actions" style={{ marginTop: 0 }}>
               <button className="secondary small" type="button" onClick={openVentureStudioCriteriaPreview}>
                 Preview Format
@@ -4960,7 +4941,6 @@ export function PipelineOpportunityDetailView({
 
         {activeIntakeDetailTab === "intake-materials" && activeIntakeMaterialsTab === "market-landscape" ? (
           <>
-            <h2>Market Landscape</h2>
             <p className="muted">Use the structured editor to build a 2x2 market map and preview it live.</p>
             <div className="market-landscape-layout">
               <div className="market-landscape-form-panel">
@@ -5240,7 +5220,6 @@ export function PipelineOpportunityDetailView({
 
         {activeIntakeDetailTab === "intake-materials" && activeIntakeMaterialsTab === "market-landscape-option-1" ? (
           <>
-            <h2>Market Landscape Option 1</h2>
             <p className="muted">
               Edit the Market Landscape slide directly in Google Slides (free-form). This tab provides a link + live
               thumbnail. Changes won&apos;t sync back to the structured editor, and will be lost if you recreate the Intake
@@ -5318,19 +5297,8 @@ export function PipelineOpportunityDetailView({
           </>
         ) : null}
 
-        {activeIntakeDetailTab === "reports" ? (
-          <>
-            <h2>Reports</h2>
-            <p className="muted">
-              Build standardized Intake, Screening, and Opportunity reports with section-level edits, live preview, and PDF export.
-            </p>
-            <CompanyReportComposer companyId={item.id} companyName={item.name} />
-          </>
-        ) : null}
-
         {activeIntakeDetailTab === "notes" ? (
           <>
-            <h2>Notes</h2>
             <div className="detail-action-bar">
               <a
                 href="#"
@@ -5372,7 +5340,6 @@ export function PipelineOpportunityDetailView({
 
         {activeIntakeDetailTab === "documents" ? (
           <>
-            <h2>Documents</h2>
             <div className="detail-action-bar">
               <a
                 href="#"
@@ -6148,6 +6115,7 @@ export function PipelineOpportunityDetailView({
           </>
         ) : null}
         </div>
+        </div>
       </section>
 
       {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
@@ -6172,7 +6140,7 @@ export function PipelineOpportunityDetailView({
               </button>
             </div>
 
-            <div className="detail-tabs detail-subtabs" role="tablist" aria-label="Opportunity detail sections">
+            <div className="detail-tabs detail-subtabs opportunity-modal-tabs" role="tablist" aria-label="Opportunity detail sections">
               <button
                 type="button"
                 role="tab"
@@ -6255,22 +6223,23 @@ export function PipelineOpportunityDetailView({
                   </div>
                   <div>
                     <label>Health System</label>
-                    <select
+                    <EntityLookupInput
+                      entityKind="HEALTH_SYSTEM"
                       value={newOpportunityDraft.healthSystemId}
-                      onChange={(event) =>
+                      onChange={(nextValue) =>
                         setNewOpportunityDraft((current) => ({
                           ...current,
-                          healthSystemId: event.target.value
+                          healthSystemId: nextValue
                         }))
                       }
-                    >
-                      <option value="">No health system</option>
-                      {item.screening.healthSystems.map((healthSystem) => (
-                        <option key={`create-opportunity-health-system-${healthSystem.healthSystemId}`} value={healthSystem.healthSystemId}>
-                          {healthSystem.healthSystemName}
-                        </option>
-                      ))}
-                    </select>
+                      initialOptions={item.screening.healthSystems.map((healthSystem) => ({
+                        id: healthSystem.healthSystemId,
+                        name: healthSystem.healthSystemName
+                      }))}
+                      allowEmpty
+                      emptyLabel="No health system selected"
+                      autoOpenCreateOnEnterNoMatch
+                    />
                   </div>
                   <div>
                     <label>Likelihood to Close (%)</label>
@@ -6388,7 +6357,7 @@ export function PipelineOpportunityDetailView({
                       placeholder="Upcoming actions and owners"
                     />
                   </div>
-                  <div className="detail-grid-full">
+                  <div className="detail-grid-full opportunity-modal-notes-field">
                     <label>Opportunity Notes</label>
                     <RichTextArea
                       value={newOpportunityDraft.notes}
@@ -6398,7 +6367,8 @@ export function PipelineOpportunityDetailView({
                           notes: nextValue
                         }))
                       }
-                      rows={6}
+                      rows={10}
+                      className="opportunity-notes-editor"
                       placeholder="Opportunity-specific context"
                     />
                   </div>
@@ -6500,21 +6470,19 @@ export function PipelineOpportunityDetailView({
                         </div>
                         <div>
                           <label>Health System</label>
-                          <select
+                          <EntityLookupInput
+                            entityKind="HEALTH_SYSTEM"
                             value={draft.healthSystemId}
-                            onChange={(event) =>
+                            onChange={(nextValue) =>
                               updateOpportunityDraft(selectedOpportunityForModal.id, {
-                                healthSystemId: event.target.value
+                                healthSystemId: nextValue
                               })
                             }
-                          >
-                            <option value="">No health system</option>
-                            {availableHealthSystems.map((healthSystem) => (
-                              <option key={`${selectedOpportunityForModal.id}-health-system-${healthSystem.id}`} value={healthSystem.id}>
-                                {healthSystem.name}
-                              </option>
-                            ))}
-                          </select>
+                            initialOptions={availableHealthSystems}
+                            allowEmpty
+                            emptyLabel="No health system selected"
+                            autoOpenCreateOnEnterNoMatch
+                          />
                         </div>
                         <div>
                           <label>Likelihood to Close (%)</label>
@@ -6623,7 +6591,7 @@ export function PipelineOpportunityDetailView({
                             placeholder="Upcoming actions and owners"
                           />
                         </div>
-                        <div className="detail-grid-full">
+                        <div className="detail-grid-full opportunity-modal-notes-field">
                           <label>Opportunity Notes</label>
                           <RichTextArea
                             value={draft.notes}
@@ -6632,7 +6600,8 @@ export function PipelineOpportunityDetailView({
                                 notes: nextValue
                               })
                             }
-                            rows={6}
+                            rows={10}
+                            className="opportunity-notes-editor"
                             placeholder="Opportunity-specific context"
                           />
                         </div>
@@ -6953,22 +6922,22 @@ export function PipelineOpportunityDetailView({
             <div className="detail-grid">
               <div>
                 <label>Alliance Member</label>
-                <select
+                <EntityLookupInput
+                  entityKind="HEALTH_SYSTEM"
                   value={qualitativeDraft.healthSystemId}
-                  onChange={(event) =>
+                  onChange={(nextValue) =>
                     setQualitativeDraft((current) => ({
                       ...current,
-                      healthSystemId: event.target.value,
+                      healthSystemId: nextValue,
                       contactId: ""
                     }))
                   }
-                >
-                  {item.screening.healthSystems.map((entry) => (
-                    <option key={entry.healthSystemId} value={entry.healthSystemId}>
-                      {entry.healthSystemName}
-                    </option>
-                  ))}
-                </select>
+                  initialOptions={item.screening.healthSystems.map((entry) => ({
+                    id: entry.healthSystemId,
+                    name: entry.healthSystemName
+                  }))}
+                  autoOpenCreateOnEnterNoMatch
+                />
               </div>
               <div>
                 <label>Individual</label>
