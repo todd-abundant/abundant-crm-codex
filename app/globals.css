@@ -557,19 +557,19 @@ main {
 }
 
 .home-pipeline-section[data-pipeline="SPIN_OUT"] {
-  background: linear-gradient(170deg, #ffffff 0%, #f2fbf7 100%);
+  background: linear-gradient(170deg, #ffffff 0%, #f4f3ff 100%);
 }
 
 .home-pipeline-section[data-pipeline="SPIN_OUT"]::before {
-  background: linear-gradient(180deg, #05885f 0%, #11b18b 100%);
+  background: linear-gradient(180deg, #4f5fbd 0%, #7384df 100%);
 }
 
 .home-pipeline-section[data-pipeline="DENOVO"] {
-  background: linear-gradient(170deg, #ffffff 0%, #fff8ee 100%);
+  background: linear-gradient(170deg, #ffffff 0%, #fff2f8 100%);
 }
 
 .home-pipeline-section[data-pipeline="DENOVO"]::before {
-  background: linear-gradient(180deg, #ce7f11 0%, #f0ab35 100%);
+  background: linear-gradient(180deg, #9b4f84 0%, #c673a5 100%);
 }
 
 .home-pipeline-section-header {
@@ -745,15 +745,15 @@ main {
 }
 
 .home-activity-pipeline-spinout {
-  border: 1px solid #67aa90;
-  background: #ecf8f2;
-  color: #1f694e;
+  border: 1px solid #7a89d6;
+  background: #f1f3ff;
+  color: #33408a;
 }
 
 .home-activity-pipeline-denovo {
-  border: 1px solid #c59b5f;
-  background: #fff6e9;
-  color: #83571b;
+  border: 1px solid #cf8bb6;
+  background: #fff2f9;
+  color: #8c376a;
 }
 
 .home-activity-narrative {
@@ -1217,6 +1217,49 @@ a {
   color: #334155;
   background: #e5e7eb;
   border-color: #d1d5db;
+}
+
+.pipeline-phase-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radiusPill);
+  min-height: 20px;
+  height: 20px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.pipeline-phase-pill.phase-intake {
+  color: #1f4e7b;
+  background: #eaf2fd;
+  border-color: #8eb3df;
+}
+
+.pipeline-phase-pill.phase-vs-evaluation {
+  color: #3f347f;
+  background: #f0edff;
+  border-color: #a89be5;
+}
+
+.pipeline-phase-pill.phase-screening {
+  color: #1f5a69;
+  background: #eaf6fb;
+  border-color: #7fb7c7;
+}
+
+.pipeline-phase-pill.phase-commercial {
+  color: #7b355a;
+  background: #fdf0f7;
+  border-color: #d19ab9;
+}
+
+.pipeline-phase-pill.phase-declined {
+  color: #526172;
+  background: #f3f5f7;
+  border-color: #c5cbd4;
 }
 
 .create-card {

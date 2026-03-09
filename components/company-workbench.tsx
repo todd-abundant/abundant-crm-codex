@@ -15,6 +15,12 @@ import { EntityDocumentsPane } from "./entity-documents-pane";
 import { EntityNotesPane } from "./entity-notes-pane";
 import { RichTextArea } from "./rich-text-area";
 import { toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
+import {
+  inferDefaultPhaseFromCompany,
+  mapPhaseToBoardColumn,
+  type PipelineBoardColumn,
+  type PipelinePhase
+} from "@/lib/pipeline-opportunities";
 
 type SearchCandidate = {
   name: string;
@@ -123,6 +129,9 @@ type CompanyRecord = {
   intakeStatus: IntakeStatus;
   intakeScheduledAt?: string | null;
   screeningEvaluationAt?: string | null;
+  pipeline?: {
+    phase: PipelinePhase;
+  } | null;
   researchStatus: ResearchStatus;
   researchNotes?: string | null;
   researchError?: string | null;
@@ -381,6 +390,35 @@ function intakeStatusLabel(status: IntakeStatus, intakeScheduledAt: string) {
   return "Not Scheduled";
 }
 
+function pipelinePhaseLabel(column: PipelineBoardColumn | null) {
+  if (column === "INTAKE") return "Intake";
+  if (column === "VENTURE_STUDIO_CONTRACT_EVALUATION") return "VS Evaluation";
+  if (column === "SCREENING") return "Screening";
+  if (column === "COMMERCIAL_ACCELERATION") return "Commercial Acceleration";
+  return "Declined";
+}
+
+function pipelinePhaseClass(column: PipelineBoardColumn | null) {
+  if (column === "INTAKE") return "phase-intake";
+  if (column === "VENTURE_STUDIO_CONTRACT_EVALUATION") return "phase-vs-evaluation";
+  if (column === "SCREENING") return "phase-screening";
+  if (column === "COMMERCIAL_ACCELERATION") return "phase-commercial";
+  return "phase-declined";
+}
+
+function pipelinePhaseTagForCompany(record: Pick<CompanyRecord, "declineReason" | "intakeStatus" | "pipeline">) {
+  const derivedPhase = (record.pipeline?.phase ||
+    inferDefaultPhaseFromCompany({
+      intakeStatus: record.intakeStatus,
+      declineReason: record.declineReason
+    })) as PipelinePhase;
+  const column = mapPhaseToBoardColumn(derivedPhase);
+  return {
+    label: pipelinePhaseLabel(column),
+    className: pipelinePhaseClass(column)
+  };
+}
+
 function toNullableNumber(value: string): number | null {
   const normalized = value.trim().replace(/[$,\s]/g, "");
   if (!normalized) return null;
@@ -543,6 +581,8 @@ export function CompanyWorkbench() {
   const [newGoogleTranscriptUrl, setNewGoogleTranscriptUrl] = React.useState("");
   const [newSpinOutOwnershipPercent, setNewSpinOutOwnershipPercent] = React.useState("");
   const [activeDetailTab, setActiveDetailTab] = React.useState<DetailTab>("overview");
+  const [companyLookupValue, setCompanyLookupValue] = React.useState("");
+  const [companyLookupModalSignal, setCompanyLookupModalSignal] = React.useState(0);
 
   const hasPending = React.useMemo(
     () => records.some((record) => record.researchStatus === "QUEUED" || record.researchStatus === "RUNNING"),
@@ -621,7 +661,14 @@ export function CompanyWorkbench() {
     selectedRecordEntityId
   ]);
 
-  const shouldOfferCreate = query.trim().length >= 2 && filteredRecords.length === 0;
+  const shouldOfferCreate = false;
+
+  const handleCompanyLookupSelect = React.useCallback((companyId: string) => {
+    if (!companyId) return;
+    setKeepListView(false);
+    setQuery("");
+    setSelectedRecordId(companyId);
+  }, []);
   const selectedCandidate =
     selectedCandidateIndex >= 0 && selectedCandidateIndex < searchCandidates.length
       ? searchCandidates[selectedCandidateIndex]
@@ -1595,15 +1642,52 @@ export function CompanyWorkbench() {
     <main>
       <div className="grid">
         <section className="panel" aria-label="List panel">
-          <label htmlFor="search-company">Search</label>
+          <div className="detail-action-bar">
+            <a
+              href="#"
+              className="contact-add-link"
+              onClick={(event) => {
+                event.preventDefault();
+                setCompanyLookupModalSignal((current) => current + 1);
+              }}
+            >
+              + Add Company
+            </a>
+          </div>
           <input
             id="search-company"
+            aria-label="Search companies"
             placeholder="Type a company name, location, or website"
             value={query}
             onChange={(event) => {
               setKeepListView(false);
               setQuery(event.target.value);
             }}
+          />
+          <EntityLookupInput
+            entityKind="COMPANY"
+            value={companyLookupValue}
+            onChange={(nextValue) => {
+              setCompanyLookupValue(nextValue);
+              handleCompanyLookupSelect(nextValue);
+            }}
+            hideLookupField
+            companyCreateDefaults={{
+              companyType: "STARTUP",
+              primaryCategory: "OTHER",
+              leadSourceType: "OTHER",
+              leadSourceOther: "Created from company lookup"
+            }}
+            onEntityCreated={(option) => {
+              setCompanyLookupValue(option.id);
+              setStatus({ kind: "ok", text: `${option.name} created.` });
+              handleCompanyLookupSelect(option.id);
+              void (async () => {
+                await loadRecords();
+                setSelectedRecordId(option.id);
+              })();
+            }}
+            openAddModalSignal={companyLookupModalSignal}
           />
 
           {shouldOfferCreate && (
@@ -1832,12 +1916,17 @@ export function CompanyWorkbench() {
           />
 
           <div className="list-container">
-            {filteredRecords.length === 0 && !shouldOfferCreate && (
-              <p className="muted">No companies yet. Start by typing and creating one.</p>
+            {filteredRecords.length === 0 && (
+              <p className="muted">
+                {query.trim()
+                  ? `No companies match "${query.trim()}". Use Add Company above and select Add New.`
+                  : "No companies yet. Use Add Company above to create your first company."}
+              </p>
             )}
 
             {filteredRecords.map((record) => {
               const active = selectedRecordId === record.id;
+              const pipelinePhaseTag = pipelinePhaseTagForCompany(record);
               return (
                 <div
                   key={record.id}
@@ -1872,8 +1961,8 @@ export function CompanyWorkbench() {
                     </div>
                   </div>
                   <div className="list-row-meta">
-                    <span className={`status-pill ${intakeStatusClass(record.intakeStatus, record.intakeScheduledAt)}`}>
-                      {intakeStatusLabel(record.intakeStatus, record.intakeScheduledAt || "")}
+                    <span className={`pipeline-phase-pill ${pipelinePhaseTag.className}`}>
+                      {pipelinePhaseTag.label}
                     </span>
                     <button
                       className="ghost small"

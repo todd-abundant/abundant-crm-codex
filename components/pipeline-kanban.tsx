@@ -1033,9 +1033,16 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
     return cardMetaDraftsById[item.id] || cardMetaDraftFromItem(item);
   }
 
-  function isEditing(itemId: string, field: EditingField) {
-    return editingField?.itemId === itemId && editingField.field === field;
-  }
+function isEditing(itemId: string, field: EditingField) {
+  return editingField?.itemId === itemId && editingField.field === field;
+}
+
+function pipelinePhasePillClass(column: PipelineBoardColumn) {
+  if (column === "INTAKE") return "phase-intake";
+  if (column === "VENTURE_STUDIO_CONTRACT_EVALUATION") return "phase-vs-evaluation";
+  if (column === "SCREENING") return "phase-screening";
+  return "phase-commercial";
+}
 
   return (
     <main>
@@ -1132,7 +1139,9 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
                     >
                       <div className="pipeline-card-head">
                         <h3>{item.name}</h3>
-                        <span className="status-pill queued">{item.phaseLabel}</span>
+                        <span className={`pipeline-phase-pill ${pipelinePhasePillClass(item.column)}`}>
+                          {item.phaseLabel}
+                        </span>
                       </div>
                       <p className="muted">{item.location || "Location unavailable"}</p>
                       <div className="pipeline-card-meta">

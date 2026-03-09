@@ -131,6 +131,11 @@ function mapCompanyCreateData(input: CompanyInputParsed) {
 export async function GET() {
   const companies = await prisma.company.findMany({
     include: {
+      pipeline: {
+        select: {
+          phase: true
+        }
+      },
       leadSourceHealthSystem: { select: { id: true, name: true } },
       healthSystemLinks: {
         include: { healthSystem: { select: { id: true, name: true } } }
@@ -211,6 +216,11 @@ export async function POST(request: Request) {
         }
       },
       include: {
+        pipeline: {
+          select: {
+            phase: true
+          }
+        },
         leadSourceHealthSystem: { select: { id: true, name: true } },
         healthSystemLinks: {
           include: { healthSystem: { select: { id: true, name: true } } }
