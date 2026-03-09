@@ -2164,6 +2164,83 @@ button.contact-lookup-clear:focus-visible:not(:disabled) {
   border-bottom-color: #b5c8de;
 }
 
+.admin-control-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.admin-control-tabs {
+  position: static;
+  width: 100%;
+  box-sizing: border-box;
+  align-items: flex-end;
+  overflow-y: visible;
+  margin: 0;
+  padding: 8px 12px 0;
+  min-height: 42px;
+  background: #b8c6dc;
+  border: 0;
+  border-radius: var(--radiusCard) var(--radiusCard) 0 0;
+}
+
+.admin-control-content {
+  padding: 0;
+}
+
+.admin-control-content.admin-control-content-roles {
+  padding: 12px;
+}
+
+.admin-control-content.admin-control-content-roles > h2 {
+  margin-top: 0;
+}
+
+.admin-control-content.admin-control-content-surveys .admin-survey-tabs {
+  position: static;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 6px 12px 0;
+  background: #c7d3e2;
+  border-top: 1px solid #b4c2d4;
+  border-radius: 0;
+  overflow-y: visible;
+  box-sizing: border-box;
+}
+
+.admin-control-tabs .detail-tab,
+.admin-control-content.admin-control-content-surveys .admin-survey-tabs .detail-tab {
+  display: inline-flex;
+  align-items: center;
+  min-height: 33px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  line-height: 1.22;
+  font-size: 0.86rem;
+  margin-bottom: 0;
+}
+
+.admin-control-content.admin-control-content-surveys .admin-survey-tabs .detail-tab {
+  background: #e6edf7;
+  color: #2e4d6f;
+  border-color: #acbfd6;
+  border-bottom-color: #acbfd6;
+}
+
+.admin-control-content.admin-control-content-surveys .admin-survey-tabs .detail-tab.active {
+  background: #ffffff;
+  color: #153a62;
+  border-color: transparent;
+  border-bottom-color: transparent;
+}
+
+.admin-control-content.admin-control-content-surveys .admin-survey-tabs .detail-tab:hover:not(.active),
+.admin-control-content.admin-control-content-surveys .admin-survey-tabs .detail-tab:focus-visible:not(.active) {
+  background: #dce7f5;
+  color: #1b456f;
+  border-color: #9cb5cf;
+  border-bottom-color: #9cb5cf;
+}
+
 .detail-head {
   display: flex;
   align-items: center;
@@ -6084,7 +6161,18 @@ select {
 }
 
 .admin-survey-layout {
-  margin-top: 12px;
+  margin-top: 0;
+  padding: 0 12px 12px;
+}
+
+.admin-survey-subtitle {
+  margin: 0 0 10px;
+  padding: 0 12px;
+}
+
+.admin-control-content.admin-control-content-surveys .status {
+  margin-left: 12px;
+  margin-right: 12px;
 }
 
 .admin-survey-category-stack {

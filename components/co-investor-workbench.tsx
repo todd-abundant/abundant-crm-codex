@@ -1474,8 +1474,9 @@ export function CoInvestorWorkbench() {
 
   return (
     <main>
-      <div className="grid">
-        <section className="panel" aria-label="List panel">
+      <div className="grid health-system-workbench-layout">
+        <section className="panel health-system-list-panel" aria-label="List panel">
+          <div className="health-system-panel-scroll">
           <label htmlFor="search-co-investor">Search</label>
           <input
             id="search-co-investor"
@@ -1619,6 +1620,7 @@ export function CoInvestorWorkbench() {
           </div>
 
           {status && <p className={`status ${status.kind}`}>{status.text}</p>}
+          </div>
         </section>
 
           <section className="panel entity-detail-panel" aria-label="Detail panel">

@@ -11,8 +11,8 @@ export function AdminControlCenter({ currentUserId }: { currentUserId: string })
 
   return (
     <main>
-      <section className="panel">
-        <div className="detail-tabs" role="tablist" aria-label="Administration sections">
+      <section className="panel admin-control-panel">
+        <div className="detail-tabs admin-control-tabs" role="tablist" aria-label="Administration sections">
           <button
             type="button"
             role="tab"
@@ -33,11 +33,17 @@ export function AdminControlCenter({ currentUserId }: { currentUserId: string })
           </button>
         </div>
 
-        {activeTab === "roles" ? (
-          <AdminUserManagement currentUserId={currentUserId} />
-        ) : (
-          <AdminSurveyManagement />
-        )}
+        <div
+          className={`admin-control-content ${
+            activeTab === "surveys" ? "admin-control-content-surveys" : "admin-control-content-roles"
+          }`}
+        >
+          {activeTab === "roles" ? (
+            <AdminUserManagement currentUserId={currentUserId} />
+          ) : (
+            <AdminSurveyManagement />
+          )}
+        </div>
       </section>
     </main>
   );

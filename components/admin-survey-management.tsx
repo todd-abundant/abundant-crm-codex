@@ -1900,14 +1900,7 @@ export function AdminSurveyManagement() {
 
   return (
     <>
-      <h2>Survey Management</h2>
-      <p className="muted">
-        Create, edit, and launch webinar surveys. Questions are organized by category and include participant-facing
-        instructions.
-      </p>
-      {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
-
-      <div className="detail-tabs" role="tablist" aria-label="Survey management sections">
+      <div className="detail-tabs detail-subtabs admin-survey-tabs" role="tablist" aria-label="Survey management sections">
         <button
           type="button"
           role="tab"
@@ -1927,6 +1920,11 @@ export function AdminSurveyManagement() {
           Survey Template Library
         </button>
       </div>
+      <p className="muted admin-survey-subtitle">
+        Create, edit, and launch webinar surveys. Questions are organized by category and include participant-facing
+        instructions.
+      </p>
+      {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
 
       {activeTab === "SURVEYS" ? (
       <div className="grid admin-survey-layout">

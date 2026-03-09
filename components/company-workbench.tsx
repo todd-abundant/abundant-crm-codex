@@ -1640,8 +1640,9 @@ export function CompanyWorkbench() {
 
   return (
     <main>
-      <div className="grid">
-        <section className="panel" aria-label="List panel">
+      <div className="grid health-system-workbench-layout">
+        <section className="panel health-system-list-panel" aria-label="List panel">
+          <div className="health-system-panel-scroll">
           <div className="detail-action-bar">
             <a
               href="#"
@@ -1982,6 +1983,7 @@ export function CompanyWorkbench() {
           </div>
 
           {status && <p className={`status ${status.kind}`}>{status.text}</p>}
+          </div>
         </section>
 
           <section className="panel entity-detail-panel" aria-label="Detail panel">
