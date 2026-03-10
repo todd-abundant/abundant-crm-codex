@@ -2492,7 +2492,7 @@ export function CompanyWorkbench() {
                 <>
               <div className="detail-section">
                 <p className="detail-label">Contacts</p>
-                <div className="actions">
+                <div className="actions actions-flush">
                   <button
                     type="button"
                     className="ghost small contact-add-link"
@@ -2723,7 +2723,7 @@ export function CompanyWorkbench() {
                 <>
               <div className="detail-section">
                 <p className="detail-label">Linked Health Systems</p>
-                <div className="actions">
+                <div className="actions actions-flush">
                   <button
                     type="button"
                     className="ghost small contact-add-link"
@@ -2912,7 +2912,7 @@ export function CompanyWorkbench() {
 
               <div className="detail-section">
                 <p className="detail-label">Linked Co-Investors</p>
-                <div className="actions">
+                <div className="actions actions-flush">
                   <button
                     type="button"
                     className="ghost small contact-add-link"

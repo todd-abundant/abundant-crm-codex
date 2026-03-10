@@ -1636,7 +1636,9 @@ a {
 }
 
 .contact-lookup-search,
-.entity-list-search {
+.entity-list-search,
+.entity-lookup-controls,
+.entity-lookup-search-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1660,13 +1662,17 @@ a {
 }
 
 .contact-lookup-search:focus-within,
-.entity-list-search:focus-within {
+.entity-list-search:focus-within,
+.entity-lookup-controls:focus-within,
+.entity-lookup-search-row:focus-within {
   border-color: #84aed3;
   box-shadow: 0 0 0 2px rgba(38, 111, 169, 0.16);
 }
 
 .contact-lookup-search input,
-.entity-list-search input {
+.entity-list-search input,
+.entity-lookup-controls input,
+.entity-lookup-search-row > input {
   border: 0 !important;
   border-radius: 0 !important;
   background: transparent !important;
@@ -1681,7 +1687,9 @@ a {
 }
 
 .contact-lookup-search input:focus,
-.entity-list-search input:focus {
+.entity-list-search input:focus,
+.entity-lookup-controls input:focus,
+.entity-lookup-search-row > input:focus {
   border: 0;
   box-shadow: none;
 }
@@ -2222,6 +2230,10 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
   padding-right: 0;
 }
 
+.detail-card-inline {
+  margin-top: 10px;
+}
+
 .health-system-detail-panel .detail-card,
 .entity-detail-panel .detail-card {
   --detail-field-label-width: 190px;
@@ -2388,11 +2400,11 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 }
 
 .opportunity-filter-bar {
-  margin: 2px 0 8px;
+  margin: 0 0 8px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
@@ -2408,19 +2420,20 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 .opportunity-filter-options {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
 }
 
 .opportunity-filter-option {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   border: 1px solid #cad9e8;
   border-radius: 999px;
   background: #ffffff;
   color: #2c4d6f;
-  padding: 3px 8px;
+  min-height: 25px;
+  padding: 2px 7px 2px 8px;
   font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
@@ -2442,8 +2455,8 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 
 .opportunity-filter-option input[type="radio"] {
   margin: 0;
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
   accent-color: var(--colorBrandAccent);
 }
 
@@ -2784,6 +2797,16 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 
 .detail-tabs + .detail-card > .detail-section:first-child {
   padding-top: 8px;
+}
+
+.health-system-detail-panel > .health-system-panel-scroll > .detail-card > .detail-section:last-child,
+.health-system-detail-panel > .detail-card > .detail-section:last-child,
+.entity-detail-panel > .detail-card > .detail-section:last-child,
+.health-system-detail-panel > .health-system-panel-scroll > .detail-section:last-child,
+.health-system-detail-panel > .detail-section:last-child,
+.entity-detail-panel > .health-system-panel-scroll > .detail-section:last-child,
+.entity-detail-panel > .detail-section:last-child {
+  padding-bottom: 10px;
 }
 
 .detail-section > .detail-label:first-child {
@@ -3743,7 +3766,9 @@ select {
   }
 
   .contact-lookup-search,
-  .entity-list-search {
+  .entity-list-search,
+  .entity-lookup-controls,
+  .entity-lookup-search-row {
     border-radius: 12px;
   }
 

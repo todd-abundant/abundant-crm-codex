@@ -1381,7 +1381,7 @@ export function ContactWorkbench() {
               {activeDetailTab === "relationships" ? (
                 <div className="detail-section">
                   <p className="detail-label">Health Systems</p>
-                  <div className="actions">
+                  <div className="actions actions-flush">
                     <button
                       type="button"
                       className="ghost small contact-add-link"
@@ -1567,7 +1567,7 @@ export function ContactWorkbench() {
                   })}
 
                   <p className="detail-label">Co-Investors</p>
-                  <div className="actions">
+                  <div className="actions actions-flush">
                     <button
                       type="button"
                       className="ghost small contact-add-link"
@@ -1681,7 +1681,7 @@ export function ContactWorkbench() {
                   })}
 
                   <p className="detail-label">Companies</p>
-                  <div className="actions">
+                  <div className="actions actions-flush">
                     <button
                       type="button"
                       className="ghost small contact-add-link"

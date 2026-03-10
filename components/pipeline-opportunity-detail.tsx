@@ -7307,7 +7307,7 @@ function stripCurrencyFormatting(value: string) {
                     <div className="detail-card opportunity-modal-card">
                       <div className="detail-section">
                         <p className="detail-label">Notes</p>
-                        <div className="actions">
+                        <div className="actions actions-flush">
                           <button
                             type="button"
                             className="ghost small contact-add-link"

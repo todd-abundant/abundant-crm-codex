@@ -368,7 +368,7 @@ export function EntityDocumentsPane({ entityPath, entityId, onStatus }: EntityDo
         : null}
 
       {showCreateForm ? (
-        <div className="detail-card" style={{ marginTop: 12 }}>
+        <div className="detail-card detail-card-inline">
           <div className="detail-grid">
             <div>
               <label>Title</label>

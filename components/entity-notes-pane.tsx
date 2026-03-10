@@ -293,7 +293,7 @@ export function EntityNotesPane({ entityPath, entityId, onStatus }: EntityNotesP
       {!loading && error ? <p className="status error">{error}</p> : null}
 
       {showCreateForm ? (
-        <div className="detail-card" style={{ marginTop: 12 }}>
+        <div className="detail-card detail-card-inline">
           <label>Note</label>
           <RichTextArea
             className="entity-note-textarea"

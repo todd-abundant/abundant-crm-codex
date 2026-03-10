@@ -649,7 +649,7 @@ export function EntityLookupInput(props: EntityLookupInputProps) {
             {allowEmpty && value ? (
               <button
                 type="button"
-                className="ghost small"
+                className="ghost small entity-list-search-clear"
                 onClick={() => {
                   onChange("");
                   setQuery("");
@@ -789,7 +789,7 @@ export function EntityLookupInput(props: EntityLookupInputProps) {
                   />
                   <button
                     type="button"
-                    className="secondary"
+                    className="secondary small"
                     onClick={() => void lookupWebCandidates()}
                     disabled={searchingWeb || adding || addName.trim().length < 2}
                   >
