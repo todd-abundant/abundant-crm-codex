@@ -1148,11 +1148,9 @@ export function ContactWorkbench() {
                       </div>
 
                       <div className="list-row-meta contact-list-row-meta">
-                        <div className="list-row-indicators">
-                          <span className="flag-pill">{associationCount} links</span>
-                          <span className="flag-pill">{record.noteCount} notes</span>
-                          <span className="flag-pill">{record.documentCount} docs</span>
-                        </div>
+                        <p className="contact-list-summary">
+                          {associationCount} links · {record.noteCount} notes · {record.documentCount} docs
+                        </p>
                         {(hasKeyAllianceContact || hasInformedAllianceContact) ? (
                           <div className="contact-list-alliance-flags">
                             {hasKeyAllianceContact ? (
@@ -1233,7 +1231,7 @@ export function ContactWorkbench() {
 
               {activeDetailTab === "overview" && detailDraft ? (
                 <div className="detail-card">
-                  <div className="detail-section" style={{ marginTop: 0, paddingTop: 8 }}>
+                  <div className="detail-section">
                     <p className="detail-label">Principal Entity</p>
                     <p className="muted">
                       {selectedRecord.principalEntity

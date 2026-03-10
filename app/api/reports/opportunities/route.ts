@@ -120,6 +120,10 @@ function computeDurationDays(createdAt: Date, closedAt: Date | null) {
   return Math.floor((endMs - startMs) / (1000 * 60 * 60 * 24));
 }
 
+function toNumber(value: { toString(): string } | null) {
+  return value ? Number(value.toString()) : null;
+}
+
 export async function GET(request: Request) {
   try {
     const params = new URL(request.url).searchParams;
@@ -224,8 +228,7 @@ export async function GET(request: Request) {
           }
         : null,
       likelihoodPercent: entry.likelihoodPercent,
-      amountUsd: entry.amountUsd ? Number(entry.amountUsd.toString()) : null,
-      contractPriceUsd: entry.contractPriceUsd ? Number(entry.contractPriceUsd.toString()) : null,
+      contractPriceUsd: toNumber(entry.contractPriceUsd),
       durationDays: computeDurationDays(entry.createdAt, entry.closedAt),
       nextSteps: entry.nextSteps,
       notes: entry.notes,

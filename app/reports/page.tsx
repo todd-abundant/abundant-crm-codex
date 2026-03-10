@@ -23,7 +23,6 @@ type ReportRow = {
   company: { id: string; name: string };
   healthSystem: { id: string; name: string } | null;
   likelihoodPercent: number | null;
-  amountUsd: number | null;
   contractPriceUsd: number | null;
   durationDays: number | null;
   nextSteps: string | null;
@@ -744,7 +743,7 @@ export default function ReportsPage() {
         {!loading && !error && rows.length > 0 ? (
           <>
             <div className="table-wrap report-table-wrap" style={{ marginTop: 10 }}>
-              <table className="table report-table">
+              <table className="table table-dense report-table">
                 <thead>
                   <tr>
                     <th>Company</th>

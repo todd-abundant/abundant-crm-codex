@@ -52,7 +52,6 @@ const opportunitySchema = z.object({
     .enum(["IDENTIFIED", "QUALIFICATION", "PROPOSAL", "NEGOTIATION", "LEGAL", "CLOSED_WON", "CLOSED_LOST", "ON_HOLD"])
     .default("IDENTIFIED"),
   likelihoodPercent: z.number().int().min(0).max(100).optional().nullable(),
-  amountUsd: z.number().nonnegative().optional().nullable(),
   contractPriceUsd: z.number().nonnegative().optional().nullable(),
   notes: z.string().optional().nullable(),
   nextSteps: z.string().optional().nullable(),
@@ -551,7 +550,6 @@ export async function PATCH(
               }),
               stage: opportunity.stage,
               likelihoodPercent: opportunity.likelihoodPercent ?? null,
-              amountUsd: opportunity.amountUsd ?? null,
               contractPriceUsd: opportunity.contractPriceUsd ?? null,
               notes: toNullableString(opportunity.notes),
               nextSteps: toNullableString(opportunity.nextSteps),

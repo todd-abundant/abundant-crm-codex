@@ -84,7 +84,6 @@ type PipelineOpportunityDraft = {
   healthSystemId: string;
   stage: OpportunityStage;
   likelihoodPercent: string;
-  amountUsd: string;
   contractPriceUsd: string;
   durationDays: string;
   notes: string;
@@ -335,7 +334,6 @@ function emptyOpportunity(): PipelineOpportunityDraft {
     healthSystemId: "",
     stage: "IDENTIFIED",
     likelihoodPercent: String(defaultLikelihoodForStage("IDENTIFIED")),
-    amountUsd: "",
     contractPriceUsd: "",
     durationDays: "",
     notes: "",
@@ -435,7 +433,6 @@ function hydratePipelineDraft(input: unknown): PipelineDraft {
         healthSystemId: toText(entry.healthSystemId),
         stage,
         likelihoodPercent: likelihoodPercent || String(defaultLikelihoodForStage(stage)),
-        amountUsd: toText(entry.amountUsd),
         contractPriceUsd: toText(entry.contractPriceUsd),
         durationDays: toText(entry.durationDays),
         notes: toText(entry.notes),
@@ -528,7 +525,6 @@ function serializePipelineDraft(draft: PipelineDraft) {
         healthSystemId: opportunity.healthSystemId || null,
         stage: opportunity.stage,
         likelihoodPercent: parseNullableNumber(opportunity.likelihoodPercent),
-        amountUsd: parseNullableNumber(opportunity.amountUsd),
         contractPriceUsd: parseNullableNumber(opportunity.contractPriceUsd),
         notes: opportunity.notes.trim() || null,
         nextSteps: opportunity.nextSteps.trim() || null,
@@ -1407,14 +1403,6 @@ export function CompanyPipelineManager({
                   max="100"
                   value={opportunity.likelihoodPercent}
                   onChange={(event) => updateOpportunity(index, { likelihoodPercent: event.target.value })}
-                />
-              </div>
-              <div>
-                <label>Amount (USD)</label>
-                <input
-                  value={opportunity.amountUsd}
-                  onChange={(event) => updateOpportunity(index, { amountUsd: event.target.value })}
-                  placeholder="0"
                 />
               </div>
               <div>

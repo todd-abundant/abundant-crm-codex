@@ -786,7 +786,6 @@ model CompanyOpportunity {
   title              String
   stage              CompanyOpportunityStage @default(IDENTIFIED)
   likelihoodPercent  Int?
-  amountUsd          Decimal?                @db.Decimal(16, 2)
   contractPriceUsd   Decimal?                @db.Decimal(16, 2)
   durationDays       Int?
   notes              String?

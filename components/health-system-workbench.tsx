@@ -1899,23 +1899,35 @@ export function HealthSystemWorkbench() {
 
               {activeDetailTab === "opportunities" && (
                 <>
-                  <div className="detail-section">
+                  <div className="detail-section opportunity-section">
                     <p className="detail-label">Opportunities</p>
-                    <div className="actions">
-                      <label
-                        className="opportunity-filter-label"
-                        htmlFor={`health-system-opportunities-filter-${selectedRecord.id}`}
-                      >
-                        Status
-                      </label>
-                      <select
-                        id={`health-system-opportunities-filter-${selectedRecord.id}`}
-                        value={opportunityStatusFilter}
-                        onChange={(event) => setOpportunityStatusFilter(event.target.value as OpportunityStatusFilter)}
-                      >
-                        <option value="open">Open</option>
-                        <option value="closed">Closed</option>
-                      </select>
+                    <div className="opportunity-filter-bar" role="radiogroup" aria-label="Filter opportunities by status">
+                      <p className="opportunity-filter-label">Status</p>
+                      <div className="opportunity-filter-options">
+                        {([
+                          { value: "open", label: "Open" },
+                          { value: "closed", label: "Closed" }
+                        ] as const).map((option) => {
+                          const active = opportunityStatusFilter === option.value;
+                          return (
+                            <label
+                              key={option.value}
+                              className={`opportunity-filter-option ${active ? "active" : ""}`}
+                              htmlFor={`health-system-opportunities-filter-${selectedRecord.id}-${option.value}`}
+                            >
+                              <span>{option.label}</span>
+                              <input
+                                id={`health-system-opportunities-filter-${selectedRecord.id}-${option.value}`}
+                                type="radio"
+                                name={`health-system-opportunities-filter-${selectedRecord.id}`}
+                                value={option.value}
+                                checked={active}
+                                onChange={() => setOpportunityStatusFilter(option.value)}
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
                     </div>
                     {opportunitiesLoading ? <p className="muted">Loading opportunities...</p> : null}
                     {opportunitiesError ? <p className="status error">{opportunitiesError}</p> : null}
@@ -1929,7 +1941,7 @@ export function HealthSystemWorkbench() {
 
                     {!opportunitiesLoading && filteredOpportunities.length > 0 ? (
                       <div className="table-wrap report-table-wrap">
-                        <table className="table report-table">
+                        <table className="table table-dense report-table">
                           <thead>
                             <tr>
                               <th>Company</th>

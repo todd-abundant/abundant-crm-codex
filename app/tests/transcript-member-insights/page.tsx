@@ -1386,12 +1386,13 @@ function recordProgressPhaseTiming(mode: AnalysisProgressMode, phase: string, el
           width: 100%;
           border-collapse: collapse;
           min-width: 980px;
+          font-size: 12px;
         }
 
         .insight-table th,
         .insight-table td {
           border-bottom: 1px solid #edf2f7;
-          padding: 8px;
+          padding: var(--tableDenseCellPadY) var(--tableDenseCellPadX);
           vertical-align: top;
           text-align: left;
         }

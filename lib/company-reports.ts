@@ -79,7 +79,6 @@ type OpportunitySnapshotRow = {
   stage: string;
   healthSystemName: string | null;
   likelihoodPercent: number | null;
-  amountUsd: number | null;
   contractPriceUsd: number | null;
   estimatedCloseDate: string | null;
   nextSteps: string | null;
@@ -742,7 +741,6 @@ async function buildReportSnapshot(
     stage: entry.stage,
     healthSystemName: entry.healthSystem?.name || null,
     likelihoodPercent: entry.likelihoodPercent,
-    amountUsd: decimalToNumber(entry.amountUsd),
     contractPriceUsd: decimalToNumber(entry.contractPriceUsd),
     estimatedCloseDate: formatDateIso(entry.estimatedCloseDate),
     nextSteps: entry.nextSteps,
@@ -754,9 +752,9 @@ async function buildReportSnapshot(
   const won = opportunities.filter((entry) => entry.stage === "CLOSED_WON");
   const lost = opportunities.filter((entry) => entry.stage === "CLOSED_LOST");
   const openLikelihoodRows = open.map((entry) => entry.likelihoodPercent).filter((entry): entry is number => Number.isFinite(entry as number));
-  const totalPipelineUsd = open.reduce((sum, entry) => sum + (entry.contractPriceUsd ?? entry.amountUsd ?? 0), 0);
+  const totalPipelineUsd = open.reduce((sum, entry) => sum + (entry.contractPriceUsd ?? 0), 0);
   const weightedPipelineUsd = open.reduce((sum, entry) => {
-    const base = entry.contractPriceUsd ?? entry.amountUsd ?? 0;
+    const base = entry.contractPriceUsd ?? 0;
     const likelihood = (entry.likelihoodPercent ?? 0) / 100;
     return sum + base * likelihood;
   }, 0);
@@ -1074,7 +1072,7 @@ const reportTemplates: Record<CompanyReportType, ReportTemplateDefinition> = {
             entry.stage,
             entry.healthSystemName || "N/A",
             percent(entry.likelihoodPercent),
-            currency(entry.contractPriceUsd ?? entry.amountUsd),
+            currency(entry.contractPriceUsd),
             formatDate(entry.estimatedCloseDate)
           ]);
           return tableHtml(

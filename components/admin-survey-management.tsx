@@ -2024,7 +2024,7 @@ export function AdminSurveyManagement() {
                 <h3>{sessionDraft.title}</h3>
               </div>
 
-              <div className="actions" style={{ marginTop: 0 }}>
+              <div className="actions actions-flush">
                 <a className="secondary small" href={sessionDraft.sharePath} target="_blank" rel="noreferrer">
                   Open Survey
                 </a>
@@ -2124,7 +2124,7 @@ export function AdminSurveyManagement() {
                     <section key={category} className="admin-survey-category-panel">
                       <div className="pipeline-card-head">
                         <strong>{category}</strong>
-                        <div className="actions" style={{ marginTop: 0 }}>
+                        <div className="actions actions-flush">
                           <button
                             className="ghost small"
                             type="button"
@@ -2435,7 +2435,7 @@ export function AdminSurveyManagement() {
 
                     <p className="detail-label">Submissions</p>
                     <div className="table-wrap">
-                      <table className="table">
+                      <table className="table table-dense">
                         <thead>
                           <tr>
                             <th>Submitted</th>
@@ -2653,7 +2653,7 @@ export function AdminSurveyManagement() {
                     <section key={category} className="admin-survey-category-panel">
                       <div className="pipeline-card-head">
                         <strong>{category}</strong>
-                        <div className="actions" style={{ marginTop: 0 }}>
+                        <div className="actions actions-flush">
                           <button
                             className="ghost small"
                             type="button"

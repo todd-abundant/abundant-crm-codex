@@ -619,7 +619,6 @@ export async function GET(
           title: opportunity.title,
           type: opportunity.type,
           stage: opportunity.stage,
-          amountUsd: opportunity.amountUsd,
           contractPriceUsd: opportunity.contractPriceUsd,
           durationDays: computeDurationDays(opportunity.createdAt, opportunity.closedAt),
           likelihoodPercent: opportunity.likelihoodPercent,

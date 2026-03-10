@@ -134,7 +134,7 @@ export function AdminUserManagement({ currentUserId }: { currentUserId: string }
         <p className="muted">No users found yet. Sign in with Google to create the first user.</p>
       ) : (
         <div className="table-wrap">
-          <table className="table">
+          <table className="table table-dense">
             <thead>
               <tr>
                 <th>User</th>

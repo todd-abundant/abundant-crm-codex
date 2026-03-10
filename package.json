@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "clean:next": "rm -rf .next",
-    "dev": "npm run clean:next && next dev",
+    "dev": "next dev",
     "dev:local": "bash scripts/dev-local.sh",
+    "dev:clean": "npm run clean:next && next dev",
     "build": "npm run clean:next && next build",
+    "prestart": "node scripts/ensure-next-build.mjs",
     "start": "next start",
     "deploy:gcp": "bash scripts/deploy-gcp.sh",
     "deploy:gmail-addon": "bash scripts/deploy-gmail-addon.sh",

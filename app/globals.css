@@ -1,6 +1,7 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
 :root {
+  --appShellMaxWidth: 1560px;
   --colorBrandPrimary: #0a2f5a;
   --colorBrandAccent: #00a39d;
   --accent-strong: #008881;
@@ -13,6 +14,12 @@
   --radiusCard: 10px;
   --radiusButton: 6px;
   --radiusPill: 999px;
+  --panelPadX: 12px;
+  --panelPadY: 12px;
+  --tableCellPadY: 8px;
+  --tableCellPadX: 10px;
+  --tableDenseCellPadY: 6px;
+  --tableDenseCellPadX: 8px;
   --colorMute: #6b7280;
   --colorLine: #cbd5e0;
   --fontFamily: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
@@ -152,9 +159,9 @@ body {
 }
 
 main {
-  max-width: 1560px;
+  max-width: var(--appShellMaxWidth);
   margin: 0 auto;
-  padding: 12px 12px 24px;
+  padding: 10px 12px 20px;
 }
 
 .auth-page {
@@ -195,7 +202,7 @@ main {
 .admin-role-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .admin-role-option {
@@ -239,7 +246,7 @@ main {
 }
 
 .top-nav-inner {
-  max-width: 1280px;
+  max-width: var(--appShellMaxWidth);
   margin: 0 auto;
   padding: 8px 12px;
   display: flex;
@@ -438,8 +445,8 @@ main {
 }
 
 .panel {
-  --panel-pad-x: 14px;
-  --panel-pad-y: 14px;
+  --panel-pad-x: var(--panelPadX);
+  --panel-pad-y: var(--panelPadY);
   background: var(--colorSurface);
   border-radius: var(--radiusCard);
   border: 1px solid var(--colorBorder);
@@ -449,7 +456,7 @@ main {
 }
 
 .panel h2 {
-  margin: 0 0 10px;
+  margin: 0 0 8px;
   color: var(--colorBrandPrimary);
   font-size: 1rem;
   font-weight: 700;
@@ -1080,11 +1087,15 @@ label {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .workbench-beta-shell .actions {
-  margin-top: 8px;
+  margin-top: 6px;
+}
+
+.actions.actions-flush {
+  margin-top: 0;
 }
 
 .workbench-beta-shell button.primary {
@@ -1259,9 +1270,12 @@ button.contact-add-link:focus-visible:not(:disabled) {
 }
 
 .table {
+  --table-font-size: 13px;
+  --table-cell-pad-y: var(--tableCellPadY);
+  --table-cell-pad-x: var(--tableCellPadX);
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--table-font-size);
 }
 
 .table-wrap {
@@ -1270,15 +1284,17 @@ button.contact-add-link:focus-visible:not(:disabled) {
   -webkit-overflow-scrolling: touch;
 }
 
-.table.report-table th,
-.table.report-table td {
-  padding: 6px 8px;
-  line-height: 1.25;
-  vertical-align: middle;
+.table-dense,
+.table.report-table {
+  --table-font-size: 12px;
+  --table-cell-pad-y: var(--tableDenseCellPadY);
+  --table-cell-pad-x: var(--tableDenseCellPadX);
 }
 
-.table.report-table {
-  font-size: 12px;
+.table.report-table th,
+.table.report-table td {
+  line-height: 1.25;
+  vertical-align: middle;
 }
 
 .report-table-wrap .table.report-table {
@@ -1332,7 +1348,7 @@ button.contact-add-link:focus-visible:not(:disabled) {
 .table td {
   text-align: left;
   border-bottom: 1px solid var(--colorBorder);
-  padding: 8px 10px;
+  padding: var(--table-cell-pad-y) var(--table-cell-pad-x);
   vertical-align: top;
 }
 
@@ -1377,9 +1393,9 @@ a {
   display: inline-flex;
   align-items: center;
   border-radius: var(--radiusPill);
-  min-height: 20px;
-  height: 20px;
-  padding: 0 8px;
+  min-height: 18px;
+  height: 18px;
+  padding: 0 7px;
   font-size: 12px;
   font-weight: 700;
   border: 1px solid transparent;
@@ -1420,9 +1436,9 @@ a {
   display: inline-flex;
   align-items: center;
   border-radius: var(--radiusPill);
-  min-height: 20px;
-  height: 20px;
-  padding: 0 8px;
+  min-height: 18px;
+  height: 18px;
+  padding: 0 7px;
   font-size: 12px;
   font-weight: 700;
   border: 1px solid transparent;
@@ -1522,10 +1538,10 @@ a {
   outline-offset: 2px;
 }
 .list-container {
-  margin-top: 8px;
+  margin-top: 6px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .list-row {
@@ -1533,11 +1549,11 @@ a {
   border: 1px solid var(--colorBorder);
   border-radius: var(--radiusCard);
   background: #fff;
-  padding: 10px 12px;
+  padding: 9px 10px;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   text-align: left;
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease;
@@ -1560,14 +1576,14 @@ a {
 .list-row-main {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
   flex: 1 1 auto;
 }
 
 .list-row strong {
-  font-size: 0.94rem;
-  line-height: 1.25;
+  font-size: 0.92rem;
+  line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1578,9 +1594,9 @@ a {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: 3px;
   flex-shrink: 0;
-  min-width: 120px;
+  min-width: 108px;
 }
 
 .list-row-indicators {
@@ -1591,12 +1607,12 @@ a {
 
 .flag-pill {
   border-radius: var(--radiusPill);
-  min-height: 20px;
-  height: 20px;
+  min-height: 18px;
+  height: 18px;
   display: inline-flex;
   align-items: center;
-  padding: 0 8px;
-  font-size: 0.72rem;
+  padding: 0 7px;
+  font-size: 0.7rem;
   font-weight: 700;
   border: 1px solid #cfd8e1;
   white-space: nowrap;
@@ -1606,17 +1622,17 @@ a {
 }
 
 .contact-lookup-panel {
-  gap: 10px;
+  gap: 8px;
 }
 
 .contact-lookup-shell {
-  border: 1px solid #d6e3f1;
-  border-radius: 12px;
-  background: linear-gradient(180deg, #f7fbff 0%, #f1f7fd 100%);
-  padding: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .contact-lookup-search,
@@ -1626,8 +1642,9 @@ a {
   gap: 8px;
   border: 1px solid #bfd4e8;
   border-radius: 999px;
-  padding: 6px 8px 6px 10px;
+  padding: 5px 8px 5px 10px;
   background: #ffffff;
+  overflow: hidden;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -1637,8 +1654,8 @@ a {
   z-index: 4;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-bottom: 10px;
+  gap: 8px;
+  padding-bottom: 8px;
   background: var(--colorSurface);
 }
 
@@ -1650,13 +1667,17 @@ a {
 
 .contact-lookup-search input,
 .entity-list-search input {
-  border: 0;
-  background: transparent;
-  box-shadow: none;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
   padding: 0;
-  min-height: 30px;
+  min-height: 28px;
   flex: 1 1 auto;
   min-width: 0;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .contact-lookup-search input:focus,
@@ -1698,22 +1719,22 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 .contact-lookup-type-filter-group {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
+  gap: 5px;
 }
 
 .contact-lookup-type-filter {
-  min-height: 34px;
+  min-height: 32px;
   border: 1px solid #c8d7e8;
   border-radius: 999px;
   background: #ffffff;
   color: #274a72;
-  font-size: 0.79rem;
+  font-size: 0.77rem;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 0 10px;
+  padding: 0 9px;
 }
 
 .contact-lookup-type-filter-icon {
@@ -1746,11 +1767,11 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 }
 
 .contact-lookup-empty {
-  margin-top: 10px;
+  margin-top: 8px;
   border: 1px dashed #b8cee2;
   border-radius: 12px;
   background: #f8fbff;
-  padding: 10px 12px;
+  padding: 9px 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1764,7 +1785,7 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 }
 
 .contact-list-container {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .contact-list-row {
@@ -1783,14 +1804,14 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 }
 
 .contact-list-row-main {
-  gap: 6px;
+  gap: 4px;
 }
 
 .contact-list-row-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
 }
 
 .contact-list-row-head strong {
@@ -1801,7 +1822,7 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 .contact-list-entity-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 4px;
 }
 
 .contact-list-entity-pill {
@@ -1810,8 +1831,9 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
   gap: 4px;
   border-radius: 999px;
   border: 1px solid #c5d7e8;
-  padding: 1px 8px;
-  font-size: 0.71rem;
+  min-height: 18px;
+  padding: 0 7px;
+  font-size: 0.69rem;
   font-weight: 700;
   color: #2e557b;
   background: #f1f7fd;
@@ -1835,20 +1857,28 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 
 .contact-list-principal {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: 0.79rem;
   color: #31516f;
 }
 
-.contact-list-row-meta .list-row-indicators {
-  justify-content: flex-end;
+.contact-list-row-meta {
+  min-width: 0;
+}
+
+.contact-list-summary {
+  margin: 0;
+  color: #4a627b;
+  font-size: 0.74rem;
+  line-height: 1.25;
+  text-align: right;
 }
 
 .contact-list-alliance-flags {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
+  gap: 6px;
+  margin-top: 2px;
   flex-wrap: wrap;
 }
 
@@ -1867,9 +1897,9 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 .contact-list-inline-flags {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
-  margin-top: 4px;
+  margin-top: 3px;
 }
 
 .contact-list-inline-flags label {
@@ -2201,8 +2231,8 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 .health-system-detail-panel,
 .entity-detail-panel {
   --detail-field-label-width: 190px;
-  --detail-pane-inset: 12px;
-  --detail-tab-text-pad: 12px;
+  --detail-pane-inset: 10px;
+  --detail-tab-text-pad: 10px;
   --detail-pane-text-inset: calc(var(--detail-pane-inset) + var(--detail-tab-text-pad));
   --panel-pad-x: 0px;
   --panel-pad-y: 0px;
@@ -2211,22 +2241,22 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 
 .health-system-detail-panel .detail-grid,
 .entity-detail-panel .detail-grid {
-  gap: 8px;
+  gap: 6px;
 }
 
 .health-system-detail-panel .detail-section,
 .entity-detail-panel .detail-section {
-  padding: 12px 0 2px;
+  padding: 10px 0 2px;
 }
 
 .health-system-detail-panel .detail-list-item,
 .entity-detail-panel .detail-list-item {
-  padding: 6px 0;
+  padding: 4px 0;
 }
 
 .health-system-detail-panel .inline-edit-field,
 .entity-detail-panel .inline-edit-field {
-  gap: 8px;
+  gap: 6px;
 }
 
 .health-system-detail-panel .inline-edit-field > label,
@@ -2234,7 +2264,7 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
   padding-top: 2px;
   display: inline-flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 4px;
   overflow: visible;
   text-overflow: clip;
 }
@@ -2284,9 +2314,9 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 .entity-detail-panel .detail-card .detail-grid > div:not(.inline-edit-field) > label + textarea,
 .entity-detail-panel .detail-card .detail-grid > div:not(.inline-edit-field) > label + .rich-text-editor,
 .entity-detail-panel .detail-list-item {
-  padding-top: 2px;
-  padding-bottom: 2px;
-  min-height: 28px;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  min-height: 26px;
 }
 
 .detail-head-minimal {
@@ -2298,11 +2328,11 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
   top: 0;
   z-index: 2;
   display: flex;
-  gap: 2px;
+  gap: 1px;
   flex-wrap: nowrap;
   overflow-x: auto;
   margin: 0;
-  padding: 8px 12px 0;
+  padding: 6px 10px 0;
   border: 0;
   border-radius: 0;
   background: #b8c6dc;
@@ -2320,12 +2350,12 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 
 .pipeline-detail-panel .detail-subtabs {
   width: 100%;
-  margin: 0 0 10px;
+  margin: 0 0 8px;
   box-sizing: border-box;
   background: #c7d3e2;
   border-top: 1px solid #b4c2d4;
   overflow-y: visible;
-  padding: 6px 12px 0;
+  padding: 5px 10px 0;
 }
 
 .pipeline-detail-panel .detail-subtabs .detail-tab {
@@ -2355,6 +2385,74 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
   gap: 8px;
   flex-wrap: wrap;
   margin: 0;
+}
+
+.opportunity-filter-bar {
+  margin: 2px 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.opportunity-filter-label {
+  margin: 0;
+  color: #204769;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.opportunity-filter-options {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.opportunity-filter-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #cad9e8;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #2c4d6f;
+  padding: 3px 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.opportunity-filter-option:hover,
+.opportunity-filter-option:focus-within {
+  border-color: #98bbda;
+  background: #f4f9ff;
+  color: #183f66;
+}
+
+.opportunity-filter-option.active {
+  border-color: #89b2d5;
+  background: #eaf4ff;
+  color: #113c66;
+}
+
+.opportunity-filter-option input[type="radio"] {
+  margin: 0;
+  width: 13px;
+  height: 13px;
+  accent-color: var(--colorBrandAccent);
+}
+
+.opportunity-section {
+  padding-bottom: 8px;
+}
+
+.opportunity-section .report-table-wrap {
+  margin-top: 6px;
 }
 
 .quick-action-pill {
@@ -2396,10 +2494,10 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
   border-bottom-color: #b5c8de;
   background: #d7e2f2;
   color: #2a4a6d;
-  border-radius: 6px 6px 0 0;
-  min-height: 30px;
-  padding: 6px var(--detail-tab-text-pad, 12px);
-  font-size: 0.82rem;
+  border-radius: 5px 5px 0 0;
+  min-height: 28px;
+  padding: 5px var(--detail-tab-text-pad, 10px);
+  font-size: 0.79rem;
   font-weight: 700;
   white-space: nowrap;
   box-shadow: none;
@@ -2541,7 +2639,7 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 .health-system-detail-panel > .health-system-panel-scroll > .detail-card > .detail-grid,
 .health-system-detail-panel > .detail-card > .detail-grid,
 .entity-detail-panel > .detail-card > .detail-grid {
-  padding: 10px var(--detail-pane-inset) 12px var(--detail-pane-text-inset);
+  padding: 8px var(--detail-pane-inset) 10px var(--detail-pane-text-inset);
 }
 
 .health-system-detail-panel > .health-system-panel-scroll > .detail-card > .detail-section,
@@ -2651,21 +2749,21 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 }
 
 .detail-section {
-  margin-top: 10px;
+  margin-top: 8px;
   background: transparent;
   border: 0;
   border-top: 1px solid var(--colorBorder);
   border-radius: 0;
-  padding: 10px 0 2px;
+  padding: 8px 0 2px;
   box-shadow: none;
 }
 
 .entity-delete-section {
   display: flex;
-  align-items: center;
-  min-height: 72px;
-  padding-top: 0;
-  padding-bottom: 0;
+  align-items: flex-start;
+  min-height: 0;
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 
 .entity-delete-section .actions {
@@ -2681,7 +2779,11 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 .detail-tabs + .detail-section {
   margin-top: 0;
   border-top: 0;
-  padding-top: 10px;
+  padding-top: 8px;
+}
+
+.detail-tabs + .detail-card > .detail-section:first-child {
+  padding-top: 8px;
 }
 
 .detail-section > .detail-label:first-child {
@@ -5361,7 +5463,7 @@ select {
 
 .screening-overview-table th,
 .screening-overview-table td {
-  padding: 10px;
+  padding: var(--tableDenseCellPadY) var(--tableDenseCellPadX);
   border-bottom: 1px solid #e4edf7;
   text-align: left;
   vertical-align: top;
@@ -5370,7 +5472,7 @@ select {
 }
 
 .screening-overview-table td {
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .screening-overview-table th {

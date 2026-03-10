@@ -214,7 +214,6 @@ type PipelineOpportunityDetail = {
     title: string;
     type: OpportunityType;
     stage: OpportunityStage;
-    amountUsd: number | string | null;
     contractPriceUsd: number | string | null;
     durationDays: number | null;
     likelihoodPercent: number | null;
@@ -364,13 +363,12 @@ function toTextValue(value: number | string | null | undefined) {
 }
 
 function toOpportunityDraft(opportunity: PipelineOpportunityDetail["opportunities"][number]): OpportunityDraft {
-  const draftAmountSource = opportunity.contractPriceUsd ?? opportunity.amountUsd;
   return {
     type: opportunity.type,
     stage: opportunity.stage,
     healthSystemId: opportunity.healthSystem?.id || "",
     likelihoodPercent: toTextValue(opportunity.likelihoodPercent),
-    contractPriceUsd: toTextValue(draftAmountSource as number | string | null),
+    contractPriceUsd: toTextValue(opportunity.contractPriceUsd),
     estimatedCloseDate: toDateInputValue(opportunity.estimatedCloseDate),
     closedAt: toDateInputValue(opportunity.closedAt),
     closeReason: opportunity.closeReason || "",
@@ -3210,15 +3208,14 @@ function stripCurrencyFormatting(value: string) {
     if (isClosedOpportunityStage(draft.stage) && !closeReason) {
       throw new Error("Close reason is required when marking an opportunity won or lost.");
     }
-    const amountUsd = parseNullableDecimal(draft.contractPriceUsd, "Contract Price");
+    const contractPriceUsd = parseNullableDecimal(draft.contractPriceUsd, "Contract Price");
 
     return {
       type: draft.type,
       stage: draft.stage,
       healthSystemId: draft.healthSystemId || null,
       likelihoodPercent: parseNullableLikelihood(draft.likelihoodPercent),
-      amountUsd,
-      contractPriceUsd: amountUsd,
+      contractPriceUsd,
       estimatedCloseDate: draft.estimatedCloseDate.trim() || null,
       closedAt: draft.closedAt.trim() || null,
       closeReason,
@@ -5089,7 +5086,7 @@ function stripCurrencyFormatting(value: string) {
 
                   {openOpportunities.length > 0 ? (
                     <div className="table-wrap report-table-wrap">
-                      <table className="table report-table">
+                      <table className="table table-dense report-table">
                         <thead>
                           <tr>
                             <th>Company</th>
@@ -5192,7 +5189,7 @@ function stripCurrencyFormatting(value: string) {
 
         {activeIntakeDetailTab === "intake-materials" && activeIntakeMaterialsTab === "at-a-glance" ? (
           <>
-            <div className="actions" style={{ marginTop: 0 }}>
+            <div className="actions actions-flush">
               <button className="secondary small" type="button" onClick={openAtAGlancePreview}>
                 Preview Format
               </button>
@@ -5221,7 +5218,7 @@ function stripCurrencyFormatting(value: string) {
 
         {activeIntakeDetailTab === "intake-materials" && activeIntakeMaterialsTab === "venture-studio-criteria" ? (
           <>
-            <div className="actions" style={{ marginTop: 0 }}>
+            <div className="actions actions-flush">
               <button className="secondary small" type="button" onClick={openVentureStudioCriteriaPreview}>
                 Preview Format
               </button>
@@ -5933,7 +5930,7 @@ function stripCurrencyFormatting(value: string) {
 
           {screeningDetailView === "status" ? (
             <>
-              <div className="actions" style={{ marginTop: 0 }}>
+              <div className="actions actions-flush">
                 <button className="secondary small" type="button" onClick={openScreeningStatusPreview}>
                   Preview Format
                 </button>
@@ -6124,7 +6121,7 @@ function stripCurrencyFormatting(value: string) {
                 ) : (
                   <div className="pipeline-card-head">
                     <h3>Qualitative Data Entries</h3>
-                    <div className="actions" style={{ marginTop: 0 }}>
+                    <div className="actions actions-flush">
                       <button
                         className="secondary small"
                         type="button"

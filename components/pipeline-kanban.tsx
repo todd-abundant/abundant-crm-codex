@@ -1728,7 +1728,7 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                         {savingIntakeById[item.id] || savingCardById[item.id] ? <p className="status">Saving...</p> : null}
                       </div>
 
-                      <div className="actions" style={{ marginTop: 0 }}>
+                      <div className="actions actions-flush">
                         <a
                           href="#"
                           className="pipeline-action-link"

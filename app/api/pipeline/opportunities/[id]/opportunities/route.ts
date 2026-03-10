@@ -28,7 +28,6 @@ const createSchema = z.object({
   healthSystemId: z.string().optional().nullable().or(z.literal("")),
   stage: opportunityStageSchema.default("IDENTIFIED"),
   likelihoodPercent: z.number().int().min(0).max(100).optional().nullable(),
-  amountUsd: z.number().nonnegative().optional().nullable(),
   contractPriceUsd: z.number().nonnegative().optional().nullable(),
   notes: z.string().max(10000).optional().nullable(),
   nextSteps: z.string().max(10000).optional().nullable(),
@@ -52,6 +51,10 @@ function trimOrNull(value?: string | null) {
 
 function toNullableDate(value?: string | null) {
   return parseDateInput(value);
+}
+
+function toNumber(value: { toString(): string } | null) {
+  return value ? Number(value.toString()) : null;
 }
 
 function computeDurationDays(createdAt: Date, closedAt: Date | null) {
@@ -98,7 +101,6 @@ function toPayload(opportunity: {
   title: string;
   type: string;
   stage: string;
-  amountUsd: { toString(): string } | null;
   contractPriceUsd: { toString(): string } | null;
   likelihoodPercent: number | null;
   nextSteps: string | null;
@@ -126,8 +128,7 @@ function toPayload(opportunity: {
     title: opportunity.title,
     type: opportunity.type,
     stage: opportunity.stage,
-    amountUsd: opportunity.amountUsd ? Number(opportunity.amountUsd.toString()) : null,
-    contractPriceUsd: opportunity.contractPriceUsd ? Number(opportunity.contractPriceUsd.toString()) : null,
+    contractPriceUsd: toNumber(opportunity.contractPriceUsd),
     durationDays: computeDurationDays(opportunity.createdAt, opportunity.closedAt),
     likelihoodPercent: opportunity.likelihoodPercent,
     nextSteps: opportunity.nextSteps,
@@ -223,7 +224,6 @@ export async function POST(
           healthSystemId,
           stage: input.stage,
           likelihoodPercent: input.likelihoodPercent ?? null,
-          amountUsd: input.amountUsd ?? null,
           contractPriceUsd: input.contractPriceUsd ?? null,
           notes: trimOrNull(input.notes),
           nextSteps: trimOrNull(input.nextSteps),
@@ -331,7 +331,6 @@ export async function PATCH(
         healthSystemId?: string | null;
         stage?: z.infer<typeof opportunityStageSchema>;
         likelihoodPercent?: number | null;
-        amountUsd?: number | null;
         contractPriceUsd?: number | null;
         notes?: string | null;
         nextSteps?: string | null;
@@ -348,9 +347,6 @@ export async function PATCH(
       if (input.stage !== undefined) updateData.stage = input.stage;
       if (Object.prototype.hasOwnProperty.call(input, "likelihoodPercent")) {
         updateData.likelihoodPercent = input.likelihoodPercent ?? null;
-      }
-      if (Object.prototype.hasOwnProperty.call(input, "amountUsd")) {
-        updateData.amountUsd = input.amountUsd ?? null;
       }
       if (Object.prototype.hasOwnProperty.call(input, "contractPriceUsd")) {
         updateData.contractPriceUsd = input.contractPriceUsd ?? null;
