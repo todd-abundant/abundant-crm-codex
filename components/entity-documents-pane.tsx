@@ -3,6 +3,8 @@
 import * as React from "react";
 import { DateInputField } from "./date-input-field";
 import { parseDateInput, toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
+import { inferGoogleDocumentTitle, normalizeGoogleDocsUrl } from "@/lib/company-document-links";
+import { resolveGoogleDocumentTitle } from "@/lib/google-document-title";
 
 type EntityPath = "health-systems" | "co-investors" | "companies" | "contacts";
 
@@ -58,6 +60,7 @@ export function EntityDocumentsPane({ entityPath, entityId, onStatus }: EntityDo
   const [editingUploadedAt, setEditingUploadedAt] = React.useState("");
   const [savingDocumentId, setSavingDocumentId] = React.useState<string | null>(null);
   const [deletingDocumentId, setDeletingDocumentId] = React.useState<string | null>(null);
+  const [resolvedGoogleDocumentTitles, setResolvedGoogleDocumentTitles] = React.useState<Record<string, string>>({});
 
   const endpoint = React.useMemo(() => `/api/${entityPath}/${entityId}/documents`, [entityId, entityPath]);
 
@@ -80,6 +83,7 @@ export function EntityDocumentsPane({ entityPath, entityId, onStatus }: EntityDo
   const loadDocuments = React.useCallback(async () => {
     setLoading(true);
     setError(null);
+    setResolvedGoogleDocumentTitles({});
 
     try {
       const res = await fetch(endpoint, { cache: "no-store" });
@@ -95,6 +99,58 @@ export function EntityDocumentsPane({ entityPath, entityId, onStatus }: EntityDo
       setLoading(false);
     }
   }, [endpoint]);
+
+  React.useEffect(() => {
+    const googleDocuments = documents.filter((document) => {
+      const normalizedUrl = normalizeGoogleDocsUrl(document.url);
+      if (!normalizedUrl) return false;
+
+      const resolvedTitle = inferGoogleDocumentTitle(normalizedUrl);
+      return resolvedTitle === document.title.trim() && Boolean(document.title.trim());
+    });
+
+    if (googleDocuments.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    void Promise.all(
+      googleDocuments.map(async (document) => {
+        const resolvedTitle = await resolveGoogleDocumentTitle(document.url);
+        if (!resolvedTitle) return null;
+        return [document.id, resolvedTitle] as const;
+      })
+    )
+      .then((entries) => {
+        if (cancelled) return;
+        const updates = entries.filter((entry): entry is readonly [string, string] => entry !== null);
+        if (updates.length === 0) return;
+
+        setResolvedGoogleDocumentTitles((previous) => {
+          const next = { ...previous };
+          let hasChanges = false;
+
+          for (const [documentId, title] of updates) {
+            if (next[documentId] !== title) {
+              next[documentId] = title;
+              hasChanges = true;
+            }
+          }
+
+          return hasChanges ? next : previous;
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn("entity_documents_google_titles_failed", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [documents]);
 
   React.useEffect(() => {
     resetCreateForm();
@@ -286,7 +342,7 @@ export function EntityDocumentsPane({ entityPath, entityId, onStatus }: EntityDo
                   <div className="contact-row-details">
                     <strong>
                       <a href={document.url} target="_blank" rel="noreferrer">
-                        {document.title}
+                        {resolvedGoogleDocumentTitles[document.id] || document.title}
                       </a>
                     </strong>
                     <p className="muted">Uploaded {formatDate(document.uploadedAt)}</p>

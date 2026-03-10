@@ -27,6 +27,10 @@ type AddContactModalProps = {
   onContactPhoneChange: (value: string) => void;
   contactLinkedinUrl: string;
   onContactLinkedinUrlChange: (value: string) => void;
+  contactIsKeyAllianceContact?: boolean;
+  onContactIsKeyAllianceContactChange?: (value: boolean) => void;
+  contactIsInformedAllianceContact?: boolean;
+  onContactIsInformedAllianceContactChange?: (value: boolean) => void;
   namePlaceholder: string;
   titlePlaceholder: string;
   relationshipTitlePlaceholder: string;
@@ -55,6 +59,10 @@ export function AddContactModal({
   onContactPhoneChange,
   contactLinkedinUrl,
   onContactLinkedinUrlChange,
+  contactIsKeyAllianceContact,
+  onContactIsKeyAllianceContactChange,
+  contactIsInformedAllianceContact,
+  onContactIsInformedAllianceContactChange,
   namePlaceholder,
   titlePlaceholder,
   relationshipTitlePlaceholder,
@@ -167,6 +175,26 @@ export function AddContactModal({
               placeholder={linkedinPlaceholder}
             />
           </div>
+          {onContactIsKeyAllianceContactChange ? (
+            <div className="inline-edit-field">
+              <label>Key Alliance Contact</label>
+              <input
+                type="checkbox"
+                checked={Boolean(contactIsKeyAllianceContact)}
+                onChange={(event) => onContactIsKeyAllianceContactChange?.(event.target.checked)}
+              />
+            </div>
+          ) : null}
+          {onContactIsInformedAllianceContactChange ? (
+            <div className="inline-edit-field">
+              <label>Informed Alliance Contact</label>
+              <input
+                type="checkbox"
+                checked={Boolean(contactIsInformedAllianceContact)}
+                onChange={(event) => onContactIsInformedAllianceContactChange?.(event.target.checked)}
+              />
+            </div>
+          ) : null}
         </div>
 
         <div className="actions">

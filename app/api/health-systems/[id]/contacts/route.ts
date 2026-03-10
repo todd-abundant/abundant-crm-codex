@@ -14,6 +14,8 @@ const requestSchema = z.object({
   email: z.string().email().optional().or(z.literal("")),
   phone: z.string().optional(),
   linkedinUrl: z.string().url().optional().or(z.literal("")),
+  isKeyAllianceContact: z.boolean().optional(),
+  isInformedAllianceContact: z.boolean().optional(),
   roleType: z
     .enum(["EXECUTIVE", "VENTURE_PARTNER", "INVESTOR_PARTNER", "COMPANY_CONTACT", "OTHER"])
     .default("EXECUTIVE")
@@ -27,6 +29,8 @@ const patchRequestSchema = z.object({
   email: z.string().email().optional().or(z.literal("")),
   phone: z.string().optional(),
   linkedinUrl: z.string().url().optional().or(z.literal("")),
+  isKeyAllianceContact: z.boolean().optional(),
+  isInformedAllianceContact: z.boolean().optional(),
   roleType: z
     .enum(["EXECUTIVE", "VENTURE_PARTNER", "INVESTOR_PARTNER", "COMPANY_CONTACT", "OTHER"])
     .optional()
@@ -107,6 +111,14 @@ function buildContactUpdatePayload(input: z.infer<typeof patchRequestSchema>) {
     linkUpdate.title = relationshipTitle || title || null;
   }
 
+  if (typeof input.isKeyAllianceContact === "boolean") {
+    linkUpdate.isKeyAllianceContact = input.isKeyAllianceContact;
+  }
+
+  if (typeof input.isInformedAllianceContact === "boolean") {
+    linkUpdate.isInformedAllianceContact = input.isInformedAllianceContact;
+  }
+
   return {
     contactUpdate,
     linkUpdate
@@ -145,7 +157,9 @@ export async function POST(
         contactId: resolved.contact.id,
         healthSystemId,
         roleType: input.roleType,
-        title: trimOrNull(input.relationshipTitle) || trimOrNull(input.title)
+        title: trimOrNull(input.relationshipTitle) || trimOrNull(input.title),
+        isKeyAllianceContact: input.isKeyAllianceContact ?? false,
+        isInformedAllianceContact: input.isInformedAllianceContact ?? false
       });
 
       return { healthSystem, resolved, link };

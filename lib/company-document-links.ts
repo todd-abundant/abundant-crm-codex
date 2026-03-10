@@ -1,4 +1,9 @@
 const GOOGLE_DOC_HOSTNAMES = new Set(["docs.google.com", "drive.google.com"]);
+const GOOGLE_DOC_FILE_ID_PATTERNS = [
+  /\/(?:document|spreadsheets|presentation|forms)\/d\/([a-zA-Z0-9_-]{10,})/,
+  /\/file\/d\/([a-zA-Z0-9_-]{10,})/,
+  /[?&]id=([a-zA-Z0-9_-]{10,})/
+];
 
 export const MAX_COMPANY_DOCUMENT_FILE_BYTES = 10 * 1024 * 1024;
 
@@ -38,6 +43,26 @@ export function normalizeGoogleDocsUrl(value: string) {
     const parsed = new URL(normalized);
     if (!GOOGLE_DOC_HOSTNAMES.has(parsed.hostname.toLowerCase())) return null;
     return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+export function extractGoogleDriveFileId(value: string) {
+  const normalized = normalizeGoogleDocsUrl(value);
+  if (!normalized) return null;
+
+  try {
+    const parsed = new URL(normalized);
+    const path = parsed.pathname;
+    for (const pattern of GOOGLE_DOC_FILE_ID_PATTERNS) {
+      const match = pattern.exec(path);
+      if (match?.[1]) return match[1];
+    }
+
+    const queryId = parsed.searchParams.get("id");
+    if (queryId) return queryId;
+    return null;
   } catch {
     return null;
   }

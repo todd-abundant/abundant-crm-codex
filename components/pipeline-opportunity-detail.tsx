@@ -18,10 +18,12 @@ import { InlineSelectField, InlineTextField, InlineTextareaField } from "./inlin
 import { normalizeRichText, RichTextArea } from "./rich-text-area";
 import {
   inferGoogleDocumentTitle,
+  readFileAsDataUrl,
   MAX_COMPANY_DOCUMENT_FILE_BYTES,
-  normalizeGoogleDocsUrl,
-  readFileAsDataUrl
+  normalizeCompanyDocumentUrl,
+  normalizeGoogleDocsUrl
 } from "@/lib/company-document-links";
+import { resolveGoogleDocumentTitle } from "@/lib/google-document-title";
 import {
   defaultMarketLandscapePayload,
   marketLandscapeCellKeys,
@@ -47,6 +49,24 @@ type CompanyDocumentType =
   | "LOI"
   | "COMMERCIAL_CONTRACT"
   | "OTHER";
+
+type OpportunityCompanyDocumentDraft = {
+  type: CompanyDocumentType;
+  title: string;
+  url: string;
+  notes: string;
+  uploadedAt: string;
+};
+
+function emptyOpportunityDocumentDraft() {
+  return {
+    type: "OTHER" as CompanyDocumentType,
+    title: "",
+    url: "",
+    notes: "",
+    uploadedAt: ""
+  };
+}
 
 type OpportunityType =
   | "SCREENING_LOI"
@@ -441,8 +461,11 @@ function isEmbeddedDocumentUrl(value: string) {
   return value.startsWith("data:");
 }
 
-function documentUrlLabel(value: string) {
-  return isEmbeddedDocumentUrl(value) ? "Open uploaded file" : value;
+function documentLinkLabel(document: { title: string; url: string }, resolvedTitle: string | null) {
+  const trimmedTitle = document.title.trim();
+  if (resolvedTitle) return resolvedTitle;
+  if (trimmedTitle) return trimmedTitle;
+  return isEmbeddedDocumentUrl(document.url) ? "Open uploaded file" : document.url;
 }
 
 function statusMeta(status: ScreeningStatus) {
@@ -1143,6 +1166,13 @@ export function PipelineOpportunityDetailView({
   const [newCompanyDocumentType, setNewCompanyDocumentType] = React.useState<CompanyDocumentType>("OTHER");
   const [newCompanyDocumentTitle, setNewCompanyDocumentTitle] = React.useState("");
   const [newCompanyDocumentGoogleUrl, setNewCompanyDocumentGoogleUrl] = React.useState("");
+  const [resolvedDocumentTitles, setResolvedDocumentTitles] = React.useState<Record<string, string>>({});
+  const [editingCompanyDocumentId, setEditingCompanyDocumentId] = React.useState<string | null>(null);
+  const [editingCompanyDocumentDraft, setEditingCompanyDocumentDraft] = React.useState<OpportunityCompanyDocumentDraft>(
+    emptyOpportunityDocumentDraft()
+  );
+  const [savingCompanyDocumentById, setSavingCompanyDocumentById] = React.useState<Record<string, boolean>>({});
+  const [deletingCompanyDocumentById, setDeletingCompanyDocumentById] = React.useState<Record<string, boolean>>({});
   const [savingAtAGlanceFieldByKey, setSavingAtAGlanceFieldByKey] = React.useState<Record<string, boolean>>({});
   const [isGeneratingIntakeReport, setIsGeneratingIntakeReport] = React.useState(false);
   const [lastGenerateStatus, setLastGenerateStatus] = React.useState<string | null>(null);
@@ -1331,6 +1361,14 @@ export function PipelineOpportunityDetailView({
   React.useEffect(() => {
     void loadItem();
   }, [loadItem]);
+
+  React.useEffect(() => {
+    setEditingCompanyDocumentId(null);
+    setEditingCompanyDocumentDraft(emptyOpportunityDocumentDraft());
+    setResolvedDocumentTitles({});
+    setSavingCompanyDocumentById({});
+    setDeletingCompanyDocumentById({});
+  }, [itemId]);
 
   React.useEffect(() => {
     if (!item?.isScreeningStage || screeningDetailView !== "quantitative") return;
@@ -4051,25 +4089,173 @@ function stripCurrencyFormatting(value: string) {
   }
 
   async function addCompanyDocumentFromGoogleLink() {
-    const normalizedUrl = normalizeGoogleDocsUrl(newCompanyDocumentGoogleUrl);
+    setStatus(null);
+
+    try {
+      const normalizedUrl = normalizeGoogleDocsUrl(newCompanyDocumentGoogleUrl);
+      if (!normalizedUrl) {
+        setStatus({
+          kind: "error",
+          text: "Provide a valid Google Docs or Google Drive link."
+        });
+        return;
+      }
+
+      const resolvedTitle = await resolveGoogleDocumentTitle(normalizedUrl);
+      const title = newCompanyDocumentTitle.trim() || resolvedTitle || inferGoogleDocumentTitle(normalizedUrl);
+      const created = await createCompanyDocument({
+        type: newCompanyDocumentType,
+        title,
+        url: normalizedUrl
+      });
+      if (created) {
+        setNewCompanyDocumentGoogleUrl("");
+        setNewCompanyDocumentTitle("");
+        setShowAddDocumentModal(false);
+      }
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to add Google document."
+      });
+    }
+  }
+
+  function resetEditingCompanyDocument() {
+    setEditingCompanyDocumentId(null);
+    setEditingCompanyDocumentDraft(emptyOpportunityDocumentDraft());
+  }
+
+  function beginEditCompanyDocument(document: PipelineOpportunityDetail["documents"][number]) {
+    setEditingCompanyDocumentId(document.id);
+    setEditingCompanyDocumentDraft({
+      type: document.type,
+      title: document.title,
+      url: document.url,
+      notes: document.notes || "",
+      uploadedAt: formatDateInputValue(document.uploadedAt)
+    });
+    setStatus(null);
+  }
+
+  function cancelEditCompanyDocument() {
+    setEditingCompanyDocumentId(null);
+    setEditingCompanyDocumentDraft(emptyOpportunityDocumentDraft());
+  }
+
+  async function saveCompanyDocumentMetadata(documentId: string) {
+    if (!item || !editingCompanyDocumentId || editingCompanyDocumentId !== documentId) return;
+
+    const normalizedUrl = normalizeCompanyDocumentUrl(editingCompanyDocumentDraft.url);
     if (!normalizedUrl) {
       setStatus({
         kind: "error",
-        text: "Provide a valid Google Docs or Google Drive link."
+        text: "Document URL is required."
       });
       return;
     }
 
-    const title = newCompanyDocumentTitle.trim() || inferGoogleDocumentTitle(normalizedUrl);
-    const created = await createCompanyDocument({
-      type: newCompanyDocumentType,
-      title,
-      url: normalizedUrl
-    });
-    if (created) {
-      setNewCompanyDocumentGoogleUrl("");
-      setNewCompanyDocumentTitle("");
-      setShowAddDocumentModal(false);
+    const title = editingCompanyDocumentDraft.title.trim();
+    if (!title) {
+      setStatus({
+        kind: "error",
+        text: "Document title is required."
+      });
+      return;
+    }
+
+    setSavingCompanyDocumentById((current) => ({ ...current, [documentId]: true }));
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/documents`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          documentId,
+          type: editingCompanyDocumentDraft.type,
+          title,
+          url: normalizedUrl,
+          notes: editingCompanyDocumentDraft.notes,
+          uploadedAt: editingCompanyDocumentDraft.uploadedAt || null
+        })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to update company document.");
+
+      const updated = payload.document as PipelineOpportunityDetail["documents"][number] | undefined;
+      if (!updated) throw new Error("Failed to update company document.");
+
+      setItem((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          documents: current.documents.map((document) => (document.id === documentId ? updated : document))
+        };
+      });
+
+      setResolvedDocumentTitles((current) => {
+        const next = { ...current };
+        if (next[documentId]) delete next[documentId];
+        return next;
+      });
+
+      resetEditingCompanyDocument();
+      setStatus({ kind: "ok", text: "Company document updated." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to update company document."
+      });
+    } finally {
+      setSavingCompanyDocumentById((current) => ({ ...current, [documentId]: false }));
+    }
+  }
+
+  async function deleteCompanyDocument(document: PipelineOpportunityDetail["documents"][number]) {
+    if (!item) return;
+    if (!window.confirm(`Delete ${document.title}?`)) return;
+
+    setDeletingCompanyDocumentById((current) => ({ ...current, [document.id]: true }));
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/documents`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentId: document.id })
+      });
+
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to delete company document.");
+
+      setItem((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          documents: current.documents.filter((entry) => entry.id !== document.id)
+        };
+      });
+
+      if (editingCompanyDocumentId === document.id) {
+        cancelEditCompanyDocument();
+      }
+
+      setResolvedDocumentTitles((current) => {
+        const next = { ...current };
+        if (next[document.id]) delete next[document.id];
+        return next;
+      });
+
+      setStatus({ kind: "ok", text: `${document.title} deleted.` });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to delete company document."
+      });
+    } finally {
+      setDeletingCompanyDocumentById((current) => ({ ...current, [document.id]: false }));
     }
   }
 
@@ -4148,6 +4334,85 @@ function stripCurrencyFormatting(value: string) {
       setIntakeReportElapsedSeconds(0);
     }
   }
+
+  const sortedNotes = item
+    ? [...item.notes].sort((a, b) => {
+        const left = new Date(a.createdAt).getTime();
+        const right = new Date(b.createdAt).getTime();
+        if (Number.isNaN(left) && Number.isNaN(right)) return b.id.localeCompare(a.id);
+        if (Number.isNaN(left)) return 1;
+        if (Number.isNaN(right)) return -1;
+        if (right !== left) return right - left;
+        return b.id.localeCompare(a.id);
+      })
+    : [];
+
+  const sortedDocuments = item
+    ? [...item.documents].sort((a, b) => {
+        const left = new Date(a.uploadedAt).getTime();
+        const right = new Date(b.uploadedAt).getTime();
+        if (Number.isNaN(left) && Number.isNaN(right)) return b.id.localeCompare(a.id);
+        if (Number.isNaN(left)) return 1;
+        if (Number.isNaN(right)) return -1;
+        if (right !== left) return right - left;
+        return b.id.localeCompare(a.id);
+      })
+    : [];
+
+  React.useEffect(() => {
+    if (!item?.documents.length) {
+      return;
+    }
+
+    const placeholderDocuments = item.documents.filter((document) => {
+      const normalizedUrl = normalizeGoogleDocsUrl(document.url);
+      if (!normalizedUrl) return false;
+      return inferGoogleDocumentTitle(normalizedUrl) === document.title.trim() && Boolean(document.title.trim());
+    });
+
+    if (placeholderDocuments.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    void Promise.all(
+      placeholderDocuments.map(async (document) => {
+        const resolvedTitle = await resolveGoogleDocumentTitle(document.url);
+        if (!resolvedTitle) return null;
+        return [document.id, resolvedTitle] as const;
+      })
+    )
+      .then((entries) => {
+        if (cancelled) return;
+
+        const updates = entries.filter((entry): entry is readonly [string, string] => entry !== null);
+        if (updates.length === 0) return;
+
+        setResolvedDocumentTitles((previous) => {
+          const next = { ...previous };
+          let hasChanges = false;
+
+          for (const [documentId, title] of updates) {
+            if (next[documentId] !== title) {
+              next[documentId] = title;
+              hasChanges = true;
+            }
+          }
+
+          return hasChanges ? next : previous;
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn("pipeline_opportunity_google_titles_failed", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [item?.documents]);
 
   if (loading) {
     const LoadingWrapper: React.ElementType = inModal ? "div" : "main";
@@ -4228,24 +4493,6 @@ function stripCurrencyFormatting(value: string) {
     return a.theme.localeCompare(b.theme);
   });
 
-  const sortedNotes = [...item.notes].sort((a, b) => {
-    const left = new Date(a.createdAt).getTime();
-    const right = new Date(b.createdAt).getTime();
-    if (Number.isNaN(left) && Number.isNaN(right)) return b.id.localeCompare(a.id);
-    if (Number.isNaN(left)) return 1;
-    if (Number.isNaN(right)) return -1;
-    if (right !== left) return right - left;
-    return b.id.localeCompare(a.id);
-  });
-  const sortedDocuments = [...item.documents].sort((a, b) => {
-    const left = new Date(a.uploadedAt).getTime();
-    const right = new Date(b.uploadedAt).getTime();
-    if (Number.isNaN(left) && Number.isNaN(right)) return b.id.localeCompare(a.id);
-    if (Number.isNaN(left)) return 1;
-    if (Number.isNaN(right)) return -1;
-    if (right !== left) return right - left;
-    return b.id.localeCompare(a.id);
-  });
   const intakeReportProgressLabel =
     intakeReportGenerationMode === "recreate" ? "Recreating Intake Document" : "Generating Intake Document";
   const intakeReportProgressIndicator = isGeneratingIntakeReport ? (
@@ -5520,22 +5767,138 @@ function stripCurrencyFormatting(value: string) {
             <div className="pipeline-doc-list">
               {sortedDocuments.map((document) => (
                 <div key={document.id} className="detail-list-item">
-                  <div className="pipeline-doc-head">
-                    <strong>{document.title}</strong>
-                    <span className="status-pill draft">{document.type}</span>
-                  </div>
-                  <p className="muted">
-                    <a
-                      href={document.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      download={isEmbeddedDocumentUrl(document.url) ? document.title : undefined}
-                    >
-                      {documentUrlLabel(document.url)}
-                    </a>
-                  </p>
-                  <p className="muted">Uploaded {formatDate(document.uploadedAt)}</p>
-                  {document.notes ? <p className="muted">{document.notes}</p> : null}
+                  {editingCompanyDocumentId === document.id ? (
+                    <div className="detail-grid">
+                      <div>
+                        <label>Type</label>
+                        <select
+                          value={editingCompanyDocumentDraft.type}
+                          onChange={(event) =>
+                            setEditingCompanyDocumentDraft((current) => ({
+                              ...current,
+                              type: event.target.value as CompanyDocumentType
+                            }))
+                          }
+                        >
+                          {companyDocumentTypeOptions.map((option) => (
+                            <option key={`${document.id}-edit-${option.value}`} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label>Uploaded Date</label>
+                        <input
+                          type="date"
+                          value={editingCompanyDocumentDraft.uploadedAt}
+                          onChange={(event) =>
+                            setEditingCompanyDocumentDraft((current) => ({
+                              ...current,
+                              uploadedAt: event.target.value
+                            }))
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label>Title</label>
+                        <input
+                          value={editingCompanyDocumentDraft.title}
+                          onChange={(event) =>
+                            setEditingCompanyDocumentDraft((current) => ({
+                              ...current,
+                              title: event.target.value
+                            }))
+                          }
+                          placeholder="Document title"
+                        />
+                      </div>
+                      <div>
+                        <label>URL</label>
+                        <input
+                          value={editingCompanyDocumentDraft.url}
+                          onChange={(event) =>
+                            setEditingCompanyDocumentDraft((current) => ({
+                              ...current,
+                              url: event.target.value
+                            }))
+                          }
+                          placeholder="https://..."
+                        />
+                      </div>
+                      <div className="detail-grid-full">
+                        <label>Notes</label>
+                        <textarea
+                          rows={3}
+                          value={editingCompanyDocumentDraft.notes}
+                          onChange={(event) =>
+                            setEditingCompanyDocumentDraft((current) => ({
+                              ...current,
+                              notes: event.target.value
+                            }))
+                          }
+                          placeholder="Optional context"
+                        />
+                      </div>
+                      <div className="actions">
+                        <button
+                          type="button"
+                          className="ghost small"
+                          onClick={() => cancelEditCompanyDocument()}
+                          disabled={savingCompanyDocumentById[document.id]}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary small"
+                          onClick={() => void saveCompanyDocumentMetadata(document.id)}
+                          disabled={savingCompanyDocumentById[document.id]}
+                        >
+                          {savingCompanyDocumentById[document.id] ? "Saving..." : "Save"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="contact-row">
+                        <div className="contact-row-details">
+                          <div className="pipeline-doc-head">
+                            <strong>
+                              <a
+                                href={document.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                download={isEmbeddedDocumentUrl(document.url) ? document.title : undefined}
+                              >
+                                {documentLinkLabel(document, resolvedDocumentTitles[document.id] || null)}
+                              </a>
+                            </strong>
+                            <span className="status-pill draft">{document.type}</span>
+                          </div>
+                          <p className="muted">Uploaded {formatDate(document.uploadedAt)}</p>
+                          {document.notes ? <p className="muted">{document.notes}</p> : null}
+                        </div>
+                        <div className="contact-row-actions">
+                          <button
+                            type="button"
+                            className="ghost small"
+                            onClick={() => beginEditCompanyDocument(document)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost small"
+                            onClick={() => void deleteCompanyDocument(document)}
+                            disabled={deletingCompanyDocumentById[document.id]}
+                          >
+                            {deletingCompanyDocumentById[document.id] ? "Deleting..." : "Delete"}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>

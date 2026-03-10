@@ -73,6 +73,8 @@ type CoInvestorRecord = {
     id: string;
     roleType: "EXECUTIVE" | "VENTURE_PARTNER" | "INVESTOR_PARTNER" | "COMPANY_CONTACT" | "OTHER";
     title?: string | null;
+    isKeyAllianceContact?: boolean;
+    isInformedAllianceContact?: boolean;
     contact: {
       id: string;
       name: string;
@@ -351,6 +353,8 @@ export function CoInvestorWorkbench() {
   const [contactRoleType, setContactRoleType] = React.useState<"INVESTOR_PARTNER" | "OTHER">(
     "INVESTOR_PARTNER"
   );
+  const [newIsKeyAllianceContact, setNewIsKeyAllianceContact] = React.useState(false);
+  const [newIsInformedAllianceContact, setNewIsInformedAllianceContact] = React.useState(false);
   const [editingContactLinkId, setEditingContactLinkId] = React.useState<string | null>(null);
   const [editingContactName, setEditingContactName] = React.useState("");
   const [editingContactTitle, setEditingContactTitle] = React.useState("");
@@ -358,6 +362,8 @@ export function CoInvestorWorkbench() {
   const [editingContactEmail, setEditingContactEmail] = React.useState("");
   const [editingContactPhone, setEditingContactPhone] = React.useState("");
   const [editingContactLinkedinUrl, setEditingContactLinkedinUrl] = React.useState("");
+  const [editingIsKeyAllianceContact, setEditingIsKeyAllianceContact] = React.useState(false);
+  const [editingIsInformedAllianceContact, setEditingIsInformedAllianceContact] = React.useState(false);
   const [editingContactRoleType, setEditingContactRoleType] = React.useState<"INVESTOR_PARTNER" | "OTHER">(
     "INVESTOR_PARTNER"
   );
@@ -672,6 +678,8 @@ export function CoInvestorWorkbench() {
           email: contactEmail,
           phone: contactPhone,
           linkedinUrl: contactLinkedinUrl,
+          isKeyAllianceContact: newIsKeyAllianceContact,
+          isInformedAllianceContact: newIsInformedAllianceContact,
           roleType: contactRoleType
         })
       });
@@ -713,6 +721,8 @@ export function CoInvestorWorkbench() {
     setEditingContactPhone(link.contact.phone || "");
     setEditingContactLinkedinUrl(link.contact.linkedinUrl || "");
     setEditingContactRoleType(link.roleType === "INVESTOR_PARTNER" ? "INVESTOR_PARTNER" : "OTHER");
+    setEditingIsKeyAllianceContact(Boolean(link.isKeyAllianceContact));
+    setEditingIsInformedAllianceContact(Boolean(link.isInformedAllianceContact));
     setStatus(null);
   }
 
@@ -723,6 +733,8 @@ export function CoInvestorWorkbench() {
     setContactEmail("");
     setContactPhone("");
     setContactLinkedinUrl("");
+    setNewIsKeyAllianceContact(false);
+    setNewIsInformedAllianceContact(false);
     setContactRoleType("INVESTOR_PARTNER");
   }
 
@@ -734,6 +746,8 @@ export function CoInvestorWorkbench() {
     setEditingContactEmail("");
     setEditingContactPhone("");
     setEditingContactLinkedinUrl("");
+    setEditingIsKeyAllianceContact(false);
+    setEditingIsInformedAllianceContact(false);
     setEditingContactRoleType("INVESTOR_PARTNER");
   }
 
@@ -759,6 +773,8 @@ export function CoInvestorWorkbench() {
           email: editingContactEmail,
           phone: editingContactPhone,
           linkedinUrl: editingContactLinkedinUrl,
+          isKeyAllianceContact: editingIsKeyAllianceContact,
+          isInformedAllianceContact: editingIsInformedAllianceContact,
           roleType: editingContactRoleType
         })
       });
@@ -1491,26 +1507,49 @@ export function CoInvestorWorkbench() {
               + Add Co-Investor
             </a>
           </div>
-          <input
-            id="search-co-investor"
-            aria-label="Search co-investors"
-            placeholder="Type a co-investor name, location, or website"
-            value={query}
-            onChange={(event) => {
-              const nextQuery = event.target.value;
-              setKeepListView(false);
-              setQuery(nextQuery);
-              setSearchCandidates([]);
-              setCandidateSearchQuery("");
-              setSelectedCandidateIndex(-1);
-              setSearchCandidateError(null);
-              setSearchingCandidates(false);
-              if (candidateSearchAbortRef.current) {
-                candidateSearchAbortRef.current.abort();
-                candidateSearchAbortRef.current = null;
-              }
-            }}
-          />
+          <div className="entity-list-search">
+            <input
+              id="search-co-investor"
+              aria-label="Search co-investors"
+              placeholder="Type a co-investor name, location, or website"
+              value={query}
+              onChange={(event) => {
+                const nextQuery = event.target.value;
+                setKeepListView(false);
+                setQuery(nextQuery);
+                setSearchCandidates([]);
+                setCandidateSearchQuery("");
+                setSelectedCandidateIndex(-1);
+                setSearchCandidateError(null);
+                setSearchingCandidates(false);
+                if (candidateSearchAbortRef.current) {
+                  candidateSearchAbortRef.current.abort();
+                  candidateSearchAbortRef.current = null;
+                }
+              }}
+            />
+            {query.trim() ? (
+              <button
+                type="button"
+                className="ghost small entity-list-search-clear"
+                onClick={() => {
+                  setKeepListView(false);
+                  setQuery("");
+                  setSearchCandidates([]);
+                  setCandidateSearchQuery("");
+                  setSelectedCandidateIndex(-1);
+                  setSearchCandidateError(null);
+                  setSearchingCandidates(false);
+                  if (candidateSearchAbortRef.current) {
+                    candidateSearchAbortRef.current.abort();
+                    candidateSearchAbortRef.current = null;
+                  }
+                }}
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
           <EntityLookupInput
             entityKind="CO_INVESTOR"
             value={coInvestorLookupValue}
@@ -1637,19 +1676,6 @@ export function CoInvestorWorkbench() {
                       {record.isSeriesAInvestor && <span className="flag-pill alliance">Series A</span>}
                     </div>
                   </div>
-                  <div className="list-row-meta">
-                    <button
-                      className="ghost small"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        void deleteCoInvestor(record);
-                      }}
-                      disabled={deletingRecordId === record.id}
-                    >
-                      {deletingRecordId === record.id ? "Deleting..." : "Delete"}
-                    </button>
-                  </div>
                 </div>
               );
             })}
@@ -1750,6 +1776,19 @@ export function CoInvestorWorkbench() {
                   <p>{selectedRecord.researchError}</p>
                 </div>
               )}
+
+                <div className="detail-section entity-delete-section">
+                  <div className="actions">
+                    <button
+                      type="button"
+                      className="ghost small danger"
+                      onClick={() => void deleteCoInvestor(selectedRecord)}
+                      disabled={deletingRecordId === selectedRecord.id}
+                    >
+                      {deletingRecordId === selectedRecord.id ? "Deleting..." : "Delete Co-investor"}
+                    </button>
+                  </div>
+                </div>
 
                   </>
                 )}
@@ -1871,6 +1910,22 @@ export function CoInvestorWorkbench() {
                                 placeholder="https://linkedin.com/in/..."
                               />
                             </div>
+                            <div className="inline-edit-field">
+                              <label>Key Alliance Contact</label>
+                              <input
+                                type="checkbox"
+                                checked={editingIsKeyAllianceContact}
+                                onChange={(event) => setEditingIsKeyAllianceContact(event.target.checked)}
+                              />
+                            </div>
+                            <div className="inline-edit-field">
+                              <label>Informed Alliance Contact</label>
+                              <input
+                                type="checkbox"
+                                checked={editingIsInformedAllianceContact}
+                                onChange={(event) => setEditingIsInformedAllianceContact(event.target.checked)}
+                              />
+                            </div>
                           </div>
                           <div className="actions">
                             <button
@@ -1892,6 +1947,16 @@ export function CoInvestorWorkbench() {
                             {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
                             {link.contact.email ? ` | ${link.contact.email}` : ""}
                             {link.contact.phone ? ` | ${link.contact.phone}` : ""}
+                            {(link.isKeyAllianceContact || link.isInformedAllianceContact) ? (
+                              <div className="contact-list-inline-flags">
+                                {link.isKeyAllianceContact ? (
+                                  <span className="flag-pill">Key Alliance Contact</span>
+                                ) : null}
+                                {link.isInformedAllianceContact ? (
+                                  <span className="flag-pill">Informed Alliance Contact</span>
+                                ) : null}
+                              </div>
+                            ) : null}
                             {link.contact.linkedinUrl && (
                               <>
                                 {" "}-{" "}
@@ -1945,6 +2010,10 @@ export function CoInvestorWorkbench() {
                   onContactPhoneChange={setContactPhone}
                   contactLinkedinUrl={contactLinkedinUrl}
                   onContactLinkedinUrlChange={setContactLinkedinUrl}
+                  contactIsKeyAllianceContact={newIsKeyAllianceContact}
+                  onContactIsKeyAllianceContactChange={setNewIsKeyAllianceContact}
+                  contactIsInformedAllianceContact={newIsInformedAllianceContact}
+                  onContactIsInformedAllianceContactChange={setNewIsInformedAllianceContact}
                   namePlaceholder="William Smith"
                   titlePlaceholder="General Partner"
                   relationshipTitlePlaceholder="Board Member"

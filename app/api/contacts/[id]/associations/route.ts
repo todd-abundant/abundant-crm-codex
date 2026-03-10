@@ -21,14 +21,18 @@ const createAssociationSchema = z.object({
   associationType: associationTypeSchema,
   targetId: z.string().min(1),
   roleType: roleTypeSchema.optional(),
-  title: z.string().optional().nullable().or(z.literal(""))
+  title: z.string().optional().nullable().or(z.literal("")),
+  isKeyAllianceContact: z.boolean().optional(),
+  isInformedAllianceContact: z.boolean().optional()
 });
 
 const updateAssociationSchema = z.object({
   associationType: associationTypeSchema,
   linkId: z.string().min(1),
   roleType: roleTypeSchema.optional(),
-  title: z.string().optional().nullable().or(z.literal(""))
+  title: z.string().optional().nullable().or(z.literal("")),
+  isKeyAllianceContact: z.boolean().optional(),
+  isInformedAllianceContact: z.boolean().optional()
 });
 
 const deleteAssociationSchema = z.object({
@@ -89,7 +93,9 @@ async function createAssociation(
       contactId,
       healthSystemId: input.targetId,
       roleType,
-      title
+      title,
+      isKeyAllianceContact: input.isKeyAllianceContact ?? false,
+      isInformedAllianceContact: input.isInformedAllianceContact ?? false
     });
 
     return {
@@ -188,7 +194,9 @@ async function updateAssociation(
         id: true,
         healthSystemId: true,
         roleType: true,
-        title: true
+        title: true,
+        isKeyAllianceContact: true,
+        isInformedAllianceContact: true
       }
     });
 
@@ -198,19 +206,27 @@ async function updateAssociation(
 
     const roleType = input.roleType || existing.roleType;
     const title = input.title === undefined ? existing.title : trimOrNull(input.title);
+    const isKeyAllianceContact = input.isKeyAllianceContact ?? existing.isKeyAllianceContact;
+    const isInformedAllianceContact = input.isInformedAllianceContact ?? existing.isInformedAllianceContact;
     let targetId = existing.id;
 
     if (roleType === existing.roleType) {
       await tx.contactHealthSystem.update({
         where: { id: existing.id },
-        data: { title }
+        data: {
+          title,
+          isKeyAllianceContact,
+          isInformedAllianceContact
+        }
       });
     } else {
       const upserted = await upsertHealthSystemContactLink(tx, {
         contactId,
         healthSystemId: existing.healthSystemId,
         roleType,
-        title
+        title,
+        isKeyAllianceContact,
+        isInformedAllianceContact
       });
       targetId = upserted.id;
 

@@ -208,6 +208,9 @@ export function AppHeader({
                   >
                     Transcript Member Insights
                   </Link>
+                  <Link href="/skin-lab" className="top-nav-dropdown-link" role="menuitem" onClick={closeOpenDropdowns}>
+                    Skin Lab
+                  </Link>
                   <Link href="/workbench" className="top-nav-dropdown-link" role="menuitem" onClick={closeOpenDropdowns}>
                     Workbench
                   </Link>

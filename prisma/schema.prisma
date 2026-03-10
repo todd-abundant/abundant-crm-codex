@@ -1236,6 +1236,8 @@ model ContactHealthSystem {
   healthSystemId String
   roleType       ContactRoleType @default(OTHER)
   title          String?
+  isKeyAllianceContact Boolean    @default(false)
+  isInformedAllianceContact Boolean @default(false)
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
@@ -1253,6 +1255,8 @@ model ContactCompany {
   companyId String
   roleType  ContactRoleType @default(COMPANY_CONTACT)
   title     String?
+  isKeyAllianceContact Boolean    @default(false)
+  isInformedAllianceContact Boolean @default(false)
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
 
@@ -1270,6 +1274,8 @@ model ContactCoInvestor {
   coInvestorId String
   roleType     ContactRoleType @default(INVESTOR_PARTNER)
   title        String?
+  isKeyAllianceContact Boolean    @default(false)
+  isInformedAllianceContact Boolean @default(false)
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 

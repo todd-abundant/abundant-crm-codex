@@ -1222,7 +1222,7 @@ export function WorkbenchBeta() {
   }
 
   return (
-    <main>
+    <main className="workbench-beta-shell" data-skin="default">
       <section className="panel chatbot-shell">
         <div className="chatbot-header">
           <div>

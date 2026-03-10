@@ -36,6 +36,8 @@ type ContactRecord = {
     roleType: ContactRoleType;
     title?: string | null;
     healthSystemId: string;
+    isKeyAllianceContact: boolean;
+    isInformedAllianceContact: boolean;
     healthSystem: {
       id: string;
       name: string;
@@ -119,6 +121,8 @@ type EditingAssociation = {
   linkId: string;
   roleType: ContactRoleType;
   title: string;
+  isKeyAllianceContact: boolean;
+  isInformedAllianceContact: boolean;
 };
 
 type LookupFilters = {
@@ -328,6 +332,10 @@ export function ContactWorkbench() {
   const [showAddCoInvestorLookup, setShowAddCoInvestorLookup] = React.useState(false);
   const [showAddCompanyLookup, setShowAddCompanyLookup] = React.useState(false);
   const [newHealthSystemAssociationId, setNewHealthSystemAssociationId] = React.useState("");
+  const [newHealthSystemAssociationIsKeyAllianceContact, setNewHealthSystemAssociationIsKeyAllianceContact] =
+    React.useState(false);
+  const [newHealthSystemAssociationIsInformedAllianceContact, setNewHealthSystemAssociationIsInformedAllianceContact] =
+    React.useState(false);
   const [newCoInvestorAssociationId, setNewCoInvestorAssociationId] = React.useState("");
   const [newCompanyAssociationId, setNewCompanyAssociationId] = React.useState("");
   const [savingAssociation, setSavingAssociation] = React.useState(false);
@@ -702,6 +710,8 @@ export function ContactWorkbench() {
     if (associationType === "HEALTH_SYSTEM") {
       setShowAddHealthSystemLookup(false);
       setNewHealthSystemAssociationId("");
+      setNewHealthSystemAssociationIsKeyAllianceContact(false);
+      setNewHealthSystemAssociationIsInformedAllianceContact(false);
       return;
     }
 
@@ -721,6 +731,8 @@ export function ContactWorkbench() {
     setShowAddCoInvestorLookup(associationType === "CO_INVESTOR");
     setShowAddCompanyLookup(associationType === "COMPANY");
     setNewHealthSystemAssociationId("");
+    setNewHealthSystemAssociationIsKeyAllianceContact(false);
+    setNewHealthSystemAssociationIsInformedAllianceContact(false);
     setNewCoInvestorAssociationId("");
     setNewCompanyAssociationId("");
   }
@@ -734,17 +746,24 @@ export function ContactWorkbench() {
 
     setSavingAssociation(true);
     setStatus(null);
-
+  
     try {
+      const associationPayload: Record<string, unknown> = {
+        associationType,
+        targetId,
+        roleType: defaultRoleTypeForAssociation(associationType),
+        title: ""
+      };
+
+      if (associationType === "HEALTH_SYSTEM") {
+        associationPayload.isKeyAllianceContact = newHealthSystemAssociationIsKeyAllianceContact;
+        associationPayload.isInformedAllianceContact = newHealthSystemAssociationIsInformedAllianceContact;
+      }
+
       const res = await fetch(`/api/contacts/${selectedRecord.id}/associations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          associationType,
-          targetId,
-          roleType: defaultRoleTypeForAssociation(associationType),
-          title: ""
-        })
+        body: JSON.stringify(associationPayload)
       });
       const payload = await res.json();
 
@@ -767,18 +786,37 @@ export function ContactWorkbench() {
 
   function beginEditAssociation(
     associationType: AssociationType,
-    link: { id: string; roleType: ContactRoleType; title?: string | null }
+    link: {
+      id: string;
+      roleType: ContactRoleType;
+      title?: string | null;
+      isKeyAllianceContact?: boolean;
+      isInformedAllianceContact?: boolean;
+    }
   ) {
     setEditingAssociation({
       associationType,
       linkId: link.id,
       roleType: link.roleType,
-      title: link.title || ""
+      title: link.title || "",
+      isKeyAllianceContact: Boolean(link.isKeyAllianceContact),
+      isInformedAllianceContact: Boolean(link.isInformedAllianceContact)
     });
   }
 
   async function saveEditedAssociation() {
     if (!selectedRecord || !editingAssociation) return;
+    const associationPayload: Record<string, unknown> = {
+      associationType: editingAssociation.associationType,
+      linkId: editingAssociation.linkId,
+      roleType: editingAssociation.roleType,
+      title: editingAssociation.title
+    };
+
+    if (editingAssociation.associationType === "HEALTH_SYSTEM") {
+      associationPayload.isKeyAllianceContact = editingAssociation.isKeyAllianceContact;
+      associationPayload.isInformedAllianceContact = editingAssociation.isInformedAllianceContact;
+    }
 
     setSavingEditedAssociation(true);
     setStatus(null);
@@ -787,12 +825,7 @@ export function ContactWorkbench() {
       const res = await fetch(`/api/contacts/${selectedRecord.id}/associations`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          associationType: editingAssociation.associationType,
-          linkId: editingAssociation.linkId,
-          roleType: editingAssociation.roleType,
-          title: editingAssociation.title
-        })
+        body: JSON.stringify(associationPayload)
       });
       const payload = await res.json();
 
@@ -1064,6 +1097,10 @@ export function ContactWorkbench() {
                 {records.map((record) => {
                   const associationCount =
                     record.healthSystemLinks.length + record.coInvestorLinks.length + record.companyLinks.length;
+                  const hasKeyAllianceContact = record.healthSystemLinks.some((link) => link.isKeyAllianceContact);
+                  const hasInformedAllianceContact = record.healthSystemLinks.some(
+                    (link) => link.isInformedAllianceContact
+                  );
                   const entityTypeCounts: Array<{
                     type: AssociationType;
                     label: string;
@@ -1116,6 +1153,20 @@ export function ContactWorkbench() {
                           <span className="flag-pill">{record.noteCount} notes</span>
                           <span className="flag-pill">{record.documentCount} docs</span>
                         </div>
+                        {(hasKeyAllianceContact || hasInformedAllianceContact) ? (
+                          <div className="contact-list-alliance-flags">
+                            {hasKeyAllianceContact ? (
+                              <span className="flag-pill" title="Key Alliance Contact">
+                                Key
+                              </span>
+                            ) : null}
+                            {hasInformedAllianceContact ? (
+                              <span className="flag-pill" title="Informed Alliance Contact">
+                                Informed
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
                     </button>
                   );
@@ -1130,16 +1181,6 @@ export function ContactWorkbench() {
             <div className="health-system-panel-scroll">
               <div className="detail-head detail-head-minimal">
                 <h3>{selectedRecord.name}</h3>
-                <div className="actions">
-                  <button
-                    type="button"
-                    className="ghost small"
-                    onClick={() => void deleteSelectedContact()}
-                    disabled={deletingContact}
-                  >
-                    {deletingContact ? "Deleting..." : "Delete Contact"}
-                  </button>
-                </div>
               </div>
 
               <div className="detail-tabs" role="tablist" aria-label="Contact detail sections">
@@ -1323,6 +1364,19 @@ export function ContactWorkbench() {
                       />
                     </div>
                   </div>
+
+                  <div className="detail-section entity-delete-section">
+                    <div className="actions">
+                      <button
+                        type="button"
+                        className="ghost small danger"
+                        onClick={() => void deleteSelectedContact()}
+                        disabled={deletingContact}
+                      >
+                        {deletingContact ? "Deleting..." : "Delete Contact"}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ) : null}
 
@@ -1351,8 +1405,6 @@ export function ContactWorkbench() {
                         value={newHealthSystemAssociationId}
                         onChange={(nextId) => {
                           setNewHealthSystemAssociationId(nextId);
-                          if (!nextId || savingAssociation) return;
-                          void addAssociation("HEALTH_SYSTEM", nextId);
                         }}
                         initialOptions={referenceData.healthSystems.map((item) => ({ id: item.id, name: item.name }))}
                         className="relationship-inline-lookup"
@@ -1363,6 +1415,38 @@ export function ContactWorkbench() {
                           updateReferenceDataForEntity("HEALTH_SYSTEM", { id: option.id, name: option.name })
                         }
                       />
+                      <div className="detail-grid">
+                        <div className="inline-edit-field">
+                          <label>Key Alliance Contact</label>
+                          <input
+                            type="checkbox"
+                            checked={newHealthSystemAssociationIsKeyAllianceContact}
+                            onChange={(event) =>
+                              setNewHealthSystemAssociationIsKeyAllianceContact(event.target.checked)
+                            }
+                            disabled={savingAssociation}
+                          />
+                        </div>
+                        <div className="inline-edit-field">
+                          <label>Informed Alliance Contact</label>
+                          <input
+                            type="checkbox"
+                            checked={newHealthSystemAssociationIsInformedAllianceContact}
+                            onChange={(event) =>
+                              setNewHealthSystemAssociationIsInformedAllianceContact(event.target.checked)
+                            }
+                            disabled={savingAssociation}
+                          />
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={() => void addAssociation("HEALTH_SYSTEM", newHealthSystemAssociationId)}
+                        disabled={savingAssociation || !newHealthSystemAssociationId}
+                      >
+                        {savingAssociation ? "Adding..." : "Add Health System"}
+                      </button>
                     </div>
                   ) : null}
                   {selectedRecord.healthSystemLinks.length === 0 ? <p className="muted">No health system links.</p> : null}
@@ -1380,6 +1464,14 @@ export function ContactWorkbench() {
                               {roleTypeLabel(link.roleType)}
                               {link.title ? ` · ${link.title}` : ""}
                             </p>
+                            {(link.isKeyAllianceContact || link.isInformedAllianceContact) ? (
+                              <div className="contact-list-inline-flags">
+                                {link.isKeyAllianceContact ? <span className="flag-pill">Key Alliance Contact</span> : null}
+                                {link.isInformedAllianceContact ? (
+                                  <span className="flag-pill">Informed Alliance Contact</span>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
                           <div className="contact-row-actions">
                             <button type="button" className="ghost small" onClick={() => beginEditAssociation("HEALTH_SYSTEM", link)}>
@@ -1425,6 +1517,40 @@ export function ContactWorkbench() {
                                     )
                                   }
                                   placeholder="Relationship title"
+                                />
+                              </div>
+                              <div className="inline-edit-field">
+                                <label>Key Alliance Contact</label>
+                                <input
+                                  type="checkbox"
+                                  checked={editingAssociation.isKeyAllianceContact}
+                                  onChange={(event) =>
+                                    setEditingAssociation((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            isKeyAllianceContact: event.target.checked
+                                          }
+                                        : current
+                                    )
+                                  }
+                                />
+                              </div>
+                              <div className="inline-edit-field">
+                                <label>Informed Alliance Contact</label>
+                                <input
+                                  type="checkbox"
+                                  checked={editingAssociation.isInformedAllianceContact}
+                                  onChange={(event) =>
+                                    setEditingAssociation((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            isInformedAllianceContact: event.target.checked
+                                          }
+                                        : current
+                                    )
+                                  }
                                 />
                               </div>
                             </div>

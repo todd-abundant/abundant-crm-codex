@@ -20,6 +20,119 @@
   --danger: #b91c1c;
 }
 
+.workbench-beta-shell {
+  --wb-fontFamily: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --wb-page-background: radial-gradient(circle at 0% 0%, rgba(10, 47, 90, 0.06) 0, rgba(10, 47, 90, 0) 30%),
+    radial-gradient(circle at 100% 0%, rgba(0, 163, 157, 0.06) 0, rgba(10, 47, 90, 0) 34%),
+    var(--colorBackgroundLight);
+  --wb-input-bg: var(--colorSurface);
+  --wb-text: var(--colorTextPrimary);
+  --wb-muted: var(--colorMute);
+  --wb-label: var(--colorBrandPrimary);
+  --wb-border: var(--colorBorder);
+  --wb-panel-bg: var(--colorSurface);
+  --wb-panel-shadow: 0 2px 8px rgba(10, 47, 90, 0.06);
+  --wb-panel-border: var(--colorBorder);
+  --wb-thread-bg: linear-gradient(180deg, #f7fbff 0%, #edf5ff 100%);
+  --wb-thread-border: #d7e4f2;
+  --wb-message-bg: #ffffff;
+  --wb-message-border: #d4e1ef;
+  --wb-message-shadow: 0 2px 6px rgba(10, 47, 90, 0.05);
+  --wb-message-user-bg: #0e355f;
+  --wb-message-user-border: #0e355f;
+  --wb-message-user-text: #f3f8fd;
+  --wb-message-user-link: #a8f2ee;
+  --wb-plan-note-bg: #fff6f6;
+  --wb-plan-note-border: #f5b4b4;
+  --wb-item-bg: #f8fbff;
+  --wb-item-border: #d7e2ef;
+  --wb-item-current-bg: #ebf6ff;
+  --wb-item-current-border: #8dbfe4;
+  --wb-item-selected-bg: #f8fbff;
+  --wb-issue: #92400e;
+  --wb-result-failed: #334155;
+  --wb-spotlight-bg: #f8fbff;
+  --wb-spotlight-border: #d3e0ee;
+  --wb-modal-bg: #ffffff;
+  --wb-modal-backdrop: rgba(10, 18, 40, 0.46);
+  --wb-modal-shadow: 0 18px 42px rgba(10, 18, 40, 0.26);
+  --wb-toolbar-note: var(--wb-muted);
+  --wb-success: var(--success);
+  --wb-danger: var(--danger);
+  --wb-secondary-bg: #ffffff;
+  --wb-secondary-text: var(--wb-label);
+}
+
+.workbench-beta-shell[data-skin="glass-aurora"] {
+  --wb-fontFamily: "Trebuchet MS", "Segoe UI", Arial, sans-serif;
+  --wb-page-background: linear-gradient(135deg, rgba(20, 95, 158, 0.13) 0%, rgba(20, 158, 146, 0.08) 45%, rgba(255, 255, 255, 0.95) 100%),
+    radial-gradient(circle at 0 0, rgba(15, 99, 156, 0.32) 0, rgba(15, 99, 156, 0) 40%);
+  --wb-text: #10283f;
+  --wb-muted: #425a73;
+  --wb-label: #0f3f74;
+  --wb-border: #b1d0ef;
+  --wb-panel-bg: rgba(255, 255, 255, 0.66);
+  --wb-panel-shadow: 0 16px 40px rgba(11, 50, 103, 0.12);
+  --wb-panel-border: rgba(148, 180, 221, 0.7);
+  --wb-thread-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.86) 0%, rgba(241, 249, 255, 0.9) 100%);
+  --wb-thread-border: rgba(153, 189, 228, 0.86);
+  --wb-message-bg: rgba(255, 255, 255, 0.96);
+  --wb-message-border: rgba(130, 163, 210, 0.88);
+  --wb-message-shadow: 0 10px 24px rgba(15, 66, 105, 0.09);
+  --wb-message-user-bg: linear-gradient(100deg, #0c4a9e 0%, #0f9b8a 100%);
+  --wb-message-user-border: #0c4a9e;
+  --wb-message-user-text: #f5fbff;
+  --wb-message-user-link: #c6f3ef;
+  --wb-plan-note-bg: rgba(255, 245, 249, 0.9);
+  --wb-plan-note-border: #f3b6ce;
+  --wb-item-bg: rgba(242, 248, 255, 0.92);
+  --wb-item-border: #d6e6f7;
+  --wb-item-current-bg: #e4f2ff;
+  --wb-item-current-border: #8cb7e4;
+  --wb-issue: #8f4f17;
+  --wb-result-failed: #29324b;
+  --wb-success: #0c7a6f;
+  --wb-danger: #bd3d2a;
+  --wb-toolbar-note: #355f84;
+  --wb-modal-bg: rgba(255, 255, 255, 0.97);
+  --wb-modal-shadow: 0 18px 42px rgba(11, 44, 78, 0.2);
+}
+
+.workbench-beta-shell[data-skin="slate-night"] {
+  --wb-fontFamily: "Inter", "Segoe UI", Arial, sans-serif;
+  --wb-page-background: linear-gradient(140deg, #060f24 0%, #0f1731 55%, #0c162b 100%);
+  --wb-text: #e9eef9;
+  --wb-muted: #a1b0ce;
+  --wb-label: #e9eef9;
+  --wb-border: #2f4468;
+  --wb-panel-bg: #101b34;
+  --wb-panel-shadow: 0 16px 42px rgba(2, 8, 23, 0.45);
+  --wb-panel-border: #2f4468;
+  --wb-thread-bg: linear-gradient(180deg, #1a2642 0%, #1a2747 100%);
+  --wb-thread-border: #30456b;
+  --wb-message-bg: #1f3150;
+  --wb-message-border: #435b81;
+  --wb-message-shadow: 0 7px 24px rgba(3, 10, 30, 0.3);
+  --wb-message-user-bg: linear-gradient(100deg, #0e2f69 0%, #1f5e95 100%);
+  --wb-message-user-border: #2c4b80;
+  --wb-message-user-text: #eff6ff;
+  --wb-message-user-link: #bbdbff;
+  --wb-plan-note-bg: rgba(255, 248, 234, 0.08);
+  --wb-plan-note-border: rgba(239, 196, 131, 0.5);
+  --wb-item-bg: rgba(23, 37, 60, 0.9);
+  --wb-item-border: #38517b;
+  --wb-item-current-bg: rgba(42, 70, 123, 0.75);
+  --wb-item-current-border: #6a8fd1;
+  --wb-issue: #f0a75b;
+  --wb-result-failed: #c9d2e6;
+  --wb-success: #46d7c4;
+  --wb-danger: #f48f8f;
+  --wb-toolbar-note: #b5c4e2;
+  --wb-modal-bg: #101f39;
+  --wb-modal-backdrop: rgba(4, 10, 24, 0.7);
+  --wb-modal-shadow: 0 22px 48px rgba(3, 10, 25, 0.6);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -340,6 +453,30 @@ main {
   color: var(--colorBrandPrimary);
   font-size: 1rem;
   font-weight: 700;
+}
+
+.workbench-beta-shell {
+  background: var(--wb-page-background);
+  font-family: var(--wb-fontFamily);
+  color: var(--wb-text);
+}
+
+.workbench-beta-shell .panel {
+  background: var(--wb-panel-bg);
+  border-color: var(--wb-panel-border);
+  box-shadow: var(--wb-panel-shadow);
+}
+
+.workbench-beta-shell .panel h2 {
+  color: var(--wb-label);
+}
+
+.workbench-beta-shell .chatbot-shell,
+.workbench-beta-shell .agent-wizard-backdrop,
+.workbench-beta-shell .agent-wizard-modal,
+.workbench-beta-shell .agent-plan-item-main,
+.workbench-beta-shell .agent-plan-item {
+  font-family: var(--wb-fontFamily);
 }
 
 .home-pipeline-page {
@@ -854,12 +991,27 @@ select {
   appearance: none;
 }
 
+.workbench-beta-shell input:not([type="checkbox"]):not([type="radio"]),
+.workbench-beta-shell textarea,
+.workbench-beta-shell select {
+  background: var(--wb-input-bg, var(--wb-panel-bg));
+  border-color: var(--wb-border);
+  color: var(--wb-text);
+}
+
 input:focus,
 textarea:focus,
 select:focus {
   border-color: var(--colorBrandAccent);
   outline: none;
   box-shadow: 0 0 0 1px rgba(0, 163, 157, 0.18);
+}
+
+.workbench-beta-shell input:focus,
+.workbench-beta-shell textarea:focus,
+.workbench-beta-shell select:focus {
+  border-color: var(--wb-label);
+  box-shadow: 0 0 0 1px var(--wb-label);
 }
 
 textarea {
@@ -878,7 +1030,7 @@ select::placeholder {
 label {
   display: block;
   margin-bottom: 4px;
-  color: var(--colorBrandPrimary);
+  color: var(--wb-label, var(--colorBrandPrimary));
   font-size: 14px;
   font-weight: 600;
 }
@@ -929,6 +1081,22 @@ label {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
+}
+
+.workbench-beta-shell .actions {
+  margin-top: 8px;
+}
+
+.workbench-beta-shell button.primary {
+  background: var(--wb-label);
+  border-color: var(--wb-label);
+  color: #ffffff;
+}
+
+.workbench-beta-shell button.secondary {
+  background: var(--wb-secondary-bg);
+  color: var(--wb-secondary-text);
+  border-color: var(--wb-label);
 }
 
 button {
@@ -1071,6 +1239,10 @@ button.contact-add-link:focus-visible:not(:disabled) {
   color: var(--colorMute);
   margin: 0;
   font-size: 0.9rem;
+}
+
+.workbench-beta-shell .muted {
+  color: var(--wb-muted);
 }
 
 .status {
@@ -1447,7 +1619,8 @@ a {
   gap: 10px;
 }
 
-.contact-lookup-search {
+.contact-lookup-search,
+.entity-list-search {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1458,20 +1631,25 @@ a {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.contact-lookup-search:focus-within {
+.contact-lookup-search:focus-within,
+.entity-list-search:focus-within {
   border-color: #84aed3;
   box-shadow: 0 0 0 2px rgba(38, 111, 169, 0.16);
 }
 
-.contact-lookup-search input {
+.contact-lookup-search input,
+.entity-list-search input {
   border: 0;
   background: transparent;
   box-shadow: none;
   padding: 0;
   min-height: 30px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-.contact-lookup-search input:focus {
+.contact-lookup-search input:focus,
+.entity-list-search input:focus {
   border: 0;
   box-shadow: none;
 }
@@ -1484,7 +1662,9 @@ a {
 }
 
 button.contact-lookup-clear,
-button.contact-lookup-clear.ghost {
+button.contact-lookup-clear.ghost,
+button.entity-list-search-clear,
+button.entity-list-search-clear.ghost {
   border-radius: 999px;
   padding: 0 10px;
   min-height: 28px;
@@ -1495,7 +1675,9 @@ button.contact-lookup-clear.ghost {
 }
 
 button.contact-lookup-clear:hover:not(:disabled),
-button.contact-lookup-clear:focus-visible:not(:disabled) {
+button.contact-lookup-clear:focus-visible:not(:disabled),
+button.entity-list-search-clear:hover:not(:disabled),
+button.entity-list-search-clear:focus-visible:not(:disabled) {
   border-color: #95b7d7;
   background: #e8f2fc;
   text-decoration: none;
@@ -1648,6 +1830,47 @@ button.contact-lookup-clear:focus-visible:not(:disabled) {
 
 .contact-list-row-meta .list-row-indicators {
   justify-content: flex-end;
+}
+
+.contact-list-alliance-flags {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.contact-list-alliance-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.74rem;
+  color: #365c7f;
+}
+
+.contact-list-alliance-flag input[type="checkbox"] {
+  margin: 0;
+}
+
+.contact-list-inline-flags {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.contact-list-inline-flags label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #2f5577;
+  font-size: 0.72rem;
+}
+
+.contact-list-inline-flags input[type="checkbox"] {
+  margin: 0;
 }
 
 .candidate-list {
@@ -2408,6 +2631,14 @@ button.contact-lookup-clear:focus-visible:not(:disabled) {
   letter-spacing: normal;
 }
 
+.workbench-beta-shell .detail-label {
+  color: var(--wb-label);
+}
+
+.workbench-beta-shell .detail-section {
+  border-top-color: var(--wb-border);
+}
+
 .detail-section {
   margin-top: 10px;
   background: transparent;
@@ -2416,6 +2647,18 @@ button.contact-lookup-clear:focus-visible:not(:disabled) {
   border-radius: 0;
   padding: 10px 0 2px;
   box-shadow: none;
+}
+
+.entity-delete-section {
+  display: flex;
+  align-items: center;
+  min-height: 72px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.entity-delete-section .actions {
+  margin-top: 0;
 }
 
 .detail-card > .detail-section:first-child {
@@ -3386,7 +3629,8 @@ select {
     padding: 10px;
   }
 
-  .contact-lookup-search {
+  .contact-lookup-search,
+  .entity-list-search {
     border-radius: 12px;
   }
 
@@ -3456,6 +3700,128 @@ select {
   height: min(760px, calc(100vh - 120px));
   min-height: 460px;
   overflow: hidden;
+}
+
+.workbench-beta-shell .chatbot-shell {
+  animation: fade-in-shell 160ms ease;
+}
+
+.workbench-beta-shell .chatbot-header .actions {
+  align-items: flex-start;
+  justify-content: flex-end;
+}
+
+.workbench-beta-shell .chatbot-thread {
+  border-color: var(--wb-thread-border);
+  background: var(--wb-thread-bg);
+}
+
+.workbench-beta-shell .chatbot-message {
+  border-color: var(--wb-message-border);
+  background: var(--wb-message-bg);
+  color: var(--wb-text);
+  box-shadow: var(--wb-message-shadow);
+}
+
+.workbench-beta-shell .chatbot-message.user {
+  background: var(--wb-message-user-bg);
+  border-color: var(--wb-message-user-border);
+  color: var(--wb-message-user-text);
+}
+
+.workbench-beta-shell .chatbot-message.user a {
+  color: var(--wb-message-user-link);
+}
+
+.workbench-beta-shell .chatbot-plan-issues {
+  border: 1px solid var(--wb-plan-note-border);
+  background: var(--wb-plan-note-bg);
+}
+
+.workbench-beta-shell .agent-list li {
+  margin-bottom: 6px;
+}
+
+.workbench-beta-shell .agent-step-item,
+.workbench-beta-shell .agent-plan-item {
+  background: var(--wb-item-bg);
+  border-color: var(--wb-item-border);
+}
+
+.workbench-beta-shell .agent-plan-item.current {
+  background: var(--wb-item-current-bg);
+  border-color: var(--wb-item-current-border);
+}
+
+.workbench-beta-shell .agent-issues {
+  color: var(--wb-issue);
+}
+
+.workbench-beta-shell .agent-result.failed {
+  color: var(--wb-result-failed);
+}
+
+.workbench-beta-shell .agent-result.ok,
+.workbench-beta-shell .status.ok {
+  color: var(--wb-success);
+}
+
+.workbench-beta-shell .agent-result.failed,
+.workbench-beta-shell .status.error {
+  color: var(--wb-danger);
+}
+
+.workbench-beta-shell .agent-result.executed {
+  color: var(--wb-success);
+}
+
+.workbench-beta-shell .status,
+.workbench-beta-shell .agent-validation-list,
+.workbench-beta-shell .agent-plan-item-index,
+.workbench-beta-shell .agent-action-toggle {
+  color: var(--wb-text);
+}
+
+.workbench-beta-shell .agent-candidate-option {
+  border-color: var(--wb-spotlight-border);
+  background: var(--wb-spotlight-bg);
+}
+
+.workbench-beta-shell .agent-wizard-backdrop {
+  background: var(--wb-modal-backdrop);
+}
+
+.workbench-beta-shell .agent-wizard-modal {
+  background: var(--wb-modal-bg);
+  box-shadow: var(--wb-modal-shadow);
+}
+
+.workbench-beta-shell .skin-lab-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 2px 0;
+}
+
+.workbench-beta-shell .skin-lab-toolbar-label {
+  margin: 0;
+  color: var(--wb-label);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+
+.workbench-beta-shell .skin-lab-toolbar select {
+  min-width: 175px;
+}
+
+.workbench-beta-shell .skin-lab-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--wb-toolbar-note);
+  line-height: 1.2;
 }
 
 .chatbot-header {
@@ -3822,6 +4188,26 @@ select {
   gap: 8px;
 }
 
+@keyframes fade-in-shell {
+  from {
+    opacity: 0.97;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.workbench-beta-shell .skin-lab-toolbar select {
+  max-width: 190px;
+}
+
+.workbench-beta-shell .skin-lab-note {
+  max-width: 220px;
+}
+
 
 .inline-expand-toggle {
   border: 1px solid #c2d7ea;
@@ -3872,6 +4258,29 @@ select {
 
   .chatbot-thread {
     min-height: 0;
+  }
+
+  .workbench-beta-shell .chatbot-header .actions {
+    justify-content: stretch;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .workbench-beta-shell .skin-lab-toolbar {
+    display: grid;
+    grid-template-columns: minmax(90px, auto) 1fr;
+    row-gap: 6px;
+    column-gap: 10px;
+  }
+
+  .workbench-beta-shell .skin-lab-toolbar select {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .workbench-beta-shell .skin-lab-note {
+    max-width: 100%;
+    grid-column: 1 / -1;
   }
 
   .chatbot-message {

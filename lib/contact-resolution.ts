@@ -374,8 +374,31 @@ export async function upsertHealthSystemContactLink(
     healthSystemId: string;
     roleType: ContactRoleType;
     title?: string | null;
+    isKeyAllianceContact?: boolean;
+    isInformedAllianceContact?: boolean;
   }
 ) {
+  const createData = {
+    contactId: params.contactId,
+    healthSystemId: params.healthSystemId,
+    roleType: params.roleType,
+    title: trimOrNull(params.title),
+    isKeyAllianceContact: params.isKeyAllianceContact ?? false,
+    isInformedAllianceContact: params.isInformedAllianceContact ?? false
+  };
+
+  const updateData: Prisma.ContactHealthSystemUpdateInput = {
+    title: trimOrNull(params.title)
+  };
+
+  if (params.isKeyAllianceContact !== undefined) {
+    updateData.isKeyAllianceContact = params.isKeyAllianceContact;
+  }
+
+  if (params.isInformedAllianceContact !== undefined) {
+    updateData.isInformedAllianceContact = params.isInformedAllianceContact;
+  }
+
   return tx.contactHealthSystem.upsert({
     where: {
       contactId_healthSystemId_roleType: {
@@ -384,15 +407,8 @@ export async function upsertHealthSystemContactLink(
         roleType: params.roleType
       }
     },
-    create: {
-      contactId: params.contactId,
-      healthSystemId: params.healthSystemId,
-      roleType: params.roleType,
-      title: trimOrNull(params.title)
-    },
-    update: {
-      title: trimOrNull(params.title)
-    }
+    create: createData,
+    update: updateData
   });
 }
 
@@ -403,8 +419,31 @@ export async function upsertCoInvestorContactLink(
     coInvestorId: string;
     roleType: ContactRoleType;
     title?: string | null;
+    isKeyAllianceContact?: boolean;
+    isInformedAllianceContact?: boolean;
   }
 ) {
+  const createData = {
+    contactId: params.contactId,
+    coInvestorId: params.coInvestorId,
+    roleType: params.roleType,
+    title: trimOrNull(params.title),
+    isKeyAllianceContact: params.isKeyAllianceContact ?? false,
+    isInformedAllianceContact: params.isInformedAllianceContact ?? false
+  };
+
+  const updateData: Prisma.ContactCoInvestorUpdateInput = {
+    title: trimOrNull(params.title)
+  };
+
+  if (params.isKeyAllianceContact !== undefined) {
+    updateData.isKeyAllianceContact = params.isKeyAllianceContact;
+  }
+
+  if (params.isInformedAllianceContact !== undefined) {
+    updateData.isInformedAllianceContact = params.isInformedAllianceContact;
+  }
+
   return tx.contactCoInvestor.upsert({
     where: {
       contactId_coInvestorId_roleType: {
@@ -413,15 +452,8 @@ export async function upsertCoInvestorContactLink(
         roleType: params.roleType
       }
     },
-    create: {
-      contactId: params.contactId,
-      coInvestorId: params.coInvestorId,
-      roleType: params.roleType,
-      title: trimOrNull(params.title)
-    },
-    update: {
-      title: trimOrNull(params.title)
-    }
+    create: createData,
+    update: updateData
   });
 }
 
@@ -432,8 +464,31 @@ export async function upsertCompanyContactLink(
     companyId: string;
     roleType: ContactRoleType;
     title?: string | null;
+    isKeyAllianceContact?: boolean;
+    isInformedAllianceContact?: boolean;
   }
 ) {
+  const createData = {
+    contactId: params.contactId,
+    companyId: params.companyId,
+    roleType: params.roleType,
+    title: trimOrNull(params.title),
+    isKeyAllianceContact: params.isKeyAllianceContact ?? false,
+    isInformedAllianceContact: params.isInformedAllianceContact ?? false
+  };
+
+  const updateData: Prisma.ContactCompanyUpdateInput = {
+    title: trimOrNull(params.title)
+  };
+
+  if (params.isKeyAllianceContact !== undefined) {
+    updateData.isKeyAllianceContact = params.isKeyAllianceContact;
+  }
+
+  if (params.isInformedAllianceContact !== undefined) {
+    updateData.isInformedAllianceContact = params.isInformedAllianceContact;
+  }
+
   return tx.contactCompany.upsert({
     where: {
       contactId_companyId_roleType: {
@@ -442,14 +497,7 @@ export async function upsertCompanyContactLink(
         roleType: params.roleType
       }
     },
-    create: {
-      contactId: params.contactId,
-      companyId: params.companyId,
-      roleType: params.roleType,
-      title: trimOrNull(params.title)
-    },
-    update: {
-      title: trimOrNull(params.title)
-    }
+    create: createData,
+    update: updateData
   });
 }

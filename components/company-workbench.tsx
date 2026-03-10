@@ -21,6 +21,7 @@ import {
   type PipelineBoardColumn,
   type PipelinePhase
 } from "@/lib/pipeline-opportunities";
+import { type CompanyOpportunityStage } from "@prisma/client";
 
 type SearchCandidate = {
   name: string;
@@ -43,6 +44,31 @@ type ManualSearchCandidate = {
 type CoInvestorOption = {
   id: string;
   name: string;
+};
+
+type OpportunityStatusFilter = "open" | "closed";
+
+type OpportunitySummary = {
+  id: string;
+  title: string;
+  type: string;
+  stage: CompanyOpportunityStage;
+  likelihoodPercent: number | null;
+  contractPriceUsd: number | null;
+  nextSteps: string | null;
+  estimatedCloseDate: string | null;
+  closedAt: string | null;
+  contactCount: number;
+  createdAt: string;
+  updatedAt: string;
+  company: {
+    id: string;
+    name: string;
+  };
+  healthSystem: {
+    id: string;
+    name: string;
+  } | null;
 };
 
 type ResearchStatus = "DRAFT" | "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
@@ -141,6 +167,8 @@ type CompanyRecord = {
     id: string;
     roleType: "EXECUTIVE" | "VENTURE_PARTNER" | "INVESTOR_PARTNER" | "COMPANY_CONTACT" | "OTHER";
     title?: string | null;
+    isKeyAllianceContact?: boolean;
+    isInformedAllianceContact?: boolean;
     contact: {
       id: string;
       name: string;
@@ -198,7 +226,7 @@ type DetailDraft = {
   }>;
 };
 
-type DetailTab = "overview" | "documents" | "notes" | "contacts" | "relationships" | "pipeline";
+type DetailTab = "overview" | "documents" | "notes" | "contacts" | "relationships" | "opportunities" | "pipeline";
 
 const companyHealthSystemRelationshipOptions: Array<{ value: "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"; label: string }> =
   [
@@ -419,6 +447,28 @@ function pipelinePhaseTagForCompany(record: Pick<CompanyRecord, "declineReason" 
   };
 }
 
+function isClosedOpportunityStage(stage: CompanyOpportunityStage) {
+  return stage === "CLOSED_WON" || stage === "CLOSED_LOST";
+}
+
+function formatOpportunityDate(value: string | null | undefined) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return parsed.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function formatOpportunityCurrency(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === "") return "-";
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return "-";
+  return numeric.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0
+  });
+}
+
 function toNullableNumber(value: string): number | null {
   const normalized = value.trim().replace(/[$,\s]/g, "");
   if (!normalized) return null;
@@ -527,6 +577,8 @@ export function CompanyWorkbench() {
   const [contactRoleType, setContactRoleType] = React.useState<
     "COMPANY_CONTACT" | "EXECUTIVE" | "VENTURE_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
   >("COMPANY_CONTACT");
+  const [newIsKeyAllianceContact, setNewIsKeyAllianceContact] = React.useState(false);
+  const [newIsInformedAllianceContact, setNewIsInformedAllianceContact] = React.useState(false);
   const [editingContactLinkId, setEditingContactLinkId] = React.useState<string | null>(null);
   const [editingContactName, setEditingContactName] = React.useState("");
   const [editingContactTitle, setEditingContactTitle] = React.useState("");
@@ -534,6 +586,8 @@ export function CompanyWorkbench() {
   const [editingContactEmail, setEditingContactEmail] = React.useState("");
   const [editingContactPhone, setEditingContactPhone] = React.useState("");
   const [editingContactLinkedinUrl, setEditingContactLinkedinUrl] = React.useState("");
+  const [editingIsKeyAllianceContact, setEditingIsKeyAllianceContact] = React.useState(false);
+  const [editingIsInformedAllianceContact, setEditingIsInformedAllianceContact] = React.useState(false);
   const [editingContactRoleType, setEditingContactRoleType] = React.useState<
     "COMPANY_CONTACT" | "EXECUTIVE" | "VENTURE_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
   >("COMPANY_CONTACT");
@@ -583,6 +637,10 @@ export function CompanyWorkbench() {
   const [activeDetailTab, setActiveDetailTab] = React.useState<DetailTab>("overview");
   const [companyLookupValue, setCompanyLookupValue] = React.useState("");
   const [companyLookupModalSignal, setCompanyLookupModalSignal] = React.useState(0);
+  const [opportunities, setOpportunities] = React.useState<OpportunitySummary[]>([]);
+  const [opportunitiesLoading, setOpportunitiesLoading] = React.useState(false);
+  const [opportunitiesError, setOpportunitiesError] = React.useState<string | null>(null);
+  const [opportunityStatusFilter, setOpportunityStatusFilter] = React.useState<OpportunityStatusFilter>("open");
 
   const hasPending = React.useMemo(
     () => records.some((record) => record.researchStatus === "QUEUED" || record.researchStatus === "RUNNING"),
@@ -635,6 +693,15 @@ export function CompanyWorkbench() {
   const selectedRecordEntityId = selectedRecord?.id || "";
   const selectedRecordHealthSystemId = selectedRecord?.leadSourceHealthSystem?.id || "";
   const selectedRecordHealthSystemName = selectedRecord?.leadSourceHealthSystem?.name || "";
+  const filteredOpportunities = React.useMemo(
+    () =>
+      opportunities.filter((opportunity) =>
+        opportunityStatusFilter === "open"
+          ? !isClosedOpportunityStage(opportunity.stage)
+          : isClosedOpportunityStage(opportunity.stage)
+      ),
+    [opportunities, opportunityStatusFilter]
+  );
 
   const leadSourceHealthSystemName = React.useMemo(() => {
     if (!selectedRecordEntityId || !leadSourceType || leadSourceType !== "HEALTH_SYSTEM") return "";
@@ -763,6 +830,17 @@ export function CompanyWorkbench() {
       .map((value) => value.trim())
       .filter((value) => value.length > 0);
     setLeadSourceOtherOptions(sanitized);
+  }
+
+  async function loadOpportunitiesForSelectedRecord(recordId: string) {
+    const res = await fetch(`/api/companies/${recordId}/opportunities`, { cache: "no-store" });
+    const payload = await res.json();
+
+    if (!res.ok) {
+      throw new Error(payload.error || "Failed to load opportunities.");
+    }
+
+    return Array.isArray(payload.opportunities) ? payload.opportunities : [];
   }
 
   async function loadRecords() {
@@ -973,6 +1051,8 @@ export function CompanyWorkbench() {
           email: contactEmail,
           phone: contactPhone,
           linkedinUrl: contactLinkedinUrl,
+          isKeyAllianceContact: newIsKeyAllianceContact,
+          isInformedAllianceContact: newIsInformedAllianceContact,
           roleType: contactRoleType
         })
       });
@@ -1012,6 +1092,8 @@ export function CompanyWorkbench() {
     setEditingContactEmail(link.contact.email || "");
     setEditingContactPhone(link.contact.phone || "");
     setEditingContactLinkedinUrl(link.contact.linkedinUrl || "");
+    setEditingIsKeyAllianceContact(Boolean(link.isKeyAllianceContact));
+    setEditingIsInformedAllianceContact(Boolean(link.isInformedAllianceContact));
     setEditingContactRoleType(link.roleType);
     setStatus(null);
   }
@@ -1023,6 +1105,8 @@ export function CompanyWorkbench() {
     setContactEmail("");
     setContactPhone("");
     setContactLinkedinUrl("");
+    setNewIsKeyAllianceContact(false);
+    setNewIsInformedAllianceContact(false);
     setContactRoleType("COMPANY_CONTACT");
   }
 
@@ -1034,6 +1118,8 @@ export function CompanyWorkbench() {
     setEditingContactEmail("");
     setEditingContactPhone("");
     setEditingContactLinkedinUrl("");
+    setEditingIsKeyAllianceContact(false);
+    setEditingIsInformedAllianceContact(false);
     setEditingContactRoleType("COMPANY_CONTACT");
   }
 
@@ -1059,6 +1145,8 @@ export function CompanyWorkbench() {
           email: editingContactEmail,
           phone: editingContactPhone,
           linkedinUrl: editingContactLinkedinUrl,
+          isKeyAllianceContact: editingIsKeyAllianceContact,
+          isInformedAllianceContact: editingIsInformedAllianceContact,
           roleType: editingContactRoleType
         })
       });
@@ -1622,6 +1710,10 @@ export function CompanyWorkbench() {
       resetEditingHealthSystemLinkForm();
       resetEditingCoInvestorLinkForm();
       setDeletingContactLinkId(null);
+      setOpportunities([]);
+      setOpportunitiesLoading(false);
+      setOpportunitiesError(null);
+      setOpportunityStatusFilter("open");
       return;
     }
 
@@ -1635,8 +1727,47 @@ export function CompanyWorkbench() {
       resetEditingCoInvestorLinkForm();
       resetHealthSystemLinkForm();
       resetCoInvestorLinkForm();
+      setOpportunities([]);
+      setOpportunitiesLoading(false);
+      setOpportunitiesError(null);
+      setOpportunityStatusFilter("open");
     }
   }, [selectedRecord, draftRecordId]);
+
+  React.useEffect(() => {
+    if (!selectedRecord) {
+      setOpportunities([]);
+      setOpportunitiesLoading(false);
+      setOpportunitiesError(null);
+      setOpportunityStatusFilter("open");
+      return;
+    }
+
+    let cancelled = false;
+    const load = async () => {
+      setOpportunitiesError(null);
+      setOpportunitiesLoading(true);
+      setOpportunities([]);
+      try {
+        const list = (await loadOpportunitiesForSelectedRecord(selectedRecord.id)) as OpportunitySummary[];
+        if (cancelled) return;
+        setOpportunities(list);
+      } catch (error) {
+        if (cancelled) return;
+        setOpportunities([]);
+        setOpportunitiesError(error instanceof Error ? error.message : "Failed to load opportunities.");
+      } finally {
+        if (cancelled) return;
+        setOpportunitiesLoading(false);
+      }
+    };
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRecord]);
 
   return (
     <main>
@@ -1655,16 +1786,30 @@ export function CompanyWorkbench() {
               + Add Company
             </a>
           </div>
-          <input
-            id="search-company"
-            aria-label="Search companies"
-            placeholder="Type a company name, location, or website"
-            value={query}
-            onChange={(event) => {
-              setKeepListView(false);
-              setQuery(event.target.value);
-            }}
-          />
+          <div className="entity-list-search">
+            <input
+              id="search-company"
+              aria-label="Search companies"
+              placeholder="Type a company name, location, or website"
+              value={query}
+              onChange={(event) => {
+                setKeepListView(false);
+                setQuery(event.target.value);
+              }}
+            />
+            {query.trim() ? (
+              <button
+                type="button"
+                className="ghost small entity-list-search-clear"
+                onClick={() => {
+                  setKeepListView(false);
+                  setQuery("");
+                }}
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
           <EntityLookupInput
             entityKind="COMPANY"
             value={companyLookupValue}
@@ -1965,17 +2110,6 @@ export function CompanyWorkbench() {
                     <span className={`pipeline-phase-pill ${pipelinePhaseTag.className}`}>
                       {pipelinePhaseTag.label}
                     </span>
-                    <button
-                      className="ghost small"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        void deleteCompany(record);
-                      }}
-                      disabled={deletingRecordId === record.id}
-                    >
-                      {deletingRecordId === record.id ? "Deleting..." : "Delete"}
-                    </button>
                   </div>
                 </div>
               );
@@ -2013,6 +2147,15 @@ export function CompanyWorkbench() {
                   onClick={() => setActiveDetailTab("pipeline")}
                 >
                   Pipeline
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`detail-tab ${activeDetailTab === "opportunities" ? "active" : ""}`}
+                  aria-selected={activeDetailTab === "opportunities"}
+                  onClick={() => setActiveDetailTab("opportunities")}
+                >
+                  Opportunities
                 </button>
                 <button
                   type="button"
@@ -2222,6 +2365,19 @@ export function CompanyWorkbench() {
                 />
               </div>
 
+              <div className="detail-section entity-delete-section">
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="ghost small danger"
+                    onClick={() => void deleteCompany(selectedRecord)}
+                    disabled={deletingRecordId === selectedRecord.id}
+                  >
+                    {deletingRecordId === selectedRecord.id ? "Deleting..." : "Delete Company"}
+                  </button>
+                </div>
+              </div>
+
                 </>
               )}
 
@@ -2232,6 +2388,75 @@ export function CompanyWorkbench() {
                     entityId={selectedRecord.id}
                     onStatus={setStatus}
                   />
+                </>
+              )}
+
+              {activeDetailTab === "opportunities" && (
+                <>
+                  <div className="detail-section">
+                    <p className="detail-label">Opportunities</p>
+                    <div className="actions">
+                      <label className="opportunity-filter-label" htmlFor={`company-opportunities-filter-${selectedRecord.id}`}>
+                        Status
+                      </label>
+                      <select
+                        id={`company-opportunities-filter-${selectedRecord.id}`}
+                        value={opportunityStatusFilter}
+                        onChange={(event) => setOpportunityStatusFilter(event.target.value as OpportunityStatusFilter)}
+                      >
+                        <option value="open">Open</option>
+                        <option value="closed">Closed</option>
+                      </select>
+                    </div>
+                    {opportunitiesLoading ? <p className="muted">Loading opportunities...</p> : null}
+                    {opportunitiesError ? <p className="status error">{opportunitiesError}</p> : null}
+                    {!opportunitiesLoading &&
+                    !opportunitiesError &&
+                    filteredOpportunities.length === 0 ? (
+                      <p className="muted">
+                        {opportunityStatusFilter === "open" ? "No open opportunities." : "No closed opportunities."}
+                      </p>
+                    ) : null}
+
+                    {!opportunitiesLoading && filteredOpportunities.length > 0 ? (
+                      <div className="table-wrap report-table-wrap">
+                        <table className="table report-table">
+                          <thead>
+                            <tr>
+                              <th>Company</th>
+                              <th>Opportunity</th>
+                              <th>Health System</th>
+                              <th>Stage</th>
+                              <th>Next Step</th>
+                              <th>Likelihood</th>
+                              <th>Contract Price</th>
+                              <th>Expected Close</th>
+                              <th>Contacts</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredOpportunities.map((opportunity) => (
+                              <tr key={opportunity.id}>
+                                <td>{opportunity.company.name}</td>
+                                <td>
+                                  <a href={`/pipeline/${opportunity.id}`} className="report-opportunity-link">
+                                    {opportunity.title}
+                                  </a>
+                                </td>
+                                <td>{opportunity.healthSystem?.name || "-"}</td>
+                                <td>{opportunity.stage}</td>
+                                <td>{opportunity.nextSteps || "-"}</td>
+                                <td>{opportunity.likelihoodPercent === null ? "-" : `${opportunity.likelihoodPercent}%`}</td>
+                                <td>{formatOpportunityCurrency(opportunity.contractPriceUsd)}</td>
+                                <td>{formatOpportunityDate(opportunity.estimatedCloseDate)}</td>
+                                <td>{opportunity.contactCount}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
+                  </div>
                 </>
               )}
 
@@ -2354,6 +2579,22 @@ export function CompanyWorkbench() {
                                 placeholder="https://linkedin.com/in/..."
                               />
                             </div>
+                            <div className="inline-edit-field">
+                              <label>Key Alliance Contact</label>
+                              <input
+                                type="checkbox"
+                                checked={editingIsKeyAllianceContact}
+                                onChange={(event) => setEditingIsKeyAllianceContact(event.target.checked)}
+                              />
+                            </div>
+                            <div className="inline-edit-field">
+                              <label>Informed Alliance Contact</label>
+                              <input
+                                type="checkbox"
+                                checked={editingIsInformedAllianceContact}
+                                onChange={(event) => setEditingIsInformedAllianceContact(event.target.checked)}
+                              />
+                            </div>
                           </div>
                           <div className="actions">
                             <button
@@ -2375,6 +2616,16 @@ export function CompanyWorkbench() {
                             {link.title ? `, ${link.title}` : link.contact.title ? `, ${link.contact.title}` : ""}
                             {link.contact.email ? ` | ${link.contact.email}` : ""}
                             {link.contact.phone ? ` | ${link.contact.phone}` : ""}
+                            {(link.isKeyAllianceContact || link.isInformedAllianceContact) ? (
+                              <div className="contact-list-inline-flags">
+                                {link.isKeyAllianceContact ? (
+                                  <span className="flag-pill">Key Alliance Contact</span>
+                                ) : null}
+                                {link.isInformedAllianceContact ? (
+                                  <span className="flag-pill">Informed Alliance Contact</span>
+                                ) : null}
+                              </div>
+                            ) : null}
                             {link.contact.linkedinUrl && (
                               <>
                                 {" "}-{" "}
@@ -2435,6 +2686,10 @@ export function CompanyWorkbench() {
                   onContactPhoneChange={setContactPhone}
                   contactLinkedinUrl={contactLinkedinUrl}
                   onContactLinkedinUrlChange={setContactLinkedinUrl}
+                  contactIsKeyAllianceContact={newIsKeyAllianceContact}
+                  onContactIsKeyAllianceContactChange={setNewIsKeyAllianceContact}
+                  contactIsInformedAllianceContact={newIsInformedAllianceContact}
+                  onContactIsInformedAllianceContactChange={setNewIsInformedAllianceContact}
                   namePlaceholder="William Smith"
                   titlePlaceholder="CIO / Board Member"
                   relationshipTitlePlaceholder="Board Member"

@@ -174,6 +174,8 @@ export function mapContactRecord(
       id: link.id,
       roleType: link.roleType,
       title: link.title,
+      isKeyAllianceContact: link.isKeyAllianceContact,
+      isInformedAllianceContact: link.isInformedAllianceContact,
       healthSystemId: link.healthSystemId,
       healthSystem: link.healthSystem
     }));

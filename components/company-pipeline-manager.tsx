@@ -11,6 +11,7 @@ import {
   readFileAsDataUrl,
   toDateInputString
 } from "@/lib/company-document-links";
+import { resolveGoogleDocumentTitle } from "@/lib/google-document-title";
 import { toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
 import { createDateDebugContext, dateDebugHeaders, debugDateLog } from "@/lib/date-debug";
 
@@ -744,27 +745,37 @@ export function CompanyPipelineManager({
     }
   }
 
-  function addGoogleDocument() {
-    const normalizedUrl = normalizeGoogleDocsUrl(googleDocumentDraft.url);
-    if (!normalizedUrl) {
+  async function addGoogleDocument() {
+    setStatus(null);
+
+    try {
+      const normalizedUrl = normalizeGoogleDocsUrl(googleDocumentDraft.url);
+      if (!normalizedUrl) {
+        setStatus({
+          kind: "error",
+          text: "Provide a valid Google Docs or Google Drive link."
+        });
+        return;
+      }
+
+      const resolvedTitle = await resolveGoogleDocumentTitle(normalizedUrl);
+      const title = googleDocumentDraft.title.trim() || resolvedTitle || inferGoogleDocumentTitle(normalizedUrl);
+      appendDocument({
+        type: googleDocumentDraft.type,
+        title,
+        url: normalizedUrl,
+        uploadedAt: toDateInputString(),
+        notes: ""
+      });
+
+      setGoogleDocumentDraft(emptyGoogleDocumentDraft());
+      setStatus({ kind: "ok", text: "Google document link added." });
+    } catch (error) {
       setStatus({
         kind: "error",
-        text: "Provide a valid Google Docs or Google Drive link."
+        text: error instanceof Error ? error.message : "Failed to add Google document link."
       });
-      return;
     }
-
-    const title = googleDocumentDraft.title.trim() || inferGoogleDocumentTitle(normalizedUrl);
-    appendDocument({
-      type: googleDocumentDraft.type,
-      title,
-      url: normalizedUrl,
-      uploadedAt: toDateInputString(),
-      notes: ""
-    });
-
-    setGoogleDocumentDraft(emptyGoogleDocumentDraft());
-    setStatus({ kind: "ok", text: "Google document link added." });
   }
 
   function updateOpportunity(index: number, patch: Partial<PipelineOpportunityDraft>) {

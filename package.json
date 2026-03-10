@@ -21,6 +21,7 @@
     "db:reseed:health-systems-contacts": "node scripts/reseed-health-systems-contacts.mjs",
     "db:opportunities:normalize-titles": "node scripts/update-opportunity-titles.mjs",
     "db:contacts:set-principal-entity": "node scripts/set-contact-principal-entity.mjs",
+    "db:contacts:import:alliance-directory": "node scripts/import-alliance-directory-health-system-contacts.mjs",
     "db:contacts:set-principal-entity:prod": "bash scripts/set-contact-principal-entity-production.sh",
     "db:reseed:prod": "bash scripts/reseed-production.sh",
     "db:push": "prisma db push",
