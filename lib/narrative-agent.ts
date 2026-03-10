@@ -2126,6 +2126,7 @@ async function executeCreateEntityAction(action: CreateEntityAction): Promise<Cr
         candidate,
         isLimitedPartner: action.draft.isLimitedPartner ?? false,
         isAllianceMember: action.draft.isAllianceMember ?? false,
+        allianceMemberStatus: action.draft.isAllianceMember ? "YES" : "NO",
         limitedPartnerInvestmentUsd: action.draft.limitedPartnerInvestmentUsd ?? null
       });
 

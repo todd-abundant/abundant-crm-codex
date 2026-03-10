@@ -1,15 +1,20 @@
 import { NextResponse } from "next/server";
-import { verifyCandidateRequestSchema } from "@/lib/schemas";
+import { resolveAllianceMemberStatus, verifyCandidateRequestSchema } from "@/lib/schemas";
 import { verifyCandidateAndQueueResearch } from "@/lib/research-jobs";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { candidate, isAllianceMember } = verifyCandidateRequestSchema.parse(body);
+    const { candidate, isAllianceMember, allianceMemberStatus } = verifyCandidateRequestSchema.parse(body);
+    const resolvedAllianceMemberStatus = resolveAllianceMemberStatus({
+      isAllianceMember,
+      allianceMemberStatus
+    });
 
     const created = await verifyCandidateAndQueueResearch({
       candidate,
-      isAllianceMember,
+      isAllianceMember: resolvedAllianceMemberStatus === "YES",
+      allianceMemberStatus: resolvedAllianceMemberStatus,
       isLimitedPartner: false,
       limitedPartnerInvestmentUsd: null
     });

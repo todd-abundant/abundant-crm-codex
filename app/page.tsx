@@ -117,8 +117,9 @@ function resolveActorName(
   explicitName: string | null | undefined,
   user: { name: string | null; email: string } | null | undefined
 ) {
+  const isPlaceholderActorName = (value: string) => value.toLowerCase() === "system";
   const fromExplicit = (explicitName || "").trim();
-  if (fromExplicit) return fromExplicit;
+  if (fromExplicit && !isPlaceholderActorName(fromExplicit)) return fromExplicit;
   const fromUserName = (user?.name || "").trim();
   if (fromUserName) return fromUserName;
   const fromUserEmail = (user?.email || "").trim();

@@ -153,10 +153,13 @@ export function createEntityNotesHandlers(entityKind: EntityKind, entityLabel: s
         const body = await request.json();
         const input = noteCreateSchema.parse(body);
         const user = await getCurrentUser();
+        if (!user) {
+          return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
         const note = await createEntityNote(entityKind, id, {
           ...input,
-          createdByUserId: user?.id || null,
-          createdByName: user?.name || user?.email || null
+          createdByUserId: user.id,
+          createdByName: user.name || user.email || null
         });
         return NextResponse.json({ note }, { status: 201 });
       } catch (error) {

@@ -3,6 +3,7 @@ import {
   HealthSystemInput,
   healthSystemInputSchema,
   healthSystemSearchCandidateSchema,
+  type AllianceMemberStatus,
   type HealthSystemSearchCandidate
 } from "@/lib/schemas";
 import { getCachedLookup } from "@/lib/search-cache";
@@ -18,6 +19,7 @@ export const emptyHealthSystemDraft: HealthSystemInput = {
   isLimitedPartner: false,
   limitedPartnerInvestmentUsd: null,
   isAllianceMember: false,
+  allianceMemberStatus: "NO" as AllianceMemberStatus,
   executives: [],
   venturePartners: [],
   investments: []

@@ -325,6 +325,8 @@ function draftFromRecord(record: CoInvestorRecord): DetailDraft {
 
 export function CoInvestorWorkbench() {
   const [query, setQuery] = React.useState("");
+  const [coInvestorLookupValue, setCoInvestorLookupValue] = React.useState("");
+  const [coInvestorLookupModalSignal, setCoInvestorLookupModalSignal] = React.useState(0);
   const [records, setRecords] = React.useState<CoInvestorRecord[]>([]);
   const [selectedRecordId, setSelectedRecordId] = React.useState<string | null>(null);
   const [detailDraft, setDetailDraft] = React.useState<DetailDraft | null>(null);
@@ -456,7 +458,7 @@ export function CoInvestorWorkbench() {
     };
   }, [selectedRecord]);
 
-  const shouldOfferCreate = query.trim().length >= 3 && filteredRecords.length === 0;
+  const shouldOfferCreate = false;
   const selectedCandidate =
     selectedCandidateIndex >= 0 && selectedCandidateIndex < searchCandidates.length
       ? searchCandidates[selectedCandidateIndex]
@@ -1477,9 +1479,21 @@ export function CoInvestorWorkbench() {
       <div className="grid health-system-workbench-layout">
         <section className="panel health-system-list-panel" aria-label="List panel">
           <div className="health-system-panel-scroll">
-          <label htmlFor="search-co-investor">Search</label>
+          <div className="detail-action-bar">
+            <a
+              href="#"
+              className="contact-add-link"
+              onClick={(event) => {
+                event.preventDefault();
+                setCoInvestorLookupModalSignal((current) => current + 1);
+              }}
+            >
+              + Add Co-Investor
+            </a>
+          </div>
           <input
             id="search-co-investor"
+            aria-label="Search co-investors"
             placeholder="Type a co-investor name, location, or website"
             value={query}
             onChange={(event) => {
@@ -1497,10 +1511,28 @@ export function CoInvestorWorkbench() {
               }
             }}
           />
-
-          {query.trim().length >= 2 && query.trim().length < 3 && filteredRecords.length === 0 && (
-            <p className="muted">Type at least 3 characters to check potential external matches.</p>
-          )}
+          <EntityLookupInput
+            entityKind="CO_INVESTOR"
+            value={coInvestorLookupValue}
+            onChange={(nextValue) => {
+              setCoInvestorLookupValue(nextValue);
+              if (!nextValue) return;
+              setKeepListView(false);
+              setQuery("");
+              setSelectedRecordId(nextValue);
+            }}
+            hideLookupField
+            onEntityCreated={(option) => {
+              setCoInvestorLookupValue(option.id);
+              setStatus({ kind: "ok", text: `${option.name} created.` });
+              setKeepListView(false);
+              void (async () => {
+                await loadRecords();
+                setSelectedRecordId(option.id);
+              })();
+            }}
+            openAddModalSignal={coInvestorLookupModalSignal}
+          />
 
           {shouldOfferCreate && (
             <div className="create-card">
@@ -1569,8 +1601,12 @@ export function CoInvestorWorkbench() {
           />
 
           <div className="list-container">
-            {filteredRecords.length === 0 && !shouldOfferCreate && (
-              <p className="muted">No co-investors yet. Start by typing and creating one.</p>
+            {filteredRecords.length === 0 && (
+              <p className="muted">
+                {query.trim()
+                  ? `No co-investors match "${query.trim()}". Use Add Co-Investor above and select Add New.`
+                  : "No co-investors yet. Use Add Co-Investor above to create your first record."}
+              </p>
             )}
 
             {filteredRecords.map((record) => {

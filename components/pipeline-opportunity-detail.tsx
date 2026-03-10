@@ -238,7 +238,6 @@ type OpportunityDraft = {
   stage: OpportunityStage;
   healthSystemId: string;
   likelihoodPercent: string;
-  amountUsd: string;
   contractPriceUsd: string;
   estimatedCloseDate: string;
   closedAt: string;
@@ -345,13 +344,13 @@ function toTextValue(value: number | string | null | undefined) {
 }
 
 function toOpportunityDraft(opportunity: PipelineOpportunityDetail["opportunities"][number]): OpportunityDraft {
+  const draftAmountSource = opportunity.contractPriceUsd ?? opportunity.amountUsd;
   return {
     type: opportunity.type,
     stage: opportunity.stage,
     healthSystemId: opportunity.healthSystem?.id || "",
     likelihoodPercent: toTextValue(opportunity.likelihoodPercent),
-    amountUsd: toTextValue(opportunity.amountUsd as number | string | null),
-    contractPriceUsd: toTextValue(opportunity.contractPriceUsd as number | string | null),
+    contractPriceUsd: toTextValue(draftAmountSource as number | string | null),
     estimatedCloseDate: toDateInputValue(opportunity.estimatedCloseDate),
     closedAt: toDateInputValue(opportunity.closedAt),
     closeReason: opportunity.closeReason || "",
@@ -1165,7 +1164,6 @@ export function PipelineOpportunityDetailView({
     stage: "IDENTIFIED",
     healthSystemId: "",
     likelihoodPercent: String(defaultLikelihoodForStage("IDENTIFIED")),
-    amountUsd: "",
     contractPriceUsd: "",
     estimatedCloseDate: "",
     closedAt: "",
@@ -3109,17 +3107,16 @@ export function PipelineOpportunityDetailView({
         ...(current[opportunityId] ||
           (() => {
             const fallback = item?.opportunities.find((entry) => entry.id === opportunityId);
-            return fallback
-              ? toOpportunityDraft(fallback)
-              : {
-                  type: "SCREENING_LOI",
-                  stage: "IDENTIFIED",
-                  healthSystemId: "",
-                  likelihoodPercent: String(defaultLikelihoodForStage("IDENTIFIED")),
-                  amountUsd: "",
-                  contractPriceUsd: "",
-                  estimatedCloseDate: "",
-                  closedAt: "",
+	              return fallback
+	                ? toOpportunityDraft(fallback)
+	                : {
+	                    type: "SCREENING_LOI",
+	                    stage: "IDENTIFIED",
+	                    healthSystemId: "",
+	                    likelihoodPercent: String(defaultLikelihoodForStage("IDENTIFIED")),
+	                    contractPriceUsd: "",
+	                    estimatedCloseDate: "",
+	                    closedAt: "",
                   closeReason: "",
                   nextSteps: "",
                   notes: ""
@@ -3130,15 +3127,31 @@ export function PipelineOpportunityDetailView({
     }));
   }
 
-  function parseNullableDecimal(value: string, label: string) {
+function parseNullableDecimal(value: string, label: string) {
     const trimmed = value.trim();
     if (!trimmed) return null;
     const numeric = Number(trimmed.replace(/[$,\s]/g, ""));
     if (!Number.isFinite(numeric) || numeric < 0) {
       throw new Error(`${label} must be a positive number.`);
     }
-    return numeric;
-  }
+  return numeric;
+}
+
+function formatCurrencyForInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const numeric = Number(trimmed.replace(/[$,\s]/g, ""));
+  if (!Number.isFinite(numeric)) return trimmed;
+  return numeric.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0
+  });
+}
+
+function stripCurrencyFormatting(value: string) {
+  return value.replace(/[^0-9.-]/g, "");
+}
 
   function parseNullableLikelihood(value: string) {
     const trimmed = value.trim();
@@ -3159,14 +3172,15 @@ export function PipelineOpportunityDetailView({
     if (isClosedOpportunityStage(draft.stage) && !closeReason) {
       throw new Error("Close reason is required when marking an opportunity won or lost.");
     }
+    const amountUsd = parseNullableDecimal(draft.contractPriceUsd, "Contract Price");
 
     return {
       type: draft.type,
       stage: draft.stage,
       healthSystemId: draft.healthSystemId || null,
       likelihoodPercent: parseNullableLikelihood(draft.likelihoodPercent),
-      amountUsd: parseNullableDecimal(draft.amountUsd, "Amount"),
-      contractPriceUsd: parseNullableDecimal(draft.contractPriceUsd, "Contract Price"),
+      amountUsd,
+      contractPriceUsd: amountUsd,
       estimatedCloseDate: draft.estimatedCloseDate.trim() || null,
       closedAt: draft.closedAt.trim() || null,
       closeReason,
@@ -3278,7 +3292,6 @@ export function PipelineOpportunityDetailView({
         stage: "IDENTIFIED",
         healthSystemId: "",
         likelihoodPercent: String(defaultLikelihoodForStage("IDENTIFIED")),
-        amountUsd: "",
         contractPriceUsd: "",
         estimatedCloseDate: "",
         closedAt: "",
@@ -3564,7 +3577,6 @@ export function PipelineOpportunityDetailView({
       stage: "IDENTIFIED",
       healthSystemId: "",
       likelihoodPercent: String(defaultLikelihoodForStage("IDENTIFIED")),
-      amountUsd: "",
       contractPriceUsd: "",
       estimatedCloseDate: "",
       closedAt: "",
@@ -6434,38 +6446,32 @@ export function PipelineOpportunityDetailView({
                       readOnly
                     />
                   </div>
-                  <div>
-                    <label>Contract Price (USD)</label>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={newOpportunityDraft.contractPriceUsd}
-                      onChange={(event) =>
-                        setNewOpportunityDraft((current) => ({
-                          ...current,
-                          contractPriceUsd: event.target.value
-                        }))
-                      }
-                      placeholder="e.g. 250000"
-                    />
-                  </div>
-                  <div>
-                    <label>Amount (USD)</label>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={newOpportunityDraft.amountUsd}
-                      onChange={(event) =>
-                        setNewOpportunityDraft((current) => ({
-                          ...current,
-                          amountUsd: event.target.value
-                        }))
-                      }
-                      placeholder="e.g. 75000"
-                    />
-                  </div>
+                    <div>
+                      <label>Contract Price (USD)</label>
+                      <input
+                        type="text"
+                        min={0}
+                        step="0.01"
+                        inputMode="numeric"
+                        value={formatCurrencyForInput(newOpportunityDraft.contractPriceUsd)}
+                        onChange={(event) =>
+                          setNewOpportunityDraft((current) => ({
+                            ...current,
+                            contractPriceUsd: stripCurrencyFormatting(event.target.value)
+                          }))
+                        }
+                        onBlur={(event) => {
+                          const nextValue = stripCurrencyFormatting(event.currentTarget.value);
+                          if (nextValue) {
+                            setNewOpportunityDraft((current) => ({
+                              ...current,
+                              contractPriceUsd: String(Number(nextValue))
+                            }));
+                          }
+                        }}
+                        placeholder="$50,000"
+                      />
+                    </div>
                   <div>
                     <label>Closed At</label>
                     <input
@@ -6726,38 +6732,29 @@ export function PipelineOpportunityDetailView({
                             readOnly
                           />
                         </div>
-                        <div>
-                          <label>Contract Price (USD)</label>
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={draft.contractPriceUsd}
-                            onChange={(event) =>
-                              updateOpportunityDraft(selectedOpportunityForModal.id, {
-                                contractPriceUsd: event.target.value
-                              })
-                            }
-                            onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
-                            placeholder="e.g. 250000"
-                          />
-                        </div>
-                        <div>
-                          <label>Amount (USD)</label>
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={draft.amountUsd}
-                            onChange={(event) =>
-                              updateOpportunityDraft(selectedOpportunityForModal.id, {
-                                amountUsd: event.target.value
-                              })
-                            }
-                            onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
-                            placeholder="e.g. 75000"
-                          />
-                        </div>
+                            <div>
+                              <label>Contract Price (USD)</label>
+                              <input
+                                type="text"
+                                min={0}
+                                step="0.01"
+                                inputMode="numeric"
+                                value={formatCurrencyForInput(draft.contractPriceUsd)}
+                                onChange={(event) =>
+                                  updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                    contractPriceUsd: stripCurrencyFormatting(event.target.value)
+                                  })
+                                }
+                                onBlur={() => {
+                                  const nextValue = stripCurrencyFormatting(draft.contractPriceUsd);
+                                  updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                    contractPriceUsd: nextValue
+                                  });
+                                  void saveOpportunity(selectedOpportunityForModal.id);
+                                }}
+                                placeholder="$50,000"
+                              />
+                            </div>
                         <div>
                           <label>Closed At</label>
                           <input

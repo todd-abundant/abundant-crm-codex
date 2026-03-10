@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { replaceHealthSystemContactLinks } from "@/lib/contact-links";
 import { enrichHealthSystemFromWeb } from "@/lib/research";
-import type { HealthSystemSearchCandidate } from "@/lib/schemas";
+import type { AllianceMemberStatus, HealthSystemSearchCandidate } from "@/lib/schemas";
 
 function trimOrNull(value?: string | null): string | null {
   const trimmed = value?.trim();
@@ -71,10 +71,17 @@ function isLikelyDuplicateCandidate(
 export async function verifyCandidateAndQueueResearch(params: {
   candidate: HealthSystemSearchCandidate;
   isAllianceMember: boolean;
+  allianceMemberStatus: AllianceMemberStatus;
   isLimitedPartner: boolean;
   limitedPartnerInvestmentUsd: number | null;
 }) {
-  const { candidate, isAllianceMember, isLimitedPartner, limitedPartnerInvestmentUsd } = params;
+  const {
+    candidate,
+    isAllianceMember,
+    allianceMemberStatus,
+    isLimitedPartner,
+    limitedPartnerInvestmentUsd
+  } = params;
 
   const result = await prisma.$transaction(async (tx) => {
     const existingHealthSystems = await tx.healthSystem.findMany({
@@ -107,6 +114,7 @@ export async function verifyCandidateAndQueueResearch(params: {
         headquartersState: trimOrNull(candidate.headquartersState),
         headquartersCountry: trimOrNull(candidate.headquartersCountry),
         isAllianceMember,
+        allianceMemberStatus,
         isLimitedPartner,
         limitedPartnerInvestmentUsd: isLimitedPartner ? limitedPartnerInvestmentUsd : null,
         researchStatus: "QUEUED",
@@ -225,6 +233,15 @@ export async function runQueuedResearchJobs(
       });
 
       const keepAllianceFlag = job.healthSystem.isAllianceMember || enriched.isAllianceMember;
+      const persistedAllianceStatus =
+        job.healthSystem.allianceMemberStatus ||
+        (job.healthSystem.isAllianceMember ? "YES" : "NO");
+      const nextAllianceStatus: AllianceMemberStatus =
+        persistedAllianceStatus === "PROSPECT"
+          ? "PROSPECT"
+          : keepAllianceFlag
+            ? "YES"
+            : "NO";
 
       await prisma.$transaction(async (tx) => {
         await tx.executive.deleteMany({ where: { healthSystemId: job.healthSystemId } });
@@ -240,7 +257,8 @@ export async function runQueuedResearchJobs(
             headquartersCountry:
               trimOrNull(enriched.headquartersCountry) || job.healthSystem.headquartersCountry,
             netPatientRevenueUsd: enriched.netPatientRevenueUsd ?? null,
-            isAllianceMember: keepAllianceFlag,
+            isAllianceMember: nextAllianceStatus === "YES",
+            allianceMemberStatus: nextAllianceStatus,
             researchStatus: "COMPLETED",
             researchError: null,
             researchUpdatedAt: new Date()

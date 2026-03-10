@@ -225,6 +225,12 @@ enum CompanyFundraiseStatus {
   CANCELLED
 }
 
+enum AllianceMemberStatus {
+  YES
+  NO
+  PROSPECT
+}
+
 model HealthSystem {
   id                          String         @id @default(cuid())
   name                        String
@@ -238,6 +244,7 @@ model HealthSystem {
   isLimitedPartner            Boolean        @default(false)
   limitedPartnerInvestmentUsd Decimal?       @db.Decimal(16, 2)
   isAllianceMember            Boolean        @default(false)
+  allianceMemberStatus        AllianceMemberStatus @default(NO)
   hasInnovationTeam           Boolean?
   hasVentureTeam              Boolean?
   ventureTeamSummary          String?
@@ -266,6 +273,7 @@ model HealthSystem {
 
   @@index([name])
   @@index([isAllianceMember])
+  @@index([allianceMemberStatus])
   @@index([isLimitedPartner])
   @@index([researchStatus])
   @@index([website])

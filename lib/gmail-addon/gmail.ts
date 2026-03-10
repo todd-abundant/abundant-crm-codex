@@ -88,7 +88,7 @@ export async function fetchMessageMetadata(input: GmailMessageFetchInput): Promi
     return buildFallbackMessageMetadata(null);
   }
 
-  if (!input.userOAuthToken || !input.gmailAccessToken) {
+  if (!input.gmailAccessToken) {
     return buildFallbackMessageMetadata(input.messageId);
   }
 
@@ -98,21 +98,62 @@ export async function fetchMessageMetadata(input: GmailMessageFetchInput): Promi
     url.searchParams.append("metadataHeaders", header);
   }
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${input.userOAuthToken}`,
-      "X-Goog-Gmail-Access-Token": input.gmailAccessToken
-    },
-    cache: "no-store"
-  });
+  const attempts: Array<{ name: string; headers: Record<string, string> }> = [];
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Failed Gmail metadata fetch (${response.status}): ${body.slice(0, 300)}`);
+  if (input.userOAuthToken) {
+    attempts.push({
+      name: "user_oauth_plus_gmail_access_header",
+      headers: {
+        Authorization: `Bearer ${input.userOAuthToken}`,
+        "X-Goog-Gmail-Access-Token": input.gmailAccessToken
+      }
+    });
   }
 
-  const payload = (await response.json()) as GmailMessageResponse;
+  attempts.push({
+    name: "gmail_access_token_as_bearer",
+    headers: {
+      Authorization: `Bearer ${input.gmailAccessToken}`
+    }
+  });
+
+  if (input.userOAuthToken) {
+    attempts.push({
+      name: "user_oauth_token_as_bearer",
+      headers: {
+        Authorization: `Bearer ${input.userOAuthToken}`
+      }
+    });
+  }
+
+  let payload: GmailMessageResponse | null = null;
+  const failures: string[] = [];
+
+  for (const attempt of attempts) {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: attempt.headers,
+      cache: "no-store"
+    });
+
+    const body = await response.text();
+
+    if (response.ok) {
+      try {
+        payload = (body ? JSON.parse(body) : {}) as GmailMessageResponse;
+      } catch {
+        throw new Error(`Failed Gmail metadata parse (${attempt.name}): expected JSON`);
+      }
+      break;
+    }
+
+    failures.push(`${attempt.name}:${response.status}:${body.slice(0, 200)}`);
+  }
+
+  if (!payload) {
+    throw new Error(`Failed Gmail metadata fetch after ${attempts.length} attempts: ${failures.join(" || ")}`);
+  }
+
   const headers = normalizeHeaderMap(payload.payload?.headers);
 
   const fromRaw = headers.get("from") || "";

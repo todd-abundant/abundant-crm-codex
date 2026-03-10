@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { healthSystemUpdateSchema } from "@/lib/schemas";
+import { healthSystemUpdateSchema, resolveAllianceMemberStatus } from "@/lib/schemas";
 
 export async function PATCH(
   request: Request,
@@ -11,6 +11,7 @@ export async function PATCH(
     const { id } = await context.params;
     const body = await request.json();
     const input = healthSystemUpdateSchema.parse(body);
+    const allianceMemberStatus = resolveAllianceMemberStatus(input);
     const data: Prisma.HealthSystemUpdateInput = {
       name: input.name,
       legalName: input.legalName || null,
@@ -23,7 +24,8 @@ export async function PATCH(
       limitedPartnerInvestmentUsd: input.isLimitedPartner
         ? (input.limitedPartnerInvestmentUsd ?? null)
         : null,
-      isAllianceMember: input.isAllianceMember,
+      isAllianceMember: allianceMemberStatus === "YES",
+      allianceMemberStatus,
       researchUpdatedAt: new Date()
     };
 

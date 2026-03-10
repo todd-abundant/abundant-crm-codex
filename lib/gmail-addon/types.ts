@@ -26,7 +26,9 @@ export type GmailAddonEvent = {
   authorizationEventObject?: {
     userIdToken?: string;
     userOAuthToken?: string;
+    userOauthToken?: string;
     systemIdToken?: string;
+    authorizedScopes?: string[];
   };
   commonEventObject?: {
     hostApp?: string;
@@ -111,12 +113,14 @@ export function resolveAddonAction(event: GmailAddonEvent): string {
 
 export function resolveMessageTokens(event: GmailAddonEvent) {
   const gmail = event.gmail || event.messageMetadata;
+  const userOAuthToken =
+    event.authorizationEventObject?.userOAuthToken || event.authorizationEventObject?.userOauthToken || null;
 
   return {
     messageId: gmail?.messageId || null,
     threadId: gmail?.threadId || null,
     gmailAccessToken: gmail?.accessToken || null,
-    userOAuthToken: event.authorizationEventObject?.userOAuthToken || null
+    userOAuthToken
   };
 }
 

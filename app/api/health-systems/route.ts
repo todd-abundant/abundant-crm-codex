@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { healthSystemInputSchema } from "@/lib/schemas";
+import { healthSystemInputSchema, resolveAllianceMemberStatus } from "@/lib/schemas";
 
 export async function GET() {
   const healthSystems = await prisma.healthSystem.findMany({
@@ -53,6 +53,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const input = healthSystemInputSchema.parse(body);
+    const allianceMemberStatus = resolveAllianceMemberStatus(input);
 
     const created = await prisma.healthSystem.create({
       data: {
@@ -67,7 +68,8 @@ export async function POST(request: Request) {
         limitedPartnerInvestmentUsd: input.isLimitedPartner
           ? (input.limitedPartnerInvestmentUsd ?? null)
           : null,
-        isAllianceMember: input.isAllianceMember,
+        isAllianceMember: allianceMemberStatus === "YES",
+        allianceMemberStatus,
         researchStatus: "DRAFT",
         researchNotes: input.researchNotes || null,
         researchUpdatedAt: new Date(),

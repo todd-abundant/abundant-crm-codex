@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   InlineBooleanField,
+  InlineSelectField,
   InlineTextField
 } from "./inline-detail-field";
 import { SearchMatchModal } from "./search-match-modal";
@@ -10,6 +11,7 @@ import { EntityLookupInput } from "./entity-lookup-input";
 import { AddContactModal } from "./add-contact-modal";
 import { EntityDocumentsPane } from "./entity-documents-pane";
 import { EntityNotesPane } from "./entity-notes-pane";
+import type { AllianceMemberStatus } from "@/lib/schemas";
 
 type SearchCandidate = {
   name: string;
@@ -42,6 +44,7 @@ type HealthSystemRecord = {
   isLimitedPartner: boolean;
   limitedPartnerInvestmentUsd?: number | string | null;
   isAllianceMember: boolean;
+  allianceMemberStatus: AllianceMemberStatus;
   researchStatus: "DRAFT" | "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
   researchError?: string | null;
   contactLinks: Array<{
@@ -94,6 +97,12 @@ const companyHealthSystemRelationshipOptions: Array<{ value: "CUSTOMER" | "SPIN_
   { value: "OTHER", label: "Other" }
 ];
 
+const allianceMemberStatusOptions: Array<{ value: AllianceMemberStatus; label: string }> = [
+  { value: "YES", label: "Yes" },
+  { value: "NO", label: "No" },
+  { value: "PROSPECT", label: "Prospect" }
+];
+
 type DetailDraft = {
   name: string;
   legalName: string;
@@ -102,10 +111,32 @@ type DetailDraft = {
   netPatientRevenueUsd: string;
   isLimitedPartner: boolean;
   limitedPartnerInvestmentUsd: string;
-  isAllianceMember: boolean;
+  allianceMemberStatus: AllianceMemberStatus;
 };
 
 type DetailTab = "overview" | "documents" | "notes" | "contacts" | "relationships";
+
+type HealthSystemApiRecord = {
+  id: string;
+  name: string;
+  logoUrl?: string | null;
+  legalName?: string | null;
+  website?: string | null;
+  headquartersCity?: string | null;
+  headquartersState?: string | null;
+  headquartersCountry?: string | null;
+  netPatientRevenueUsd?: number | string | null;
+  isLimitedPartner: boolean;
+  limitedPartnerInvestmentUsd?: number | string | null;
+  isAllianceMember: boolean;
+  allianceMemberStatus?: AllianceMemberStatus | null;
+  researchStatus: "DRAFT" | "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
+  researchError?: string | null;
+  contactLinks?: HealthSystemRecord["contactLinks"];
+  investments?: HealthSystemRecord["investments"];
+  customerLinks?: HealthSystemRecord["customerLinks"];
+  companyHealthSystemLinks?: HealthSystemRecord["customerLinks"];
+};
 
 function formatLocation(record: {
   headquartersCity?: string | null;
@@ -248,6 +279,54 @@ function buildFallbackCandidate(term: string): SearchCandidate {
   };
 }
 
+function normalizeAllianceMemberStatus(input: {
+  allianceMemberStatus?: AllianceMemberStatus | null;
+  isAllianceMember?: boolean;
+}): AllianceMemberStatus {
+  if (
+    input.allianceMemberStatus === "YES" ||
+    input.allianceMemberStatus === "PROSPECT"
+  ) {
+    return input.allianceMemberStatus;
+  }
+  if (input.allianceMemberStatus === "NO" && input.isAllianceMember) {
+    return "YES";
+  }
+  return input.isAllianceMember ? "YES" : "NO";
+}
+
+function allianceMemberTagLabel(status: AllianceMemberStatus) {
+  if (status === "PROSPECT") return "Alliance Prospect";
+  if (status === "YES") return "Alliance";
+  return "";
+}
+
+function normalizeHealthSystemRecord(record: HealthSystemApiRecord): HealthSystemRecord {
+  const allianceMemberStatus = normalizeAllianceMemberStatus({
+    allianceMemberStatus: record.allianceMemberStatus,
+    isAllianceMember: record.isAllianceMember
+  });
+
+  return {
+    ...record,
+    allianceMemberStatus,
+    name: record.name || "",
+    logoUrl: record.logoUrl || null,
+    legalName: record.legalName || null,
+    website: record.website || null,
+    headquartersCity: record.headquartersCity || null,
+    headquartersState: record.headquartersState || null,
+    headquartersCountry: record.headquartersCountry || null,
+    netPatientRevenueUsd: record.netPatientRevenueUsd ?? null,
+    isAllianceMember: record.isAllianceMember,
+    limitedPartnerInvestmentUsd: record.limitedPartnerInvestmentUsd ?? null,
+    researchError: record.researchError || null,
+    contactLinks: record.contactLinks || [],
+    investments: record.investments || [],
+    customerLinks: record.customerLinks || record.companyHealthSystemLinks || []
+  };
+}
+
 function draftFromRecord(record: HealthSystemRecord): DetailDraft {
   return {
     name: record.name || "",
@@ -257,12 +336,14 @@ function draftFromRecord(record: HealthSystemRecord): DetailDraft {
     netPatientRevenueUsd: record.netPatientRevenueUsd?.toString() || "",
     isLimitedPartner: record.isLimitedPartner,
     limitedPartnerInvestmentUsd: record.limitedPartnerInvestmentUsd?.toString() || "",
-    isAllianceMember: record.isAllianceMember
+    allianceMemberStatus: record.allianceMemberStatus
   };
 }
 
 export function HealthSystemWorkbench() {
   const [query, setQuery] = useState("");
+  const [healthSystemLookupValue, setHealthSystemLookupValue] = useState("");
+  const [healthSystemLookupModalSignal, setHealthSystemLookupModalSignal] = useState(0);
   const [records, setRecords] = useState<HealthSystemRecord[]>([]);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [draftRecordId, setDraftRecordId] = useState<string | null>(null);
@@ -271,7 +352,7 @@ export function HealthSystemWorkbench() {
   const [creatingFromSearch, setCreatingFromSearch] = useState(false);
   const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
   const [newIsLimitedPartner, setNewIsLimitedPartner] = useState(false);
-  const [newIsAllianceMember, setNewIsAllianceMember] = useState(false);
+  const [newAllianceMemberStatus, setNewAllianceMemberStatus] = useState<AllianceMemberStatus>("NO");
   const [newLimitedPartnerInvestmentUsd, setNewLimitedPartnerInvestmentUsd] = useState("");
   const [searchCandidates, setSearchCandidates] = useState<SearchCandidate[]>([]);
   const [candidateSearchQuery, setCandidateSearchQuery] = useState("");
@@ -375,7 +456,7 @@ export function HealthSystemWorkbench() {
     [records, selectedRecordId]
   );
 
-  const shouldOfferCreate = query.trim().length >= 2 && filteredRecords.length === 0;
+  const shouldOfferCreate = false;
   const selectedCandidate =
     selectedCandidateIndex >= 0 && selectedCandidateIndex < searchCandidates.length
       ? searchCandidates[selectedCandidateIndex]
@@ -453,10 +534,9 @@ export function HealthSystemWorkbench() {
   async function loadRecords() {
     const res = await fetch("/api/health-systems", { cache: "no-store" });
     const payload = await res.json();
-    const healthSystems = (payload.healthSystems || []).map((record: { customerLinks?: HealthSystemRecord["customerLinks"]; companyHealthSystemLinks?: HealthSystemRecord["customerLinks"] }) => ({
-      ...record,
-      customerLinks: record.customerLinks || record.companyHealthSystemLinks || []
-    }));
+    const healthSystems = (payload.healthSystems || []).map((record: HealthSystemApiRecord) =>
+      normalizeHealthSystemRecord(record)
+    );
     setRecords(healthSystems);
   }
 
@@ -547,7 +627,8 @@ export function HealthSystemWorkbench() {
         body: JSON.stringify({
           candidate,
           isLimitedPartner: newIsLimitedPartner,
-          isAllianceMember: newIsAllianceMember,
+          isAllianceMember: newAllianceMemberStatus === "YES",
+          allianceMemberStatus: newAllianceMemberStatus,
           limitedPartnerInvestmentUsd: newIsLimitedPartner
             ? toNullableNumber(newLimitedPartnerInvestmentUsd)
             : null
@@ -559,21 +640,44 @@ export function HealthSystemWorkbench() {
         throw new Error(verifyPayload.error || "Failed to create health system");
       }
 
+      const createdHealthSystemId = verifyPayload.healthSystem?.id as string | undefined;
+
+      if (verifyPayload.healthSystem) {
+        const createdRecord = normalizeHealthSystemRecord(verifyPayload.healthSystem);
+        setRecords((current) => {
+          if (current.some((record) => record.id === createdRecord.id)) {
+            return current;
+          }
+
+          return [createdRecord, ...current];
+        });
+      }
+
+      if (createdHealthSystemId) {
+        setKeepListView(true);
+        setSelectedRecordId(createdHealthSystemId);
+      }
+
+      setQuery("");
+
+      await loadRecords();
+
       setStatus({
         kind: "ok",
         text: `${verifyPayload.healthSystem.name} created. Research agent queued.`
       });
 
-      setKeepListView(true);
-      setSelectedRecordId(null);
+      setKeepListView(false);
       setDraftRecordId(null);
-      setQuery("");
       setSearchCandidates([]);
       setCandidateSearchQuery("");
       setSelectedCandidateIndex(-1);
       setSearchCandidateError(null);
       setMatchModalOpen(false);
       setMatchModalManualMode(false);
+      setNewIsLimitedPartner(false);
+      setNewAllianceMemberStatus("NO");
+      setNewLimitedPartnerInvestmentUsd("");
       setManualMatchCandidate({
         name: "",
         website: "",
@@ -1089,12 +1193,22 @@ export function HealthSystemWorkbench() {
           netPatientRevenueUsd: toNullableNumber(draftToSave.netPatientRevenueUsd),
           isLimitedPartner: draftToSave.isLimitedPartner,
           limitedPartnerInvestmentUsd: toNullableNumber(draftToSave.limitedPartnerInvestmentUsd),
-          isAllianceMember: draftToSave.isAllianceMember,
+          isAllianceMember: draftToSave.allianceMemberStatus === "YES",
+          allianceMemberStatus: draftToSave.allianceMemberStatus,
         })
       });
 
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || "Failed to save changes");
+
+      if (payload.healthSystem?.id) {
+        const updatedRecord = normalizeHealthSystemRecord(payload.healthSystem);
+        setRecords((current) =>
+          current.some((record) => record.id === updatedRecord.id)
+            ? current.map((record) => (record.id === updatedRecord.id ? updatedRecord : record))
+            : [updatedRecord, ...current]
+        );
+      }
 
       setStatus({ kind: "ok", text: `Saved changes for ${payload.healthSystem.name}.` });
       await loadRecords();
@@ -1296,9 +1410,21 @@ export function HealthSystemWorkbench() {
       <div className="grid health-system-workbench-layout">
         <section className="panel health-system-list-panel" aria-label="List panel">
           <div className="health-system-panel-scroll">
-          <label htmlFor="search-health-system">Search</label>
+          <div className="detail-action-bar">
+            <a
+              href="#"
+              className="contact-add-link"
+              onClick={(event) => {
+                event.preventDefault();
+                setHealthSystemLookupModalSignal((current) => current + 1);
+              }}
+            >
+              + Add Health System
+            </a>
+          </div>
           <input
             id="search-health-system"
+            aria-label="Search health systems"
             placeholder="Type a health system name, location, or website"
             value={query}
             onChange={(event) => {
@@ -1306,13 +1432,33 @@ export function HealthSystemWorkbench() {
               setQuery(event.target.value);
             }}
           />
+          <EntityLookupInput
+            entityKind="HEALTH_SYSTEM"
+            value={healthSystemLookupValue}
+            onChange={(nextValue) => {
+              setHealthSystemLookupValue(nextValue);
+              if (!nextValue) return;
+              setKeepListView(false);
+              setQuery("");
+              setSelectedRecordId(nextValue);
+            }}
+            hideLookupField
+            onEntityCreated={(option) => {
+              setHealthSystemLookupValue(option.id);
+              setStatus({ kind: "ok", text: `${option.name} created.` });
+              setKeepListView(false);
+              void (async () => {
+                await loadRecords();
+                setSelectedRecordId(option.id);
+              })();
+            }}
+            openAddModalSignal={healthSystemLookupModalSignal}
+          />
 
-          {query.trim().length >= 2 && (
+          {shouldOfferCreate && (
             <div className="create-card">
-              <p className="create-title">New Health System Relationship</p>
-              <p className="muted">
-                If this search becomes a new health system, set these flags before creating.
-              </p>
+              <p className="create-title">No health systems match "{query.trim()}".</p>
+              <p className="muted">Create a new health system and launch the research agent?</p>
               <div className="chip-row">
                 <label className="chip">
                   <input
@@ -1328,12 +1474,19 @@ export function HealthSystemWorkbench() {
                   Limited Partner
                 </label>
                 <label className="chip">
-                  <input
-                    type="checkbox"
-                    checked={newIsAllianceMember}
-                    onChange={(event) => setNewIsAllianceMember(event.target.checked)}
-                  />
                   Alliance Member
+                  <select
+                    value={newAllianceMemberStatus}
+                    onChange={(event) =>
+                      setNewAllianceMemberStatus(event.target.value as AllianceMemberStatus)
+                    }
+                  >
+                    {allianceMemberStatusOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </div>
               {newIsLimitedPartner && (
@@ -1346,13 +1499,6 @@ export function HealthSystemWorkbench() {
                   />
                 </div>
               )}
-            </div>
-          )}
-
-          {shouldOfferCreate && (
-            <div className="create-card">
-              <p className="create-title">No health systems match "{query.trim()}".</p>
-              <p className="muted">Create a new health system and launch the research agent?</p>
               <div className="actions">
                 <button className="primary" type="button" onClick={openCreateMatchModal} disabled={creatingFromSearch}>
                   Search online
@@ -1396,8 +1542,12 @@ export function HealthSystemWorkbench() {
           />
 
           <div className="list-container">
-            {filteredRecords.length === 0 && !shouldOfferCreate && (
-              <p className="muted">No health systems yet. Start by typing and creating one.</p>
+            {filteredRecords.length === 0 && (
+              <p className="muted">
+                {query.trim()
+                  ? `No health systems match "${query.trim()}". Use Add Health System above and select Add New.`
+                  : "No health systems yet. Use Add Health System above to create your first record."}
+              </p>
             )}
 
             {filteredRecords.map((record) => {
@@ -1424,7 +1574,9 @@ export function HealthSystemWorkbench() {
                     <strong>{record.name}</strong>
                     <span className="muted">{formatLocation(record) || "Location unknown"}</span>
                     <div className="list-row-indicators">
-                      {record.isAllianceMember && <span className="flag-pill alliance">Alliance</span>}
+                      {allianceMemberTagLabel(record.allianceMemberStatus) && (
+                        <span className="flag-pill alliance">{allianceMemberTagLabel(record.allianceMemberStatus)}</span>
+                      )}
                       {record.isLimitedPartner && <span className="flag-pill lp">Limited Partner</span>}
                     </div>
                   </div>
@@ -1456,9 +1608,14 @@ export function HealthSystemWorkbench() {
               <p className="muted">Select a health system from the list to view details.</p>
             ) : (
               <div className="detail-card">
-              <div className="detail-head detail-head-minimal">
+    <div className="detail-head detail-head-minimal">
                 <div className="health-system-head-main">
                   <h3>{selectedRecord.name}</h3>
+                  {(selectedRecord.researchStatus === "QUEUED" || selectedRecord.researchStatus === "RUNNING") && (
+                    <div className="list-row-indicators">
+                      <span className="flag-pill">Research Underway</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1565,12 +1722,11 @@ export function HealthSystemWorkbench() {
                     onSave={(value) => updateDetailDraft({ limitedPartnerInvestmentUsd: value })}
                   />
                 )}
-                <InlineBooleanField
+                <InlineSelectField
                   label="Alliance Member"
-                  value={detailDraft.isAllianceMember}
-                  onSave={(value) => updateDetailDraft({ isAllianceMember: value })}
-                  trueLabel="Yes"
-                  falseLabel="No"
+                  value={detailDraft.allianceMemberStatus}
+                  onSave={(value) => updateDetailDraft({ allianceMemberStatus: value as AllianceMemberStatus })}
+                  options={allianceMemberStatusOptions}
                 />
               </div>
 

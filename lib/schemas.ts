@@ -1,5 +1,28 @@
 import { z } from "zod";
 
+export const allianceMemberStatusSchema = z.enum(["YES", "NO", "PROSPECT"]).default("NO");
+export type AllianceMemberStatus = z.infer<typeof allianceMemberStatusSchema>;
+
+type AllianceMemberStatusInput = {
+  isAllianceMember?: boolean;
+  allianceMemberStatus?: AllianceMemberStatus | null;
+};
+
+export function resolveAllianceMemberStatus(input: AllianceMemberStatusInput): AllianceMemberStatus {
+  if (
+    input.allianceMemberStatus === "YES" ||
+    input.allianceMemberStatus === "PROSPECT"
+  ) {
+    return input.allianceMemberStatus;
+  }
+
+  if (input.allianceMemberStatus === "NO" && input.isAllianceMember) {
+    return "YES";
+  }
+
+  return input.isAllianceMember ? "YES" : "NO";
+}
+
 export const personSchema = z.object({
   name: z.string().min(1),
   title: z.string().optional(),
@@ -50,6 +73,7 @@ export const healthSystemInputSchema = z.object({
   isLimitedPartner: z.boolean().default(false),
   limitedPartnerInvestmentUsd: z.number().nonnegative().optional().nullable(),
   isAllianceMember: z.boolean().default(false),
+  allianceMemberStatus: allianceMemberStatusSchema,
   executives: z.array(personSchema).default([]),
   venturePartners: z.array(personSchema).default([]),
   investments: z.array(investmentSchema).default([]),
@@ -69,6 +93,7 @@ export const healthSystemUpdateSchema = z.object({
   isLimitedPartner: z.boolean().default(false),
   limitedPartnerInvestmentUsd: z.number().nonnegative().optional().nullable(),
   isAllianceMember: z.boolean().default(false),
+  allianceMemberStatus: allianceMemberStatusSchema,
   researchNotes: z.string().optional()
 });
 
@@ -94,6 +119,7 @@ export const verifyCandidateRequestSchema = z.object({
   candidate: healthSystemSearchCandidateSchema,
   isLimitedPartner: z.boolean().optional().default(false),
   isAllianceMember: z.boolean().optional().default(false),
+  allianceMemberStatus: allianceMemberStatusSchema.optional(),
   limitedPartnerInvestmentUsd: z.number().nonnegative().optional().nullable()
 });
 
