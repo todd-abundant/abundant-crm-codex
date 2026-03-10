@@ -1495,61 +1495,63 @@ export function CoInvestorWorkbench() {
       <div className="grid health-system-workbench-layout">
         <section className="panel health-system-list-panel" aria-label="List panel">
           <div className="health-system-panel-scroll">
-          <div className="detail-action-bar">
-            <a
-              href="#"
-              className="contact-add-link"
-              onClick={(event) => {
-                event.preventDefault();
-                setCoInvestorLookupModalSignal((current) => current + 1);
-              }}
-            >
-              + Add Co-Investor
-            </a>
-          </div>
-          <div className="entity-list-search">
-            <input
-              id="search-co-investor"
-              aria-label="Search co-investors"
-              placeholder="Type a co-investor name, location, or website"
-              value={query}
-              onChange={(event) => {
-                const nextQuery = event.target.value;
-                setKeepListView(false);
-                setQuery(nextQuery);
-                setSearchCandidates([]);
-                setCandidateSearchQuery("");
-                setSelectedCandidateIndex(-1);
-                setSearchCandidateError(null);
-                setSearchingCandidates(false);
-                if (candidateSearchAbortRef.current) {
-                  candidateSearchAbortRef.current.abort();
-                  candidateSearchAbortRef.current = null;
-                }
-              }}
-            />
-            {query.trim() ? (
-              <button
-                type="button"
-                className="ghost small entity-list-search-clear"
-                onClick={() => {
-                  setKeepListView(false);
-                  setQuery("");
-                  setSearchCandidates([]);
-                  setCandidateSearchQuery("");
-                  setSelectedCandidateIndex(-1);
-                  setSearchCandidateError(null);
-                  setSearchingCandidates(false);
-                  if (candidateSearchAbortRef.current) {
-                    candidateSearchAbortRef.current.abort();
-                    candidateSearchAbortRef.current = null;
-                  }
-                }}
-              >
-                Clear
-              </button>
-            ) : null}
-          </div>
+            <div className="entity-list-sticky-controls">
+              <div className="detail-action-bar">
+                <a
+                  href="#"
+                  className="contact-add-link"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setCoInvestorLookupModalSignal((current) => current + 1);
+                  }}
+                >
+                  + Add Co-Investor
+                </a>
+              </div>
+              <div className="entity-list-search">
+                <input
+                  id="search-co-investor"
+                  aria-label="Search co-investors"
+                  placeholder="Type a co-investor name, location, or website"
+                  value={query}
+                  onChange={(event) => {
+                    const nextQuery = event.target.value;
+                    setKeepListView(false);
+                    setQuery(nextQuery);
+                    setSearchCandidates([]);
+                    setCandidateSearchQuery("");
+                    setSelectedCandidateIndex(-1);
+                    setSearchCandidateError(null);
+                    setSearchingCandidates(false);
+                    if (candidateSearchAbortRef.current) {
+                      candidateSearchAbortRef.current.abort();
+                      candidateSearchAbortRef.current = null;
+                    }
+                  }}
+                />
+                {query.trim() ? (
+                  <button
+                    type="button"
+                    className="ghost small entity-list-search-clear"
+                    onClick={() => {
+                      setKeepListView(false);
+                      setQuery("");
+                      setSearchCandidates([]);
+                      setCandidateSearchQuery("");
+                      setSelectedCandidateIndex(-1);
+                      setSearchCandidateError(null);
+                      setSearchingCandidates(false);
+                      if (candidateSearchAbortRef.current) {
+                        candidateSearchAbortRef.current.abort();
+                        candidateSearchAbortRef.current = null;
+                      }
+                    }}
+                  >
+                    Clear
+                  </button>
+                ) : null}
+              </div>
+            </div>
           <EntityLookupInput
             entityKind="CO_INVESTOR"
             value={coInvestorLookupValue}

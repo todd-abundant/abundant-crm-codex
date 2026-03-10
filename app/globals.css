@@ -1631,6 +1631,17 @@ a {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.entity-list-sticky-controls {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 10px;
+  background: var(--colorSurface);
+}
+
 .contact-lookup-search:focus-within,
 .entity-list-search:focus-within {
   border-color: #84aed3;
@@ -2343,7 +2354,7 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin: 0 0 10px;
+  margin: 0;
 }
 
 .quick-action-pill {

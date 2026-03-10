@@ -8,7 +8,8 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-const APPLY = process.argv.includes("--apply");
+const APPLY_HEALTH_SYSTEMS_ONLY = process.argv.includes("--apply-health-systems-only");
+const APPLY = process.argv.includes("--apply") || APPLY_HEALTH_SYSTEMS_ONLY;
 const CSV_PATH =
   process.argv.find((arg, index) => index > 1 && !arg.startsWith("--")) ||
   path.join(process.env.HOME || "", "Downloads", "Alliance Directory For CRM - Email Directory.csv");
@@ -749,6 +750,20 @@ async function applyOperations(client, plan) {
   }
 }
 
+async function applyHealthSystemCreates(client, plan) {
+  for (const item of plan.healthSystemCreates) {
+    await client.healthSystem.create({
+      data: {
+        name: item.name,
+        legalName: item.legalName,
+        website: item.website,
+        isAllianceMember: true,
+        allianceMemberStatus: "YES"
+      }
+    });
+  }
+}
+
 async function buildPlan(client) {
   const csvRows = readCsvRows(CSV_PATH);
   const rowsWithNames = csvRows.filter((row) => Boolean(cleanCell(row.name)));
@@ -966,7 +981,9 @@ async function main() {
   const { plan, organizationPlans } = await buildPlan(prisma);
   plan.summary.allianceFlagSchema = plan.allianceFlagSchema;
 
-  if (APPLY) {
+  if (APPLY_HEALTH_SYSTEMS_ONLY) {
+    await applyHealthSystemCreates(prisma, plan);
+  } else if (APPLY) {
     if (!plan.allianceFlagSchema.hasKeyAllianceContact || !plan.allianceFlagSchema.hasInformedAllianceContact) {
       const missingColumns = [
         !plan.allianceFlagSchema.hasKeyAllianceContact ? "isKeyAllianceContact" : null,
@@ -978,9 +995,7 @@ async function main() {
       );
     }
 
-    await prisma.$transaction(async (tx) => {
-      await applyOperations(tx, plan);
-    });
+    await applyOperations(prisma, plan);
   }
 
   printJson("summary", plan.summary);

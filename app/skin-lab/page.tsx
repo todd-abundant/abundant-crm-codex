@@ -541,9 +541,10 @@ function parseSkinPack(raw: string): SkinPack {
             keyframes:
               Object.entries(keyframes).length > 0
                 ? Object.fromEntries(
-                    Object.entries(keyframes)
-                      .filter((entry): entry is [string, unknown] => typeof entry[0] === "string")
-                      .map(([frame, values]) => [frame, coerceSkinDeclarationMap(values)] as [string, SkinDeclarationMap])
+                    Object.entries(keyframes).map(([frame, values]) => [
+                      frame,
+                      coerceSkinDeclarationMap(values),
+                    ] as [string, SkinDeclarationMap])
                   )
                 : {},
             usage: { selector: candidate.usage.selector, declarations: usageDecls }

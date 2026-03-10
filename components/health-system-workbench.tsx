@@ -1539,42 +1539,44 @@ export function HealthSystemWorkbench() {
       <div className="grid health-system-workbench-layout">
         <section className="panel health-system-list-panel" aria-label="List panel">
           <div className="health-system-panel-scroll">
-          <div className="detail-action-bar">
-            <a
-              href="#"
-              className="contact-add-link"
-              onClick={(event) => {
-                event.preventDefault();
-                setHealthSystemLookupModalSignal((current) => current + 1);
-              }}
-            >
-              + Add Health System
-            </a>
-          </div>
-          <div className="entity-list-search">
-            <input
-              id="search-health-system"
-              aria-label="Search health systems"
-              placeholder="Type a health system name, location, or website"
-              value={query}
-              onChange={(event) => {
-                setKeepListView(false);
-                setQuery(event.target.value);
-              }}
-            />
-            {query.trim() ? (
-              <button
-                type="button"
-                className="ghost small entity-list-search-clear"
-                onClick={() => {
-                  setKeepListView(false);
-                  setQuery("");
-                }}
-              >
-                Clear
-              </button>
-            ) : null}
-          </div>
+            <div className="entity-list-sticky-controls">
+              <div className="detail-action-bar">
+                <a
+                  href="#"
+                  className="contact-add-link"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setHealthSystemLookupModalSignal((current) => current + 1);
+                  }}
+                >
+                  + Add Health System
+                </a>
+              </div>
+              <div className="entity-list-search">
+                <input
+                  id="search-health-system"
+                  aria-label="Search health systems"
+                  placeholder="Type a health system name, location, or website"
+                  value={query}
+                  onChange={(event) => {
+                    setKeepListView(false);
+                    setQuery(event.target.value);
+                  }}
+                />
+                {query.trim() ? (
+                  <button
+                    type="button"
+                    className="ghost small entity-list-search-clear"
+                    onClick={() => {
+                      setKeepListView(false);
+                      setQuery("");
+                    }}
+                  >
+                    Clear
+                  </button>
+                ) : null}
+              </div>
+            </div>
           <EntityLookupInput
             entityKind="HEALTH_SYSTEM"
             value={healthSystemLookupValue}
