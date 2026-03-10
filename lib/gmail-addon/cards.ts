@@ -21,15 +21,13 @@ type AddonCard = {
 };
 
 type AddonResponse = {
-  renderActions: {
-    action: {
-      navigations: Array<{
-        pushCard?: AddonCard;
-        updateCard?: AddonCard;
-      }>;
-      notification?: {
-        text: string;
-      };
+  action: {
+    navigations: Array<{
+      pushCard?: AddonCard;
+      updateCard?: AddonCard;
+    }>;
+    notification?: {
+      text: string;
     };
   };
 };
@@ -168,22 +166,18 @@ function baseCard(title: string, subtitle: string | undefined, sections: CardSec
 
 export function pushCard(card: AddonCard, notification?: string): AddonResponse {
   return {
-    renderActions: {
-      action: {
-        navigations: [{ pushCard: card }],
-        ...(notification ? { notification: { text: notification } } : {})
-      }
+    action: {
+      navigations: [{ pushCard: card }],
+      ...(notification ? { notification: { text: notification } } : {})
     }
   };
 }
 
 export function updateCard(card: AddonCard, notification?: string): AddonResponse {
   return {
-    renderActions: {
-      action: {
-        navigations: [{ updateCard: card }],
-        ...(notification ? { notification: { text: notification } } : {})
-      }
+    action: {
+      navigations: [{ updateCard: card }],
+      ...(notification ? { notification: { text: notification } } : {})
     }
   };
 }

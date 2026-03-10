@@ -277,6 +277,20 @@ function formatDate(value: string | null | undefined) {
   return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+function formatReportDate(value: string | null | undefined) {
+  if (!value) return "-";
+  const parsed = parseDateInput(value);
+  if (!parsed || Number.isNaN(parsed.getTime())) return "-";
+  return parsed.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function formatReportCurrency(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === "") return "-";
+  const numeric = typeof value === "string" ? Number(value.replace(/[$,\s]/g, "")) : Number(value);
+  if (!Number.isFinite(numeric)) return "-";
+  return numeric.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+
 function formatTimestamp(value: string | null | undefined) {
   if (!value) return "Date unavailable";
   const parsed = new Date(value);
@@ -1065,16 +1079,18 @@ function emptyQualitativeFeedbackDraft(healthSystemId: string): QualitativeFeedb
 export function PipelineOpportunityDetailView({
   itemId,
   inModal = false,
-  onCloseModal
+  onCloseModal,
+  initialIntakeDetailTab = "pipeline-status"
 }: {
   itemId: string;
   inModal?: boolean;
   onCloseModal?: () => void;
+  initialIntakeDetailTab?: IntakeDetailTab;
 }) {
   const [item, setItem] = React.useState<PipelineOpportunityDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
-  const [activeIntakeDetailTab, setActiveIntakeDetailTab] = React.useState<IntakeDetailTab>("pipeline-status");
+  const [activeIntakeDetailTab, setActiveIntakeDetailTab] = React.useState<IntakeDetailTab>(initialIntakeDetailTab);
   const [activeIntakeMaterialsTab, setActiveIntakeMaterialsTab] =
     React.useState<IntakeMaterialsSubTab>("at-a-glance");
   const [savingPhase, setSavingPhase] = React.useState(false);
@@ -1139,6 +1155,9 @@ export function PipelineOpportunityDetailView({
   const [opportunityDraftById, setOpportunityDraftById] = React.useState<Record<string, OpportunityDraft>>({});
   const [savingOpportunityById, setSavingOpportunityById] = React.useState<Record<string, boolean>>({});
   const [editingOpportunityNextStepsId, setEditingOpportunityNextStepsId] = React.useState<string | null>(null);
+  const [editingOpportunityModalNextStepsId, setEditingOpportunityModalNextStepsId] = React.useState<string | null>(
+    null
+  );
   const [deletingOpportunityById, setDeletingOpportunityById] = React.useState<Record<string, boolean>>({});
   const [addingOpportunity, setAddingOpportunity] = React.useState(false);
   const [newOpportunityDraft, setNewOpportunityDraft] = React.useState<OpportunityDraft>({
@@ -1381,16 +1400,24 @@ export function PipelineOpportunityDetailView({
   }, [item, newNoteOpportunityId]);
 
   React.useEffect(() => {
-    if (item?.isScreeningStage) return;
+    if (initialIntakeDetailTab) {
+      setActiveIntakeDetailTab(initialIntakeDetailTab);
+    }
+  }, [initialIntakeDetailTab, itemId]);
+
+  React.useEffect(() => {
+    if (!item) return;
+    if (item.isScreeningStage) return;
     if (activeIntakeDetailTab !== "screening-materials") return;
     setActiveIntakeDetailTab("pipeline-status");
   }, [item?.isScreeningStage, activeIntakeDetailTab]);
 
   React.useEffect(() => {
+    if (!item) return;
     if (showOpportunitiesTab) return;
     if (activeIntakeDetailTab !== "opportunities") return;
     setActiveIntakeDetailTab("pipeline-status");
-  }, [showOpportunitiesTab, activeIntakeDetailTab]);
+  }, [showOpportunitiesTab, activeIntakeDetailTab, item]);
 
   React.useEffect(() => {
     if (!opportunityModal || opportunityModal.mode !== "edit") return;
@@ -3180,7 +3207,7 @@ export function PipelineOpportunityDetailView({
     });
   }
 
-  async function saveOpportunity(opportunityId: string) {
+  async function saveOpportunity(opportunityId: string, closeOnSuccess = false) {
     if (!item) return;
     const draft = opportunityDraftById[opportunityId];
     if (!draft) return;
@@ -3211,6 +3238,9 @@ export function PipelineOpportunityDetailView({
       const updated = responsePayload.opportunity as PipelineOpportunityDetail["opportunities"][number] | undefined;
       if (!updated) throw new Error("Failed to update opportunity.");
       applyUpdatedOpportunity(updated);
+      if (closeOnSuccess) {
+        closeOpportunityModal();
+      }
       setStatus({ kind: "ok", text: "Opportunity updated." });
     } catch (error) {
       setStatus({
@@ -3317,6 +3347,21 @@ export function PipelineOpportunityDetailView({
     const contactId = ((contactIdOverride ?? opportunityContactLookupByOpportunityId[opportunityId]) || "").trim();
     if (!contactId) {
       setStatus({ kind: "error", text: "Select a contact before adding." });
+      return;
+    }
+
+    const targetOpportunity = item.opportunities.find((entry) => entry.id === opportunityId);
+    if (!targetOpportunity) {
+      setStatus({ kind: "error", text: "Opportunity not found." });
+      return;
+    }
+
+    const existingContact = targetOpportunity.contacts.some((entry) => entry.contact.id === contactId);
+
+    if (existingContact) {
+      setOpportunityContactLookupByOpportunityId((current) => ({ ...current, [opportunityId]: "" }));
+      setShowAddOpportunityContactByOpportunityId((current) => ({ ...current, [opportunityId]: false }));
+      setStatus({ kind: "ok", text: "Contact is already linked." });
       return;
     }
 
@@ -3539,6 +3584,7 @@ export function PipelineOpportunityDetailView({
   function closeOpportunityModal() {
     setOpportunityModal(null);
     setOpportunityModalTab("details");
+    setEditingOpportunityModalNextStepsId(null);
   }
 
   async function addPipelineNote() {
@@ -4741,23 +4787,26 @@ export function PipelineOpportunityDetailView({
                   />
                 </div>
 
-                <div className="detail-section">
-                  <p className="detail-label">Opportunity Lifecycle</p>
-                  <div className="detail-grid">
-                    <div className="inline-edit-field pipeline-status-readonly-field">
-                      <label>Open</label>
-                      <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.open}</div>
-                    </div>
-                    <div className="inline-edit-field pipeline-status-readonly-field">
-                      <label>Won</label>
-                      <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.won}</div>
-                    </div>
-                    <div className="inline-edit-field pipeline-status-readonly-field">
-                      <label>Lost</label>
-                      <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.lost}</div>
+                {(item.column || mapPhaseToBoardColumn(item.phase)) === "SCREENING" ||
+                (item.column || mapPhaseToBoardColumn(item.phase)) === "COMMERCIAL_ACCELERATION" ? (
+                  <div className="detail-section">
+                    <p className="detail-label">Opportunity Lifecycle</p>
+                    <div className="detail-grid">
+                      <div className="inline-edit-field pipeline-status-readonly-field">
+                        <label>Open</label>
+                        <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.open}</div>
+                      </div>
+                      <div className="inline-edit-field pipeline-status-readonly-field">
+                        <label>Won</label>
+                        <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.won}</div>
+                      </div>
+                      <div className="inline-edit-field pipeline-status-readonly-field">
+                        <label>Lost</label>
+                        <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.lost}</div>
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : null}
 
                 {descriptionPlainText ? (
                   <div className="pipeline-status-stacked-field">
@@ -4772,9 +4821,7 @@ export function PipelineOpportunityDetailView({
               <>
                 <div className="detail-section">
                   <p className="detail-label">Open Opportunities</p>
-                  <p className="muted">
-                    Click an opportunity name to open details. Update Next Steps inline from this list.
-                  </p>
+                  <p className="muted">Click an opportunity name to open details. Update Next Steps inline from this list.</p>
                   <button type="button" className="opportunity-add-link" onClick={openCreateOpportunityModal}>
                     + Add new opportunity
                   </button>
@@ -4782,58 +4829,46 @@ export function PipelineOpportunityDetailView({
                   {openOpportunities.length === 0 ? <p className="muted">No open opportunities yet.</p> : null}
 
                   {openOpportunities.length > 0 ? (
-                    <div className="opportunity-list">
-                      {openOpportunities.map((opportunity) => {
-                        const draft = opportunityDraftById[opportunity.id] || toOpportunityDraft(opportunity);
-                        const availableHealthSystems = item.screening.healthSystems.map((entry) => ({
-                          id: entry.healthSystemId,
-                          name: entry.healthSystemName
-                        }));
-                        if (
-                          opportunity.healthSystem &&
-                          !availableHealthSystems.some((entry) => entry.id === opportunity.healthSystem?.id)
-                        ) {
-                          availableHealthSystems.push({
-                            id: opportunity.healthSystem.id,
-                            name: opportunity.healthSystem.name
-                          });
-                        }
-                        const opportunityTypeLabel =
-                          opportunityTypeOptions.find((entry) => entry.value === opportunity.type)?.label ||
-                          opportunity.type;
-                        const opportunityStageLabel =
-                          opportunityStageOptions.find((entry) => entry.value === opportunity.stage)?.label ||
-                          opportunity.stage;
-                        const healthSystemName =
-                          availableHealthSystems.find((healthSystem) => healthSystem.id === draft.healthSystemId)
-                            ?.name || "No health system";
-                        const estimatedCloseLabel = draft.estimatedCloseDate
-                          ? formatDate(draft.estimatedCloseDate)
-                          : opportunity.estimatedCloseDate
-                            ? formatDate(opportunity.estimatedCloseDate)
-                            : "—";
-                        const durationLabel = computeOpportunityDurationDays(
-                          opportunity.createdAt,
-                          opportunity.closedAt
-                        );
-                        const likelihoodLabel = draft.likelihoodPercent ? `${draft.likelihoodPercent}%` : "—";
+                    <div className="table-wrap report-table-wrap">
+                      <table className="table report-table">
+                        <thead>
+                          <tr>
+                            <th>Company</th>
+                            <th>Opportunity</th>
+                            <th>Health System</th>
+                            <th>Stage</th>
+                            <th>Next Step</th>
+                            <th>Likelihood</th>
+                            <th>Contract Price</th>
+                            <th>Expected Close</th>
+                            <th>Contacts</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {openOpportunities.map((opportunity) => {
+                            const draft = opportunityDraftById[opportunity.id] || toOpportunityDraft(opportunity);
+                            const healthSystemName = opportunity.healthSystem?.name || "-";
+                            const likelihoodLabel = draft.likelihoodPercent ? `${draft.likelihoodPercent}%` : "—";
 
-                        return (
-                          <div key={opportunity.id} className="detail-list-item">
-                            <div className="contact-row opportunity-list-row-compact">
-                              <div className="contact-row-details opportunity-list-row-details">
-                                <div className="opportunity-row-title-line">
+                            return (
+                              <tr key={opportunity.id}>
+                                <td>{item?.name || "Company"}</td>
+                                <td>
                                   <button
                                     type="button"
-                                    className="opportunity-name-link"
+                                    className="report-opportunity-link"
                                     onClick={() => openEditOpportunityModal(opportunity.id)}
                                   >
                                     {opportunity.title}
                                   </button>
-                                  <div className="opportunity-inline-next-steps">
-                                    <span className="opportunity-inline-next-steps-label">Next Steps:</span>
+                                </td>
+                                <td>{healthSystemName}</td>
+                                <td>{opportunity.stage}</td>
+                                <td>
+                                  <div className="report-next-step-cell">
                                     {editingOpportunityNextStepsId === opportunity.id ? (
                                       <input
+                                        className="report-next-step-input"
                                         value={draft.nextSteps}
                                         onChange={(event) =>
                                           updateOpportunityDraft(opportunity.id, {
@@ -4859,52 +4894,35 @@ export function PipelineOpportunityDetailView({
                                           }
                                         }}
                                         placeholder="Add next steps..."
-                                        className="opportunity-next-steps-inline-input"
                                         autoFocus
                                       />
                                     ) : (
                                       <button
                                         type="button"
-                                        className={`opportunity-next-steps-inline-text ${
-                                          draft.nextSteps.trim() ? "has-value" : "is-empty"
-                                        }`}
-                                        onClick={() => setEditingOpportunityNextStepsId(opportunity.id)}
+                                        className={`report-next-step-display ${draft.nextSteps.trim() ? "" : "empty"}`}
+                                        onClick={() => {
+                                          setEditingOpportunityNextStepsId(opportunity.id);
+                                          setOpportunityDraftById((current) => ({
+                                            ...current,
+                                            [opportunity.id]: draft
+                                          }));
+                                        }}
                                       >
-                                        {draft.nextSteps.trim() || "Click to edit"}
+                                        {draft.nextSteps.trim() || "Add next step"}
                                       </button>
                                     )}
-                                    {savingOpportunityById[opportunity.id] ? (
-                                      <span className="opportunity-saving-indicator">Saving...</span>
-                                    ) : null}
                                   </div>
-                                </div>
-                                <p className="muted opportunity-row-meta">
-                                  {healthSystemName} · {opportunityTypeLabel} · {opportunityStageLabel} · Likelihood{" "}
-                                  {likelihoodLabel} · Duration {durationLabel !== null ? `${durationLabel}d` : "—"} ·
-                                  Est. close {estimatedCloseLabel} · Updated {formatTimestamp(opportunity.updatedAt)}
-                                </p>
-                              </div>
-                              <div className="contact-row-actions opportunity-list-row-actions">
-                                <button
-                                  type="button"
-                                  className="opportunity-inline-link"
-                                  onClick={() => openAddNoteForOpportunity(opportunity.id)}
-                                >
-                                  Add note
-                                </button>
-                                <button
-                                  type="button"
-                                  className="opportunity-inline-link"
-                                  onClick={() => void deleteOpportunity(opportunity.id)}
-                                  disabled={Boolean(deletingOpportunityById[opportunity.id])}
-                                >
-                                  {deletingOpportunityById[opportunity.id] ? "Deleting..." : "Delete"}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                                  {savingOpportunityById[opportunity.id] ? <span className="muted">Saving…</span> : null}
+                                </td>
+                                <td>{likelihoodLabel}</td>
+                                <td>{formatReportCurrency(opportunity.contractPriceUsd)}</td>
+                                <td>{formatReportDate(draft.estimatedCloseDate || opportunity.estimatedCloseDate)}</td>
+                                <td>{opportunity.contacts.length}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   ) : null}
                 </div>
@@ -6224,7 +6242,7 @@ export function PipelineOpportunityDetailView({
       {opportunityModal ? (
         <div className="pipeline-note-backdrop" onMouseDown={closeOpportunityModal}>
           <div
-            className="pipeline-opportunity-modal"
+            className="pipeline-opportunity-modal entity-detail-panel"
             role="dialog"
             aria-modal="true"
             onMouseDown={(event) => event.stopPropagation()}
@@ -6561,6 +6579,7 @@ export function PipelineOpportunityDetailView({
                                 type: event.target.value as OpportunityType
                               })
                             }
+                            onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
                           >
                             {opportunityTypeOptions.map((option) => (
                               <option key={`${selectedOpportunityForModal.id}-type-${option.value}`} value={option.value}>
@@ -6569,16 +6588,15 @@ export function PipelineOpportunityDetailView({
                             ))}
                           </select>
                         </div>
-                        <div className="detail-grid-full opportunity-modal-title-next-steps-row">
-                          <div>
-                            <label>Title</label>
-                            <input value={draftTitle} readOnly />
-                            <p className="muted" style={{ marginTop: 4 }}>
-                              Auto-generated by the system.
-                            </p>
+                        <div className="inline-edit-field">
+                          <label>Title</label>
+                          <div className="opportunity-inline-readonly" aria-readonly="true">
+                            {draftTitle}
                           </div>
-                          <div>
-                            <label>Next Steps</label>
+                        </div>
+                        <div className="inline-edit-field">
+                          <label>Next Step</label>
+                          {editingOpportunityModalNextStepsId === selectedOpportunityForModal.id ? (
                             <input
                               value={draft.nextSteps}
                               onChange={(event) =>
@@ -6586,9 +6604,42 @@ export function PipelineOpportunityDetailView({
                                   nextSteps: event.target.value
                                 })
                               }
+                              onBlur={() => {
+                                setEditingOpportunityModalNextStepsId(null);
+                                void saveOpportunity(selectedOpportunityForModal.id);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  (event.currentTarget as HTMLInputElement).blur();
+                                  return;
+                                }
+                                if (event.key === "Escape") {
+                                  event.preventDefault();
+                                  updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                    nextSteps: selectedOpportunityForModal.nextSteps || ""
+                                  });
+                                  setEditingOpportunityModalNextStepsId(null);
+                                }
+                              }}
                               placeholder="Upcoming actions and owners"
+                              autoFocus
                             />
-                          </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className={`report-next-step-display ${draft.nextSteps.trim() ? "" : "empty"}`}
+                              onClick={() => {
+                                setEditingOpportunityModalNextStepsId(selectedOpportunityForModal.id);
+                                setOpportunityDraftById((current) => ({
+                                  ...current,
+                                  [selectedOpportunityForModal.id]: draft
+                                }));
+                              }}
+                            >
+                              {draft.nextSteps.trim() || "Add next step"}
+                            </button>
+                          )}
                         </div>
                         <div>
                           <label>Stage</label>
@@ -6601,6 +6652,7 @@ export function PipelineOpportunityDetailView({
                                 likelihoodPercent: String(defaultLikelihoodForStage(stage))
                               });
                             }}
+                            onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
                           >
                             {opportunityStageOptions.map((option) => (
                               <option key={`${selectedOpportunityForModal.id}-stage-${option.value}`} value={option.value}>
@@ -6622,11 +6674,14 @@ export function PipelineOpportunityDetailView({
                             <EntityLookupInput
                               entityKind="HEALTH_SYSTEM"
                               value={draft.healthSystemId}
-                              onChange={(nextValue) =>
+                              onChange={(nextValue) => {
                                 updateOpportunityDraft(selectedOpportunityForModal.id, {
                                   healthSystemId: nextValue
-                                })
-                              }
+                                });
+                                setTimeout(() => {
+                                  void saveOpportunity(selectedOpportunityForModal.id);
+                                }, 0);
+                              }}
                               initialOptions={availableHealthSystems}
                               allowEmpty
                               emptyLabel="No health system selected"
@@ -6646,6 +6701,7 @@ export function PipelineOpportunityDetailView({
                                 likelihoodPercent: event.target.value
                               })
                             }
+                            onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
                             placeholder="0-100"
                           />
                         </div>
@@ -6659,6 +6715,7 @@ export function PipelineOpportunityDetailView({
                                 estimatedCloseDate: event.target.value
                               })
                             }
+                            onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
                           />
                         </div>
                         <div>
@@ -6681,6 +6738,7 @@ export function PipelineOpportunityDetailView({
                                 contractPriceUsd: event.target.value
                               })
                             }
+                            onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
                             placeholder="e.g. 250000"
                           />
                         </div>
@@ -6696,6 +6754,7 @@ export function PipelineOpportunityDetailView({
                                 amountUsd: event.target.value
                               })
                             }
+                            onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
                             placeholder="e.g. 75000"
                           />
                         </div>
@@ -6709,6 +6768,7 @@ export function PipelineOpportunityDetailView({
                                 closedAt: event.target.value
                               })
                             }
+                            onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
                           />
                         </div>
                         <div className="detail-grid-full">
@@ -6726,21 +6786,14 @@ export function PipelineOpportunityDetailView({
                                 ? "Why this opportunity was won/lost"
                                 : "Optional reason for closure outcome"
                             }
+                            onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
                           />
                         </div>
                       </div>
                       <div className="actions">
                         <button
                           type="button"
-                          className="secondary small"
-                          onClick={() => void saveOpportunity(selectedOpportunityForModal.id)}
-                          disabled={Boolean(savingOpportunityById[selectedOpportunityForModal.id])}
-                        >
-                          {savingOpportunityById[selectedOpportunityForModal.id] ? "Saving..." : "Save Opportunity"}
-                        </button>
-                        <button
-                          type="button"
-                          className="ghost small"
+                          className="ghost small danger"
                           onClick={async () => {
                             const deleted = await deleteOpportunity(selectedOpportunityForModal.id);
                             if (!deleted) return;
@@ -6792,9 +6845,9 @@ export function PipelineOpportunityDetailView({
                                       ...current,
                                       [selectedOpportunityForModal.id]: nextValue
                                     }));
-                                    if (!nextValue || addingOpportunityContactByOpportunityId[selectedOpportunityForModal.id]) {
-                                      return;
-                                    }
+                                  }}
+                                  onEntitySelected={(nextValue) => {
+                                    if (addingOpportunityContactByOpportunityId[selectedOpportunityForModal.id]) return;
                                     void addOpportunityContact(selectedOpportunityForModal.id, nextValue, null);
                                   }}
                                   className="relationship-inline-lookup"
@@ -6814,58 +6867,60 @@ export function PipelineOpportunityDetailView({
                               <p className="muted">No contracting contacts linked yet.</p>
                             ) : (
                               selectedOpportunityForModal.contacts.map((link) => (
-                                <div key={link.id} className="contact-row" style={{ marginBottom: 8 }}>
-                                  <div className="contact-row-details">
-                                    <strong>{link.contact.name}</strong>
-                                    {link.contact.title ? `, ${link.contact.title}` : ""}
-                                    {link.contact.email ? ` | ${link.contact.email}` : ""}
-                                  </div>
-                                  <div className="contact-row-actions">
-                                    <select
-                                      value={opportunityContactRoleDraftByLinkId[link.id] ?? link.role ?? ""}
-                                      onChange={(event) => {
-                                        const nextRole = event.target.value;
-                                        setOpportunityContactRoleDraftByLinkId((current) => ({
-                                          ...current,
-                                          [link.id]: nextRole
-                                        }));
-                                        void saveOpportunityContactRoleWithValue(link.id, nextRole);
-                                      }}
-                                      disabled={Boolean(savingOpportunityContactRoleByLinkId[link.id])}
-                                    >
-                                      <option value="">Role</option>
-                                      <option value="Contracting Lead">Contracting Lead</option>
-                                      <option value="Executive Sponsor">Executive Sponsor</option>
-                                      <option value="Clinical Sponsor">Clinical Sponsor</option>
-                                      <option value="Champion">Champion</option>
-                                      <option value="Evaluator">Evaluator</option>
-                                      <option value="Procurement">Procurement</option>
-                                      <option value="Legal">Legal</option>
-                                      {(() => {
-                                        const currentRole = (opportunityContactRoleDraftByLinkId[link.id] ?? link.role ?? "").trim();
-                                        const known = new Set([
-                                          "",
-                                          "Contracting Lead",
-                                          "Executive Sponsor",
-                                          "Clinical Sponsor",
-                                          "Champion",
-                                          "Evaluator",
-                                          "Procurement",
-                                          "Legal"
-                                        ]);
-                                        return currentRole && !known.has(currentRole) ? (
-                                          <option value={currentRole}>{currentRole}</option>
-                                        ) : null;
-                                      })()}
-                                    </select>
-                                    <button
-                                      type="button"
-                                      className="ghost small"
-                                      onClick={() => void deleteOpportunityContact(selectedOpportunityForModal.id, link.id)}
-                                      disabled={Boolean(deletingOpportunityContactByLinkId[link.id])}
-                                    >
-                                      {deletingOpportunityContactByLinkId[link.id] ? "Removing..." : "Delete"}
-                                    </button>
+                                <div key={link.id} className="detail-list-item">
+                                  <div className="contact-row">
+                                    <div className="contact-row-details">
+                                      <strong>{link.contact.name}</strong>
+                                      {link.contact.title ? `, ${link.contact.title}` : ""}
+                                      {link.contact.email ? ` | ${link.contact.email}` : ""}
+                                    </div>
+                                    <div className="contact-row-actions">
+                                      <select
+                                        value={opportunityContactRoleDraftByLinkId[link.id] ?? link.role ?? ""}
+                                        onChange={(event) => {
+                                          const nextRole = event.target.value;
+                                          setOpportunityContactRoleDraftByLinkId((current) => ({
+                                            ...current,
+                                            [link.id]: nextRole
+                                          }));
+                                          void saveOpportunityContactRoleWithValue(link.id, nextRole);
+                                        }}
+                                        disabled={Boolean(savingOpportunityContactRoleByLinkId[link.id])}
+                                      >
+                                        <option value="">Role</option>
+                                        <option value="Contracting Lead">Contracting Lead</option>
+                                        <option value="Executive Sponsor">Executive Sponsor</option>
+                                        <option value="Clinical Sponsor">Clinical Sponsor</option>
+                                        <option value="Champion">Champion</option>
+                                        <option value="Evaluator">Evaluator</option>
+                                        <option value="Procurement">Procurement</option>
+                                        <option value="Legal">Legal</option>
+                                        {(() => {
+                                          const currentRole = (opportunityContactRoleDraftByLinkId[link.id] ?? link.role ?? "").trim();
+                                          const known = new Set([
+                                            "",
+                                            "Contracting Lead",
+                                            "Executive Sponsor",
+                                            "Clinical Sponsor",
+                                            "Champion",
+                                            "Evaluator",
+                                            "Procurement",
+                                            "Legal"
+                                          ]);
+                                          return currentRole && !known.has(currentRole) ? (
+                                            <option value={currentRole}>{currentRole}</option>
+                                          ) : null;
+                                        })()}
+                                      </select>
+                                      <button
+                                        type="button"
+                                        className="ghost small"
+                                        onClick={() => void deleteOpportunityContact(selectedOpportunityForModal.id, link.id)}
+                                        disabled={Boolean(deletingOpportunityContactByLinkId[link.id])}
+                                      >
+                                        {deletingOpportunityContactByLinkId[link.id] ? "Removing..." : "Delete"}
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               ))
@@ -6908,31 +6963,28 @@ export function PipelineOpportunityDetailView({
                           </button>
                         </div>
                         {opportunityNotes.length === 0 ? <p className="muted">No notes yet.</p> : null}
-                        <div className="pipeline-doc-list">
-                          {opportunityNotes.map((entry) => (
-                            <div key={entry.id} className="detail-list-item">
-                              {entry.affiliations && entry.affiliations.length > 0 ? (
-                                <div className="pipeline-note-affiliation-tags">
-                                  {entry.affiliations.map((affiliation) => (
-                                    <span
-                                      key={`${entry.id}:${affiliation.kind}:${affiliation.id}`}
-                                      className={`pipeline-note-affiliation-tag ${affiliation.kind}`}
-                                    >
-                                      <strong>{noteAffiliationKindLabel(affiliation.kind)}:</strong> {affiliation.label}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : null}
-                              <div
-                                className="inline-rich-text"
-                                dangerouslySetInnerHTML={{ __html: normalizeRichText(entry.note || "") }}
-                              />
-                              <p className="muted">
-                                Added {formatDate(entry.createdAt)} by {entry.createdByName}
-                              </p>
+                        {opportunityNotes.map((entry) => (
+                          <div key={entry.id} className="detail-list-item">
+                            <div className="contact-row">
+                              <div className="contact-row-details">
+                                {entry.affiliations && entry.affiliations.length > 0 ? (
+                                  <div className="entity-note-affiliation-tags">
+                                    {entry.affiliations.map((affiliation) => (
+                                      <span
+                                        key={`${entry.id}:${affiliation.kind}:${affiliation.id}`}
+                                        className={`entity-note-affiliation-tag ${affiliation.kind}`}
+                                      >
+                                        <strong>{noteAffiliationKindLabel(affiliation.kind)}:</strong> {affiliation.label}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : null}
+                                <p className="entity-note-body" dangerouslySetInnerHTML={{ __html: normalizeRichText(entry.note || "") }} />
+                                <p className="muted">Added {formatDate(entry.createdAt)} by {entry.createdByName}</p>
+                              </div>
                             </div>
-                          ))}
-                        </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   );
@@ -6940,12 +6992,7 @@ export function PipelineOpportunityDetailView({
               ) : (
                 <div className="detail-card opportunity-modal-card">
                   {item ? (
-                    <>
-                      <div className="detail-section">
-                        <p className="muted">Documents are managed at the company level and shown here for this opportunity.</p>
-                      </div>
-                      <EntityDocumentsPane entityPath="companies" entityId={item.id} onStatus={setStatus} />
-                    </>
+                    <EntityDocumentsPane entityPath="companies" entityId={item.id} onStatus={setStatus} />
                   ) : (
                     <p className="muted">Opportunity documents unavailable.</p>
                   )}

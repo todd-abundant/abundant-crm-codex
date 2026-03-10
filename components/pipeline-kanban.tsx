@@ -32,6 +32,23 @@ type IntakeDeclineReason =
   | "WORKFLOW_FRICTION"
   | "OTHER";
 
+type PipelineBoardOpportunityStage =
+  | "IDENTIFIED"
+  | "QUALIFICATION"
+  | "PROPOSAL"
+  | "NEGOTIATION"
+  | "LEGAL"
+  | "CLOSED_WON"
+  | "CLOSED_LOST"
+  | "ON_HOLD";
+
+type PipelineBoardOpportunitySummary = {
+  id: string;
+  title: string;
+  stage: PipelineBoardOpportunityStage;
+  likelihoodPercent: number | null;
+};
+
 type PipelineBoardItem = {
   id: string;
   name: string;
@@ -42,6 +59,7 @@ type PipelineBoardItem = {
   phaseLabel: string;
   column: PipelineBoardColumn;
   openOpportunityCount: number;
+  openOpportunities: PipelineBoardOpportunitySummary[];
   intakeScheduledAt: string | null;
   declineReason: IntakeDeclineReason | null;
   leadSource: string;
@@ -105,6 +123,14 @@ type NoteModalState = {
   saving: boolean;
 };
 
+type PipelineDetailInitialTab =
+  | "pipeline-status"
+  | "opportunities"
+  | "screening-materials"
+  | "intake-materials"
+  | "notes"
+  | "documents";
+
 function compareUpdatedAt(
   clientUpdatedAt: string | null | undefined,
   serverUpdatedAt: string | null | undefined
@@ -161,10 +187,53 @@ function toDateDisplayValue(value: string | null | undefined) {
   return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-function formatLastUpdated(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Date unavailable";
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+const boardOpportunityLikelihoodByStage: Record<PipelineBoardOpportunityStage, number> = {
+  IDENTIFIED: 10,
+  QUALIFICATION: 25,
+  PROPOSAL: 50,
+  NEGOTIATION: 70,
+  LEGAL: 85,
+  CLOSED_WON: 100,
+  CLOSED_LOST: 0,
+  ON_HOLD: 35
+};
+
+function normalizeBoardOpportunityStage(value: PipelineBoardOpportunityStage | string) {
+  return (
+    ([
+      "IDENTIFIED",
+      "QUALIFICATION",
+      "PROPOSAL",
+      "NEGOTIATION",
+      "LEGAL",
+      "ON_HOLD",
+      "CLOSED_WON",
+      "CLOSED_LOST"
+    ] as const).includes(value as PipelineBoardOpportunityStage)
+      ? (value as PipelineBoardOpportunityStage)
+      : "IDENTIFIED"
+  );
+}
+
+function opportunityStatusTone(stage: PipelineBoardOpportunityStage, likelihoodPercent: number | null) {
+  const normalizedStage = normalizeBoardOpportunityStage(stage);
+  const normalizedLikelihood = likelihoodPercent ?? boardOpportunityLikelihoodByStage[normalizedStage];
+  if (normalizedLikelihood >= 70) return "green";
+  if (normalizedLikelihood >= 40) return "yellow";
+  return "red";
+}
+
+function opportunityStageLabel(stage: PipelineBoardOpportunityStage) {
+  const normalizedStage = normalizeBoardOpportunityStage(stage);
+  return normalizedStage
+    .toLowerCase()
+    .split("_")
+    .map((word) => word[0]?.toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function opportunityLikelihoodLabel(value: number | null) {
+  return value == null ? "—" : `${value}%`;
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -236,6 +305,8 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
   const [undoToast, setUndoToast] = React.useState<UndoToast | null>(null);
   const [noteModal, setNoteModal] = React.useState<NoteModalState | null>(null);
   const [selectedDetailId, setSelectedDetailId] = React.useState<string | null>(null);
+  const [selectedDetailInitialTab, setSelectedDetailInitialTab] =
+    React.useState<PipelineDetailInitialTab>("pipeline-status");
   const [intakeAddLookupValue, setIntakeAddLookupValue] = React.useState("");
   const [intakeAddModalSignal, setIntakeAddModalSignal] = React.useState(0);
   const [highlightedItemId, setHighlightedItemId] = React.useState<string | null>(null);
@@ -317,8 +388,17 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
 
   const closeDetailModal = React.useCallback(() => {
     setSelectedDetailId(null);
+    setSelectedDetailInitialTab("pipeline-status");
     void loadBoard();
   }, [loadBoard]);
+
+  const openCardDetail = React.useCallback(
+    (itemId: string, activeTab: PipelineDetailInitialTab = "pipeline-status") => {
+      setSelectedDetailInitialTab(activeTab);
+      setSelectedDetailId(itemId);
+    },
+    []
+  );
 
   const handleIntakeCompanyCreated = React.useCallback(
     async (option: { id: string; name: string }) => {
@@ -1104,6 +1184,7 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                 {columnItems.length === 0 ? <p className="muted">No items in this stage.</p> : null}
 
                 {columnItems.map((item) => {
+                  const openOpportunities = item.openOpportunities || [];
                   const intakeDraft = getIntakeDraft(item);
                   const cardMetaDraft = getCardMetaDraft(item);
                   const filteredHealthSystems = intakeDraft.leadSource.trim()
@@ -1126,14 +1207,14 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                         setDraggingId(null);
                         setDragOverColumn(null);
                       }}
-                      onClick={() => setSelectedDetailId(item.id)}
+                      onClick={() => openCardDetail(item.id)}
                       role="button"
                       tabIndex={0}
                       onKeyDown={(event) => {
                         if (event.target !== event.currentTarget) return;
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
-                          setSelectedDetailId(item.id);
+                          openCardDetail(item.id);
                         }
                       }}
                     >
@@ -1146,17 +1227,57 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                       <p className="muted">{item.location || "Location unavailable"}</p>
                       <div className="pipeline-card-meta">
                         {item.openOpportunityCount > 0 && (
-                          <p className="muted">
-                            {item.openOpportunityCount} open opportunity{item.openOpportunityCount === 1 ? "" : "ies"}
-                          </p>
+                          <div className="muted pipeline-card-open-opportunities">
+                            <span className="pipeline-open-opportunities-trigger">
+                              <span
+                                className="pipeline-open-opportunities-summary"
+                                role="button"
+                                tabIndex={0}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  openCardDetail(item.id, "opportunities");
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    openCardDetail(item.id, "opportunities");
+                                  }
+                                }}
+                              >
+                                <strong>{item.openOpportunityCount}</strong> open opportunity
+                                {item.openOpportunityCount === 1 ? "" : "ies"}
+                              </span>
+                              <span className="pipeline-open-opportunities-popover" role="tooltip">
+                                {openOpportunities.length === 0 ? (
+                                  <span className="pipeline-open-opportunity-empty">No open opportunities loaded.</span>
+                                ) : (
+                                  <ul className="pipeline-open-opportunity-list">
+                                    {openOpportunities.map((opportunity) => {
+                                      const stage = normalizeBoardOpportunityStage(opportunity.stage);
+                                      const tone = opportunityStatusTone(stage, opportunity.likelihoodPercent);
+                                      return (
+                                        <li key={opportunity.id} className="pipeline-open-opportunity-item">
+                                          <span className={`pipeline-open-opportunity-status-dot pipeline-open-opportunity-status-${tone}`} />
+                                          <span className="pipeline-open-opportunity-name">
+                                            {opportunity.title || "Untitled opportunity"}
+                                          </span>
+                                          <span className="pipeline-open-opportunity-status">
+                                            {opportunityStageLabel(stage)}
+                                          </span>
+                                          <span className="pipeline-open-opportunity-likelihood">
+                                            {opportunityLikelihoodLabel(opportunity.likelihoodPercent)}
+                                          </span>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                )}
+                              </span>
+                            </span>
+                          </div>
                         )}
-                        <p className="muted">Updated {formatLastUpdated(item.updatedAt)}</p>
-                        {item.noteCount > 0 ? (
-                          <p className="muted">
-                            Notes: {item.noteCount}
-                            {item.latestNote?.createdAt ? ` • Last ${formatTimestamp(item.latestNote.createdAt)} by ${item.latestNote.createdByName}` : ""}
-                          </p>
-                        ) : null}
                       </div>
 
                       <div className="pipeline-intake-fields" onClick={(event) => event.stopPropagation()}>
@@ -1211,36 +1332,38 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                           )}
                         </div>
 
-                        <div className="pipeline-inline-field pipeline-inline-field--date">
-                          <span className="pipeline-inline-label">Intake Decision Date</span>
-                          {isEditing(item.id, "intakeDate") ? (
-                            <DateInputField
-                              value={intakeDraft.intakeScheduledAt}
-                              className="pipeline-inline-input"
-                              debugContext={{ scope: "pipeline-kanban.intakeDate", itemId: item.id, field: "intakeScheduledAt" }}
-                              onChange={(nextValue) => {
-                                const nextDraft: IntakeDraft = {
-                                  ...intakeDraft,
-                                  intakeScheduledAt: nextValue
-                                };
-                                setEditingField(null);
-                                void commitIntakeDraft(item.id, nextDraft, intakeDraftFromItem(item));
-                              }}
-                              autoFocus
-                            />
-                          ) : (
-                            <a
-                              href="#"
-                              className="pipeline-inline-link"
-                              onClick={(event) => {
-                                event.preventDefault();
-                                setEditingField({ itemId: item.id, field: "intakeDate" });
-                              }}
-                            >
-                              {toDateDisplayValue(item.intakeScheduledAt)}
-                            </a>
-                          )}
-                        </div>
+                        {item.column === "INTAKE" ? (
+                          <div className="pipeline-inline-field pipeline-inline-field--date">
+                            <span className="pipeline-inline-label">Intake Decision Date</span>
+                            {isEditing(item.id, "intakeDate") ? (
+                              <DateInputField
+                                value={intakeDraft.intakeScheduledAt}
+                                className="pipeline-inline-input"
+                                debugContext={{ scope: "pipeline-kanban.intakeDate", itemId: item.id, field: "intakeScheduledAt" }}
+                                onChange={(nextValue) => {
+                                  const nextDraft: IntakeDraft = {
+                                    ...intakeDraft,
+                                    intakeScheduledAt: nextValue
+                                  };
+                                  setEditingField(null);
+                                  void commitIntakeDraft(item.id, nextDraft, intakeDraftFromItem(item));
+                                }}
+                                autoFocus
+                              />
+                            ) : (
+                              <a
+                                href="#"
+                                className="pipeline-inline-link"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  setEditingField({ itemId: item.id, field: "intakeDate" });
+                                }}
+                              >
+                                {toDateDisplayValue(item.intakeScheduledAt)}
+                              </a>
+                            )}
+                          </div>
+                        ) : null}
 
                         {item.column === "INTAKE" ? (
                           <>
@@ -1369,128 +1492,134 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
 
                         {item.column !== "INTAKE" ? (
                           <>
-                            <div className="pipeline-inline-field pipeline-inline-field--date">
-                              <span className="pipeline-inline-label">VS Contract Executed</span>
-                              {isEditing(item.id, "ventureStudioContractExecutedAt") ? (
-                                <DateInputField
-                                  value={cardMetaDraft.ventureStudioContractExecutedAt}
-                                  className="pipeline-inline-input"
-                                  debugContext={{
-                                    scope: "pipeline-kanban.cardMetaDate",
-                                    itemId: item.id,
-                                    field: "ventureStudioContractExecutedAt"
-                                  }}
-                                  onChange={(nextValue) => {
-                                    const nextDraft: CardMetaDraft = {
-                                      ...cardMetaDraft,
-                                      ventureStudioContractExecutedAt: nextValue
-                                    };
-                                    debugDateLog("pipeline-kanban.date-field-change", {
+                            {item.column !== "COMMERCIAL_ACCELERATION" ? (
+                              <div className="pipeline-inline-field pipeline-inline-field--date">
+                                <span className="pipeline-inline-label">VS Contract Executed</span>
+                                {isEditing(item.id, "ventureStudioContractExecutedAt") ? (
+                                  <DateInputField
+                                    value={cardMetaDraft.ventureStudioContractExecutedAt}
+                                    className="pipeline-inline-input"
+                                    debugContext={{
+                                      scope: "pipeline-kanban.cardMetaDate",
                                       itemId: item.id,
-                                      field: "ventureStudioContractExecutedAt",
-                                      next: nextValue,
-                                      previous: cardMetaDraft.ventureStudioContractExecutedAt
-                                    });
-                                    setEditingField(null);
-                                    void commitCardMetaDraft(item.id, nextDraft, cardMetaDraftFromItem(item));
-                                  }}
-                                  autoFocus
-                                />
-                              ) : (
-                                <a
-                                  href="#"
-                                  className="pipeline-inline-link"
-                                  onClick={(event) => {
-                                    event.preventDefault();
-                                    setEditingField({ itemId: item.id, field: "ventureStudioContractExecutedAt" });
-                                  }}
-                                >
-                                  {toDateDisplayValue(item.ventureStudioContractExecutedAt)}
-                                </a>
-                              )}
-                            </div>
+                                      field: "ventureStudioContractExecutedAt"
+                                    }}
+                                    onChange={(nextValue) => {
+                                      const nextDraft: CardMetaDraft = {
+                                        ...cardMetaDraft,
+                                        ventureStudioContractExecutedAt: nextValue
+                                      };
+                                      debugDateLog("pipeline-kanban.date-field-change", {
+                                        itemId: item.id,
+                                        field: "ventureStudioContractExecutedAt",
+                                        next: nextValue,
+                                        previous: cardMetaDraft.ventureStudioContractExecutedAt
+                                      });
+                                      setEditingField(null);
+                                      void commitCardMetaDraft(item.id, nextDraft, cardMetaDraftFromItem(item));
+                                    }}
+                                    autoFocus
+                                  />
+                                ) : (
+                                  <a
+                                    href="#"
+                                    className="pipeline-inline-link"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      setEditingField({ itemId: item.id, field: "ventureStudioContractExecutedAt" });
+                                    }}
+                                  >
+                                    {toDateDisplayValue(item.ventureStudioContractExecutedAt)}
+                                  </a>
+                                )}
+                              </div>
+                            ) : null}
 
-                            <div className="pipeline-inline-field pipeline-inline-field--date">
-                              <span className="pipeline-inline-label pipeline-inline-label--nowrap">Screening Webinar 1</span>
-                              {isEditing(item.id, "screeningWebinarDate1At") ? (
-                                <DateInputField
-                                  value={cardMetaDraft.screeningWebinarDate1At}
-                                  className="pipeline-inline-input"
-                                  debugContext={{
-                                    scope: "pipeline-kanban.cardMetaDate",
-                                    itemId: item.id,
-                                    field: "screeningWebinarDate1At"
-                                  }}
-                                  onChange={(nextValue) => {
-                                    const nextDraft: CardMetaDraft = {
-                                      ...cardMetaDraft,
-                                      screeningWebinarDate1At: nextValue
-                                    };
-                                    debugDateLog("pipeline-kanban.date-field-change", {
+                            {item.column !== "COMMERCIAL_ACCELERATION" ? (
+                              <div className="pipeline-inline-field pipeline-inline-field--date">
+                                <span className="pipeline-inline-label pipeline-inline-label--nowrap">Screening Webinar 1</span>
+                                {isEditing(item.id, "screeningWebinarDate1At") ? (
+                                  <DateInputField
+                                    value={cardMetaDraft.screeningWebinarDate1At}
+                                    className="pipeline-inline-input"
+                                    debugContext={{
+                                      scope: "pipeline-kanban.cardMetaDate",
                                       itemId: item.id,
-                                      field: "screeningWebinarDate1At",
-                                      next: nextValue,
-                                      previous: cardMetaDraft.screeningWebinarDate1At
-                                    });
-                                    setEditingField(null);
-                                    void commitCardMetaDraft(item.id, nextDraft, cardMetaDraftFromItem(item));
-                                  }}
-                                  autoFocus
-                                />
-                              ) : (
-                                <a
-                                  href="#"
-                                  className="pipeline-inline-link"
-                                  onClick={(event) => {
-                                    event.preventDefault();
-                                    setEditingField({ itemId: item.id, field: "screeningWebinarDate1At" });
-                                  }}
-                                >
-                                  {toDateDisplayValue(item.screeningWebinarDate1At)}
-                                </a>
-                              )}
-                            </div>
+                                      field: "screeningWebinarDate1At"
+                                    }}
+                                    onChange={(nextValue) => {
+                                      const nextDraft: CardMetaDraft = {
+                                        ...cardMetaDraft,
+                                        screeningWebinarDate1At: nextValue
+                                      };
+                                      debugDateLog("pipeline-kanban.date-field-change", {
+                                        itemId: item.id,
+                                        field: "screeningWebinarDate1At",
+                                        next: nextValue,
+                                        previous: cardMetaDraft.screeningWebinarDate1At
+                                      });
+                                      setEditingField(null);
+                                      void commitCardMetaDraft(item.id, nextDraft, cardMetaDraftFromItem(item));
+                                    }}
+                                    autoFocus
+                                  />
+                                ) : (
+                                  <a
+                                    href="#"
+                                    className="pipeline-inline-link"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      setEditingField({ itemId: item.id, field: "screeningWebinarDate1At" });
+                                    }}
+                                  >
+                                    {toDateDisplayValue(item.screeningWebinarDate1At)}
+                                  </a>
+                                )}
+                              </div>
+                            ) : null}
 
-                            <div className="pipeline-inline-field pipeline-inline-field--date">
-                              <span className="pipeline-inline-label pipeline-inline-label--nowrap">Screening Webinar 2</span>
-                              {isEditing(item.id, "screeningWebinarDate2At") ? (
-                                <DateInputField
-                                  value={cardMetaDraft.screeningWebinarDate2At}
-                                  className="pipeline-inline-input"
-                                  debugContext={{
-                                    scope: "pipeline-kanban.cardMetaDate",
-                                    itemId: item.id,
-                                    field: "screeningWebinarDate2At"
-                                  }}
-                                  onChange={(nextValue) => {
-                                    const nextDraft: CardMetaDraft = {
-                                      ...cardMetaDraft,
-                                      screeningWebinarDate2At: nextValue
-                                    };
-                                    debugDateLog("pipeline-kanban.date-field-change", {
+                            {item.column !== "COMMERCIAL_ACCELERATION" ? (
+                              <div className="pipeline-inline-field pipeline-inline-field--date">
+                                <span className="pipeline-inline-label pipeline-inline-label--nowrap">Screening Webinar 2</span>
+                                {isEditing(item.id, "screeningWebinarDate2At") ? (
+                                  <DateInputField
+                                    value={cardMetaDraft.screeningWebinarDate2At}
+                                    className="pipeline-inline-input"
+                                    debugContext={{
+                                      scope: "pipeline-kanban.cardMetaDate",
                                       itemId: item.id,
-                                      field: "screeningWebinarDate2At",
-                                      next: nextValue,
-                                      previous: cardMetaDraft.screeningWebinarDate2At
-                                    });
-                                    setEditingField(null);
-                                    void commitCardMetaDraft(item.id, nextDraft, cardMetaDraftFromItem(item));
-                                  }}
-                                  autoFocus
-                                />
-                              ) : (
-                                <a
-                                  href="#"
-                                  className="pipeline-inline-link"
-                                  onClick={(event) => {
-                                    event.preventDefault();
-                                    setEditingField({ itemId: item.id, field: "screeningWebinarDate2At" });
-                                  }}
-                                >
-                                  {toDateDisplayValue(item.screeningWebinarDate2At)}
-                                </a>
-                              )}
-                            </div>
+                                      field: "screeningWebinarDate2At"
+                                    }}
+                                    onChange={(nextValue) => {
+                                      const nextDraft: CardMetaDraft = {
+                                        ...cardMetaDraft,
+                                        screeningWebinarDate2At: nextValue
+                                      };
+                                      debugDateLog("pipeline-kanban.date-field-change", {
+                                        itemId: item.id,
+                                        field: "screeningWebinarDate2At",
+                                        next: nextValue,
+                                        previous: cardMetaDraft.screeningWebinarDate2At
+                                      });
+                                      setEditingField(null);
+                                      void commitCardMetaDraft(item.id, nextDraft, cardMetaDraftFromItem(item));
+                                    }}
+                                    autoFocus
+                                  />
+                                ) : (
+                                  <a
+                                    href="#"
+                                    className="pipeline-inline-link"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      setEditingField({ itemId: item.id, field: "screeningWebinarDate2At" });
+                                    }}
+                                  >
+                                    {toDateDisplayValue(item.screeningWebinarDate2At)}
+                                  </a>
+                                )}
+                              </div>
+                            ) : null}
                           </>
                         ) : null}
 
@@ -1687,7 +1816,12 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
 
       {selectedDetailId ? (
         <div className="pipeline-detail-backdrop" onMouseDown={closeDetailModal}>
-          <PipelineOpportunityDetailView itemId={selectedDetailId} inModal onCloseModal={closeDetailModal} />
+          <PipelineOpportunityDetailView
+            itemId={selectedDetailId}
+            inModal
+            initialIntakeDetailTab={selectedDetailInitialTab}
+            onCloseModal={closeDetailModal}
+          />
         </div>
       ) : null}
     </main>

@@ -31,5 +31,5 @@ export function generateOpportunityTitle({
   if (!trimmedHealthSystemName) {
     return `${trimmedCompanyName} - ${suffix}`;
   }
-  return `${trimmedCompanyName} - ${trimmedHealthSystemName} ${suffix}`;
+  return `${trimmedHealthSystemName} - ${trimmedCompanyName} ${suffix}`;
 }

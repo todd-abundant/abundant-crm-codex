@@ -24,8 +24,5 @@
         }
       ]
     }
-  },
-  "httpOptions": {
-    "granularOauthPermissionSupport": "OPT_IN"
   }
 }

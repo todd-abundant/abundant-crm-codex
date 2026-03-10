@@ -109,7 +109,16 @@ export async function POST(request: Request) {
           { name: { contains: normalizedQuery, mode: "insensitive" } },
           { title: { contains: normalizedQuery, mode: "insensitive" } },
           { email: { contains: normalizedQuery, mode: "insensitive" } }
-        ]
+        ],
+        ...(healthSystemId
+          ? {
+              healthSystemLinks: {
+                some: {
+                  healthSystemId
+                }
+              }
+            }
+          : {})
       },
       select: {
         id: true,

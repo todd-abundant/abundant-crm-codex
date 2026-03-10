@@ -39,6 +39,7 @@ type EntityLookupInputProps = {
   entityKind: EntityKind;
   value: string;
   onChange: (nextValue: string) => void;
+  onEntitySelected?: (nextValue: string) => void;
   initialOptions?: EntityOption[];
   placeholder?: string;
   emptyLabel?: string;
@@ -133,24 +134,26 @@ function contactEndpointForContext(context: ContactCreateContext) {
   return `/api/co-investors/${context.parentId}/contacts`;
 }
 
-export function EntityLookupInput({
-  entityKind,
-  value,
-  onChange,
-  initialOptions,
-  placeholder,
-  emptyLabel = "No selection",
-  allowEmpty = false,
-  disabled = false,
-  className,
-  onEntityCreated,
-  companyCreateDefaults,
-  contactCreateContext,
-  contactSearchHealthSystemId,
-  autoOpenCreateOnEnterNoMatch = false,
-  openAddModalSignal,
-  hideLookupField = false
-}: EntityLookupInputProps) {
+export function EntityLookupInput(props: EntityLookupInputProps) {
+  const {
+    entityKind,
+    value,
+    onChange,
+    onEntitySelected,
+    initialOptions,
+    placeholder,
+    emptyLabel = "No selection",
+    allowEmpty = false,
+    disabled = false,
+    className,
+    onEntityCreated,
+    companyCreateDefaults,
+    contactCreateContext,
+    contactSearchHealthSystemId,
+    autoOpenCreateOnEnterNoMatch = false,
+    openAddModalSignal,
+    hideLookupField = false
+  } = props;
   const [query, setQuery] = React.useState("");
   const [open, setOpen] = React.useState(false);
   const [resultsDirection, setResultsDirection] = React.useState<"down" | "up">("down");
@@ -362,6 +365,7 @@ export function EntityLookupInput({
     setQuery(option.name);
     setOpen(false);
     setSearchError(null);
+    onEntitySelected?.(option.id);
   }
 
   function openAddModal() {
@@ -592,6 +596,7 @@ export function EntityLookupInput({
       });
       onEntityCreated?.(created);
       onChange(created.id);
+      onEntitySelected?.(created.id);
       setQuery(created.name);
       setSearchError(null);
       setOpen(false);

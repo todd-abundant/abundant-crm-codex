@@ -1133,7 +1133,7 @@ export function ContactWorkbench() {
                 <div className="actions">
                   <button
                     type="button"
-                    className="danger small"
+                    className="ghost small"
                     onClick={() => void deleteSelectedContact()}
                     disabled={deletingContact}
                   >
@@ -1387,7 +1387,7 @@ export function ContactWorkbench() {
                             </button>
                             <button
                               type="button"
-                              className="ghost small danger"
+                              className="ghost small"
                               onClick={() => void deleteAssociation("HEALTH_SYSTEM", link.id)}
                               disabled={isDeleting}
                             >
@@ -1501,7 +1501,7 @@ export function ContactWorkbench() {
                             </button>
                             <button
                               type="button"
-                              className="ghost small danger"
+                              className="ghost small"
                               onClick={() => void deleteAssociation("CO_INVESTOR", link.id)}
                               disabled={isDeleting}
                             >
@@ -1621,7 +1621,7 @@ export function ContactWorkbench() {
                             </button>
                             <button
                               type="button"
-                              className="ghost small danger"
+                              className="ghost small"
                               onClick={() => void deleteAssociation("COMPANY", link.id)}
                               disabled={isDeleting}
                             >
@@ -1718,7 +1718,7 @@ export function ContactWorkbench() {
                             </button>
                             <button
                               type="button"
-                              className="ghost small danger"
+                              className="ghost small"
                               onClick={() => void deleteOpportunityLink(link.id)}
                               disabled={isDeleting}
                             >

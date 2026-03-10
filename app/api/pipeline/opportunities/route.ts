@@ -40,7 +40,13 @@ export async function GET(request: Request) {
                 notIn: ["CLOSED_WON", "CLOSED_LOST"]
               }
             },
-            select: { id: true }
+            select: {
+              id: true,
+              title: true,
+              stage: true,
+              likelihoodPercent: true
+            },
+            orderBy: [{ updatedAt: "desc" }]
           }
         },
         orderBy: [{ updatedAt: "desc" }]
@@ -107,6 +113,12 @@ export async function GET(request: Request) {
           phaseLabel: phaseLabel(phase),
           column,
           openOpportunityCount: company.opportunities.length,
+          openOpportunities: company.opportunities.map((opportunity) => ({
+            id: opportunity.id,
+            title: opportunity.title,
+            stage: opportunity.stage,
+            likelihoodPercent: opportunity.likelihoodPercent
+          })),
           intakeScheduledAt: company.pipeline?.intakeDecisionAt ?? company.intakeScheduledAt,
           declineReason: company.declineReason,
           leadSource:

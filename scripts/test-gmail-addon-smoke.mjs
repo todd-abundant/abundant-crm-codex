@@ -84,7 +84,8 @@ async function invoke(event) {
 }
 
 function extractCard(responseJson) {
-  const navigation = responseJson?.renderActions?.action?.navigations?.[0] || null;
+  const navigation =
+    responseJson?.action?.navigations?.[0] || responseJson?.renderActions?.action?.navigations?.[0] || null;
   if (!navigation) return null;
   return navigation.pushCard || navigation.updateCard || null;
 }
@@ -126,7 +127,8 @@ function assertAddonCardResponse(status, json) {
   }
 
   assert(status === 200, `Expected 200, got ${status}`);
-  assert(json?.renderActions?.action?.navigations?.length > 0, "Response missing add-on card navigation");
+  const navigations = json?.action?.navigations || json?.renderActions?.action?.navigations || [];
+  assert(navigations.length > 0, "Response missing add-on card navigation");
 }
 
 async function findEntityIdsByNames(names) {

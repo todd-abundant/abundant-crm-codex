@@ -1006,6 +1006,31 @@ button.small.ghost {
   font-size: 13px;
 }
 
+button.danger,
+button.ghost.danger,
+button.small.danger {
+  background: #ffffff;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+button.ghost.small.danger {
+  min-height: 28px;
+  padding: 3px 8px;
+  text-decoration: none;
+}
+
+button.danger:hover:not(:disabled),
+button.danger:focus-visible:not(:disabled),
+button.ghost.danger:hover:not(:disabled),
+button.ghost.danger:focus-visible:not(:disabled),
+button.small.danger:hover:not(:disabled),
+button.small.danger:focus-visible:not(:disabled) {
+  background: #fff5f5;
+  color: #8a1515;
+  border-color: #8a1515;
+}
+
 button.modal-icon-close {
   width: 32px;
   min-width: 32px;
@@ -4040,6 +4065,120 @@ select {
   color: var(--colorTextPrimary);
 }
 
+.pipeline-card-open-opportunities {
+  margin: 0;
+}
+
+.pipeline-open-opportunities-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.pipeline-open-opportunities-summary {
+  cursor: pointer;
+}
+
+.pipeline-open-opportunities-summary:focus-visible {
+  outline: 2px solid var(--colorPrimary);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.pipeline-open-opportunities-summary:hover {
+  text-decoration: underline;
+}
+
+.pipeline-open-opportunities-summary strong {
+  font-weight: 700;
+}
+
+.pipeline-open-opportunities-popover {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 220px;
+  max-width: 330px;
+  padding: 8px;
+  border: 1px solid #cfdbea;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 16px rgba(10, 30, 60, 0.14);
+  display: grid;
+  gap: 5px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.pipeline-open-opportunities-trigger:hover .pipeline-open-opportunities-popover,
+.pipeline-open-opportunities-trigger:focus-within .pipeline-open-opportunities-popover {
+  opacity: 1;
+  visibility: visible;
+}
+
+.pipeline-open-opportunity-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.pipeline-open-opportunity-empty {
+  display: block;
+  font-size: 10px;
+  color: #6d7e93;
+}
+
+.pipeline-open-opportunity-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: #4b5d73;
+}
+
+.pipeline-open-opportunity-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.pipeline-open-opportunity-status-red {
+  background: #d14343;
+}
+
+.pipeline-open-opportunity-status-yellow {
+  background: #d3a40a;
+}
+
+.pipeline-open-opportunity-status-green {
+  background: #2f9e60;
+}
+
+.pipeline-open-opportunity-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pipeline-open-opportunity-status,
+.pipeline-open-opportunity-likelihood {
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.pipeline-open-opportunity-status {
+  color: #5b6d82;
+}
+
+.pipeline-open-opportunity-likelihood {
+  color: #2a3c57;
+}
+
 .pipeline-detail-list,
 .pipeline-doc-list {
   display: flex;
@@ -4105,6 +4244,10 @@ select {
   white-space: nowrap;
 }
 
+.pipeline-card .pipeline-inline-label {
+  text-align: left;
+}
+
 .pipeline-inline-link {
   border: 0;
   background: transparent;
@@ -4122,6 +4265,11 @@ select {
   min-width: 0;
   overflow-wrap: anywhere;
   display: inline-block;
+}
+
+.pipeline-card .pipeline-inline-link,
+.pipeline-card .pipeline-inline-input {
+  text-align: right;
 }
 
 .pipeline-inline-field .react-datepicker-wrapper {
@@ -4445,7 +4593,7 @@ select {
   padding-right: var(--detail-pane-inset);
 }
 
-.pipeline-opportunity-modal .opportunity-modal-card .actions {
+.pipeline-opportunity-modal .opportunity-modal-card > .actions {
   padding-left: var(--detail-pane-text-inset);
   padding-right: var(--detail-pane-inset);
 }
@@ -4463,6 +4611,16 @@ select {
   margin-bottom: 6px;
   padding-top: 0;
   white-space: normal;
+}
+
+.pipeline-opportunity-modal .opportunity-inline-readonly {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 0;
+  line-height: 1.35;
+  color: var(--colorTextPrimary);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .pipeline-opportunity-modal .opportunity-modal-title-next-steps-row {
