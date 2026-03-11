@@ -18,6 +18,30 @@ function formatLocation(company: {
     .join(", ");
 }
 
+
+const staleThresholdDaysByPhase: Partial<Record<PipelinePhase, number>> = {
+  INTAKE: 7,
+  VENTURE_STUDIO_NEGOTIATION: 14,
+  SCREENING: 21,
+  LOI_COLLECTION: 14,
+  COMMERCIAL_NEGOTIATION: 21
+};
+
+function daysSince(value: Date | null | undefined) {
+  if (!value) return null;
+  const diffMs = Date.now() - value.getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) return 0;
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+}
+
+function staleLevelForPhase(phase: PipelinePhase, timeInStageDays: number | null) {
+  const threshold = staleThresholdDaysByPhase[phase];
+  if (!threshold || timeInStageDays === null) return null;
+  if (timeInStageDays >= threshold * 2) return "critical";
+  if (timeInStageDays >= threshold) return "warning";
+  return null;
+}
+
 export async function GET(request: Request) {
   try {
     const companyType = normalizePipelineCompanyType(new URL(request.url).searchParams.get("companyType"));
@@ -95,13 +119,15 @@ export async function GET(request: Request) {
       }
     }
 
-    const opportunities = companies
+    const pipelineEntries = companies
       .map((company) => {
         const phase = (company.pipeline?.phase || inferDefaultPhaseFromCompany(company)) as PipelinePhase;
         const column = mapPhaseToBoardColumn(phase);
-        if (!column) return null;
 
         const companyNotes = notesByCompanyId.get(company.id) || [];
+        const stageChangedAt = company.pipeline?.stageChangedAt || company.createdAt;
+        const timeInStageDays = daysSince(stageChangedAt);
+        const staleLevel = staleLevelForPhase(phase, timeInStageDays);
 
         return {
           id: company.id,
@@ -126,6 +152,15 @@ export async function GET(request: Request) {
               ? company.leadSourceHealthSystem?.name || ""
               : company.leadSourceOther || "",
           nextStep: company.pipeline?.nextStep || "",
+          nextStepDueAt: company.pipeline?.nextStepDueAt ?? null,
+          ownerName: company.pipeline?.ownerName || "",
+          companyCategory: company.pipeline?.category || "ACTIVE",
+          intakeStage: company.pipeline?.intakeStage || "RECEIVED",
+          closedOutcome: company.pipeline?.closedOutcome ?? null,
+          stageChangedAt,
+          timeInStageDays,
+          staleLevel,
+          lastMeaningfulActivityAt: company.pipeline?.lastMeaningfulActivityAt ?? null,
           ventureStudioContractExecutedAt: company.pipeline?.ventureStudioContractExecutedAt ?? null,
           screeningWebinarDate1At: company.pipeline?.screeningWebinarDate1At ?? null,
           screeningWebinarDate2At: company.pipeline?.screeningWebinarDate2At ?? null,
@@ -149,9 +184,13 @@ export async function GET(request: Request) {
       })
       .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 
+    const opportunities = pipelineEntries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry && entry.column && entry.companyCategory === "ACTIVE"));
+    const inactiveOpportunities = pipelineEntries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry) && (!entry.column || entry.companyCategory !== "ACTIVE"));
+
     return NextResponse.json({
       companyType,
       opportunities,
+      inactiveOpportunities,
       healthSystems
     });
   } catch (error) {

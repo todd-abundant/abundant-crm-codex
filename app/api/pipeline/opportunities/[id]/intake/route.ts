@@ -191,13 +191,17 @@ export async function PATCH(
           create: {
             companyId: id,
             phase: "DECLINED",
+            stageChangedAt: new Date(),
             intakeDecision: "DECLINE",
-            intakeDecisionAt: intakeScheduledAt
+            intakeDecisionAt: intakeScheduledAt,
+            lastMeaningfulActivityAt: new Date()
           },
           update: {
             phase: "DECLINED",
+            stageChangedAt: company.pipeline?.phase === "DECLINED" ? undefined : new Date(),
             intakeDecision: "DECLINE",
-            intakeDecisionAt: intakeScheduledAt
+            intakeDecisionAt: intakeScheduledAt,
+            lastMeaningfulActivityAt: new Date()
           }
         });
       } else if (company.pipeline?.phase === "DECLINED") {
@@ -206,13 +210,17 @@ export async function PATCH(
           create: {
             companyId: id,
             phase: "INTAKE",
+            stageChangedAt: new Date(),
             intakeDecision: "PENDING",
-            intakeDecisionAt: intakeScheduledAt
+            intakeDecisionAt: intakeScheduledAt,
+            lastMeaningfulActivityAt: new Date()
           },
           update: {
             phase: "INTAKE",
+            stageChangedAt: new Date(),
             intakeDecision: "PENDING",
-            intakeDecisionAt: intakeScheduledAt
+            intakeDecisionAt: intakeScheduledAt,
+            lastMeaningfulActivityAt: new Date()
           }
         });
       } else {
@@ -221,11 +229,14 @@ export async function PATCH(
           create: {
             companyId: id,
             phase: inferDefaultPhaseFromCompany(company),
+            stageChangedAt: new Date(),
             intakeDecision: inferDefaultDecisionFromCompany(company),
-            intakeDecisionAt: intakeScheduledAt
+            intakeDecisionAt: intakeScheduledAt,
+            lastMeaningfulActivityAt: new Date()
           },
           update: {
-            intakeDecisionAt: intakeScheduledAt
+            intakeDecisionAt: intakeScheduledAt,
+            lastMeaningfulActivityAt: new Date()
           }
         });
       }

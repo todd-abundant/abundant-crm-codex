@@ -4586,6 +4586,119 @@ select {
   color: #084d91;
 }
 
+.pipeline-inactive-queue {
+  margin-top: 18px;
+  background: #ffffff;
+  border: 1px solid var(--colorBorder);
+  border-radius: var(--radiusCard);
+  box-shadow: 0 2px 8px rgba(10, 47, 90, 0.05);
+  padding: 14px;
+}
+
+.pipeline-inactive-queue-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.pipeline-inactive-queue-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--colorBrandPrimary);
+}
+
+.pipeline-inactive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.pipeline-card-inactive {
+  text-align: left;
+  width: 100%;
+}
+
+.pipeline-card-submeta {
+  display: grid;
+  gap: 4px;
+  color: var(--colorTextSecondary);
+  font-size: 0.82rem;
+}
+
+.pipeline-inactive-queue-toggle {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.pipeline-inactive-queue-head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.pipeline-collapse-indicator {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #0b5fb3;
+}
+
+.pipeline-card-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pipeline-card-signals-inactive {
+  margin-top: 2px;
+}
+
+.pipeline-signal-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid #c9d8e6;
+  background: #f4f8fc;
+  color: #24415d;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.32rem 0.55rem;
+  white-space: nowrap;
+}
+
+.pipeline-signal-pill-category {
+  border-color: transparent;
+}
+
+.pipeline-signal-pill-closed {
+  background: #dbe7f3;
+  color: #163b63;
+}
+
+.pipeline-signal-pill-reengage {
+  background: #fbe7c9;
+  color: #7d4a00;
+}
+
+.pipeline-signal-pill-warning {
+  background: #fff3d6;
+  border-color: #f0d48d;
+  color: #7a5615;
+}
+
+.pipeline-signal-pill-critical {
+  background: #ffe2de;
+  border-color: #efb0a8;
+  color: #8c2f22;
+}
+
 .pipeline-card {
   border: 1px solid #d7e2ee;
   border-radius: 10px;

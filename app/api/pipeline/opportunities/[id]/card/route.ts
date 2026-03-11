@@ -264,6 +264,7 @@ export async function PATCH(
       screeningWebinarDate2At?: Date | null;
       ventureLikelihoodPercent?: number | null;
       ventureExpectedCloseDate?: Date | null;
+      lastMeaningfulActivityAt?: Date | null;
       ventureStudioCriteria?: Prisma.InputJsonValue;
     } = {};
     const companyUpdatePayload: {
@@ -309,6 +310,8 @@ export async function PATCH(
     if (Object.prototype.hasOwnProperty.call(body, "atAGlanceKeyConsiderations")) {
       companyUpdatePayload.atAGlanceKeyConsiderations = toNullableString(input.atAGlanceKeyConsiderations);
     }
+    updatePayload.lastMeaningfulActivityAt = new Date();
+
     if (Object.prototype.hasOwnProperty.call(body, "ventureStudioCriteria")) {
       updatePayload.ventureStudioCriteria = (input.ventureStudioCriteria || []).map((entry) => ({
         category: entry.category.trim(),

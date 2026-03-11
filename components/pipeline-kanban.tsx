@@ -64,6 +64,15 @@ type PipelineBoardItem = {
   declineReason: IntakeDeclineReason | null;
   leadSource: string;
   nextStep: string;
+  nextStepDueAt: string | null;
+  ownerName: string;
+  companyCategory: "ACTIVE" | "CLOSED" | "RE_ENGAGE_LATER";
+  intakeStage: "RECEIVED" | "INTRO_CALLS" | "ACTIVE_INTAKE" | "MANAGEMENT_PRESENTATION";
+  closedOutcome: "INVESTED" | "PASSED" | "LOST" | "WITHDREW" | "OTHER" | null;
+  stageChangedAt: string;
+  timeInStageDays: number | null;
+  staleLevel: "warning" | "critical" | null;
+  lastMeaningfulActivityAt: string | null;
   ventureStudioContractExecutedAt: string | null;
   screeningWebinarDate1At: string | null;
   screeningWebinarDate2At: string | null;
@@ -98,6 +107,7 @@ type CardMetaDraft = {
   ventureLikelihoodPercent: string;
   ventureExpectedCloseDate: string;
 };
+
 
 type EditingField =
   | "intakeDate"
@@ -249,6 +259,26 @@ function formatTimestamp(value: string | null | undefined) {
   });
 }
 
+function intakeStageLabel(value: PipelineBoardItem["intakeStage"]) {
+  return value.toLowerCase().split("_").map((word) => word[0]?.toUpperCase() + word.slice(1)).join(" ");
+}
+
+function companyCategoryLabel(value: PipelineBoardItem["companyCategory"]) {
+  if (value === "RE_ENGAGE_LATER") return "Re-engage later";
+  return value === "CLOSED" ? "Closed" : "Active";
+}
+
+function closedOutcomeLabel(value: PipelineBoardItem["closedOutcome"]) {
+  if (!value) return "";
+  return value.toLowerCase().split("_").map((word) => word[0]?.toUpperCase() + word.slice(1)).join(" ");
+}
+
+function timeInStageLabel(item: Pick<PipelineBoardItem, "timeInStageDays">) {
+  if (item.timeInStageDays === null) return "Stage age unavailable";
+  return String(item.timeInStageDays) + "d in stage";
+}
+
+
 function declineReasonLabel(value: IntakeDeclineReason | "") {
   return intakeDeclineReasonOptions.find((option) => option.value === value)?.label || "Not declined";
 }
@@ -292,6 +322,7 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [items, setItems] = React.useState<PipelineBoardItem[]>([]);
+  const [inactiveItems, setInactiveItems] = React.useState<PipelineBoardItem[]>([]);
   const [healthSystems, setHealthSystems] = React.useState<HealthSystemOption[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [draggingId, setDraggingId] = React.useState<string | null>(null);
@@ -311,6 +342,7 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
   const [intakeAddModalSignal, setIntakeAddModalSignal] = React.useState(0);
   const [highlightedItemId, setHighlightedItemId] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [inactiveQueueExpanded, setInactiveQueueExpanded] = React.useState(false);
   const undoTimeoutRef = React.useRef<number | null>(null);
   const highlightTimeoutRef = React.useRef<number | null>(null);
   const suppressLeadSourceBlurRef = React.useRef(false);
@@ -330,8 +362,10 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
       if (!res.ok) throw new Error(payload.error || "Failed to load pipeline board");
 
       const nextItems = Array.isArray(payload.opportunities) ? payload.opportunities : [];
+      const nextInactiveItems = Array.isArray(payload.inactiveOpportunities) ? payload.inactiveOpportunities : [];
       const nextHealthSystems = Array.isArray(payload.healthSystems) ? payload.healthSystems : [];
       setItems(nextItems);
+      setInactiveItems(nextInactiveItems);
       setHealthSystems(nextHealthSystems);
       setIntakeDraftsById(() => {
         const next: Record<string, IntakeDraft> = {};
@@ -692,6 +726,15 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
       };
       const requestPayload: Partial<{
         nextStep: string;
+  nextStepDueAt: string | null;
+  ownerName: string;
+  companyCategory: "ACTIVE" | "CLOSED" | "RE_ENGAGE_LATER";
+  intakeStage: "RECEIVED" | "INTRO_CALLS" | "ACTIVE_INTAKE" | "MANAGEMENT_PRESENTATION";
+  closedOutcome: "INVESTED" | "PASSED" | "LOST" | "WITHDREW" | "OTHER" | null;
+  stageChangedAt: string;
+  timeInStageDays: number | null;
+  staleLevel: "warning" | "critical" | null;
+  lastMeaningfulActivityAt: string | null;
         ventureStudioContractExecutedAt: string | null;
         screeningWebinarDate1At: string | null;
         screeningWebinarDate2At: string | null;
@@ -792,6 +835,15 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
         const updated = responsePayload.item as
           | {
               nextStep: string;
+  nextStepDueAt: string | null;
+  ownerName: string;
+  companyCategory: "ACTIVE" | "CLOSED" | "RE_ENGAGE_LATER";
+  intakeStage: "RECEIVED" | "INTRO_CALLS" | "ACTIVE_INTAKE" | "MANAGEMENT_PRESENTATION";
+  closedOutcome: "INVESTED" | "PASSED" | "LOST" | "WITHDREW" | "OTHER" | null;
+  stageChangedAt: string;
+  timeInStageDays: number | null;
+  staleLevel: "warning" | "critical" | null;
+  lastMeaningfulActivityAt: string | null;
               ventureStudioContractExecutedAt: string | null;
               screeningWebinarDate1At: string | null;
               screeningWebinarDate2At: string | null;
@@ -1225,6 +1277,18 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                         </span>
                       </div>
                       <p className="muted">{item.location || "Location unavailable"}</p>
+                      <div className="pipeline-card-signals pipeline-card-signals-inactive">
+                        <span className={`pipeline-signal-pill ${item.staleLevel ? `pipeline-signal-pill-${item.staleLevel}` : ""}`}>
+                          {timeInStageLabel(item)}
+                        </span>
+                        <span className="pipeline-signal-pill">{intakeStageLabel(item.intakeStage)}</span>
+                        {item.companyCategory !== "ACTIVE" ? (
+                          <span className={"pipeline-signal-pill pipeline-signal-pill-category " + (item.companyCategory === "RE_ENGAGE_LATER" ? "pipeline-signal-pill-reengage" : "pipeline-signal-pill-closed")}>{companyCategoryLabel(item.companyCategory)}</span>
+                        ) : null}
+                        {item.closedOutcome ? (
+                          <span className="pipeline-signal-pill">{closedOutcomeLabel(item.closedOutcome)}</span>
+                        ) : null}
+                      </div>
                       <div className="pipeline-card-meta">
                         {item.openOpportunityCount > 0 && (
                           <div className="muted pipeline-card-open-opportunities">
@@ -1278,6 +1342,12 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                             </span>
                           </div>
                         )}
+                      </div>
+
+                      <div className="pipeline-card-submeta">
+                        <span><strong>Owner:</strong> {item.ownerName || "Unassigned"}</span>
+                        <span><strong>Next due:</strong> {toDateDisplayValue(item.nextStepDueAt)}</span>
+                        <span><strong>Last activity:</strong> {formatTimestamp(item.lastMeaningfulActivityAt)}</span>
                       </div>
 
                       <div className="pipeline-intake-fields" onClick={(event) => event.stopPropagation()}>
@@ -1755,6 +1825,59 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
             </article>
           );
         })}
+      </section>
+
+      <section className="pipeline-inactive-queue" aria-label="Inactive pipeline queue">
+        <button
+          type="button"
+          className="pipeline-inactive-queue-head pipeline-inactive-queue-toggle"
+          onClick={() => setInactiveQueueExpanded((current) => !current)}
+          aria-expanded={inactiveQueueExpanded}
+        >
+          <div>
+            <h2>Closed and revisit queue</h2>
+            <p className="muted">Companies that fell out of the active process live here instead of as a pipeline stage.</p>
+          </div>
+          <div className="pipeline-inactive-queue-head-right">
+            <span className="status-pill draft">{inactiveItems.length}</span>
+            <span className="pipeline-collapse-indicator">{inactiveQueueExpanded ? "Hide" : "Show"}</span>
+          </div>
+        </button>
+        {inactiveQueueExpanded ? (
+          inactiveItems.length === 0 ? (
+            <p className="muted">No closed or revisit-later companies right now.</p>
+          ) : (
+            <div className="pipeline-inactive-grid">
+              {inactiveItems.map((item) => (
+                <button
+                  key={`inactive-${item.id}`}
+                  type="button"
+                  className="pipeline-card pipeline-card-inactive"
+                  onClick={() => openCardDetail(item.id)}
+                >
+                  <div className="pipeline-card-head">
+                    <h3>{item.name}</h3>
+                    <span className={"pipeline-signal-pill pipeline-signal-pill-category " + (item.companyCategory === "RE_ENGAGE_LATER" ? "pipeline-signal-pill-reengage" : "pipeline-signal-pill-closed")}>
+                      {companyCategoryLabel(item.companyCategory)}
+                    </span>
+                  </div>
+                  <p className="muted">{item.location || "Location unavailable"}</p>
+                  <div className="pipeline-card-signals pipeline-card-signals-inactive">
+                    <span className="pipeline-signal-pill">{item.phaseLabel}</span>
+                    <span className="pipeline-signal-pill">{timeInStageLabel(item)}</span>
+                    {item.closedOutcome ? <span className="pipeline-signal-pill">{closedOutcomeLabel(item.closedOutcome)}</span> : null}
+                    {item.declineReason ? <span className="pipeline-signal-pill">{declineReasonLabel(item.declineReason)}</span> : null}
+                  </div>
+                  <div className="pipeline-card-submeta">
+                    <span><strong>Owner:</strong> {item.ownerName || "Unassigned"}</span>
+                    <span><strong>Next due:</strong> {toDateDisplayValue(item.nextStepDueAt)}</span>
+                    <span><strong>Last activity:</strong> {formatTimestamp(item.lastMeaningfulActivityAt)}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )
+        ) : null}
       </section>
 
       {undoToast ? (

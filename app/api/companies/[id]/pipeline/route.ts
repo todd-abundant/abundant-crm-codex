@@ -14,8 +14,13 @@ const pipelinePhaseSchema = z.enum([
   "SCREENING",
   "LOI_COLLECTION",
   "COMMERCIAL_NEGOTIATION",
-  "PORTFOLIO_GROWTH"
+  "PORTFOLIO_GROWTH",
+  "CLOSED"
 ]);
+
+const pipelineCategorySchema = z.enum(["ACTIVE", "CLOSED", "RE_ENGAGE_LATER"]);
+const pipelineIntakeStageSchema = z.enum(["RECEIVED", "INTRO_CALLS", "ACTIVE_INTAKE", "MANAGEMENT_PRESENTATION"]);
+const closedOutcomeSchema = z.enum(["INVESTED", "PASSED", "LOST", "WITHDREW", "OTHER"]);
 
 const intakeDecisionSchema = z.enum(["PENDING", "ADVANCE_TO_NEGOTIATION", "DECLINE"]);
 
@@ -113,6 +118,15 @@ const fundraiseSchema = z.object({
 
 const pipelineUpdateSchema = z.object({
   phase: pipelinePhaseSchema.default("INTAKE"),
+  category: pipelineCategorySchema.default("ACTIVE"),
+  intakeStage: pipelineIntakeStageSchema.default("RECEIVED"),
+  closedOutcome: closedOutcomeSchema.optional().nullable(),
+  ownerName: z.string().optional().nullable(),
+  nextStepDueAt: z.string().optional().nullable(),
+  lastMeaningfulActivityAt: z.string().optional().nullable(),
+  declineReasonNotes: z.string().optional().nullable(),
+  coInvestorEngagement: z.string().optional().nullable(),
+  dealFlowContribution: z.string().optional().nullable(),
   intakeDecision: intakeDecisionSchema.default("PENDING"),
   intakeDecisionAt: z.string().optional().nullable(),
   intakeDecisionNotes: z.string().optional().nullable(),
@@ -281,6 +295,16 @@ function buildPipelinePayload(company: CompanyPipelineView) {
   if (!company.pipeline) {
     return {
       phase: inferDefaultPhaseFromCompany(company),
+      stageChangedAt: company.createdAt,
+      category: "ACTIVE",
+      intakeStage: "RECEIVED",
+      closedOutcome: null,
+      ownerName: null,
+      nextStepDueAt: null,
+      lastMeaningfulActivityAt: company.updatedAt,
+      declineReasonNotes: null,
+      coInvestorEngagement: null,
+      dealFlowContribution: null,
       intakeDecision: inferDefaultDecisionFromCompany(company),
       intakeDecisionAt: company.intakeScheduledAt,
       intakeDecisionNotes: null,
@@ -305,6 +329,16 @@ function buildPipelinePayload(company: CompanyPipelineView) {
     id: company.pipeline.id,
     companyId: company.id,
     phase: company.pipeline.phase,
+    stageChangedAt: company.pipeline.stageChangedAt,
+    category: company.pipeline.category,
+    intakeStage: company.pipeline.intakeStage,
+    closedOutcome: company.pipeline.closedOutcome,
+    ownerName: company.pipeline.ownerName,
+    nextStepDueAt: company.pipeline.nextStepDueAt,
+    lastMeaningfulActivityAt: company.pipeline.lastMeaningfulActivityAt,
+    declineReasonNotes: company.pipeline.declineReasonNotes,
+    coInvestorEngagement: company.pipeline.coInvestorEngagement,
+    dealFlowContribution: company.pipeline.dealFlowContribution,
     intakeDecision: company.pipeline.intakeDecision,
     intakeDecisionAt: company.pipeline.intakeDecisionAt,
     intakeDecisionNotes: company.pipeline.intakeDecisionNotes,
@@ -376,9 +410,28 @@ export async function PATCH(
     const screeningWebinarDate2At = toNullableDate(input.screeningWebinarDate2At);
     const s1InvestmentAt = toNullableDate(input.s1InvestmentAt);
     const portfolioAddedAt = toNullableDate(input.portfolioAddedAt);
+    const nextStepDueAt = toNullableDate(input.nextStepDueAt);
+    const lastMeaningfulActivityAt = toNullableDate(input.lastMeaningfulActivityAt) || new Date();
+
+    const company = await prisma.company.findUnique({ where: { id }, include: { pipeline: true } });
+    if (!company) {
+      return NextResponse.json({ error: "Company not found" }, { status: 404 });
+    }
+
+    const stageChangedAt = company.pipeline?.phase === input.phase ? company.pipeline.stageChangedAt : new Date();
 
     const pipelineCreatePayload = {
       phase: input.phase,
+      stageChangedAt,
+      category: input.category,
+      intakeStage: input.intakeStage,
+      closedOutcome: input.closedOutcome ?? null,
+      ownerName: toNullableString(input.ownerName),
+      nextStepDueAt,
+      lastMeaningfulActivityAt,
+      declineReasonNotes: toNullableString(input.declineReasonNotes),
+      coInvestorEngagement: toNullableString(input.coInvestorEngagement),
+      dealFlowContribution: toNullableString(input.dealFlowContribution),
       intakeDecision: input.intakeDecision,
       intakeDecisionAt,
       intakeDecisionNotes: toNullableString(input.intakeDecisionNotes),
@@ -394,6 +447,16 @@ export async function PATCH(
 
     const pipelineUpdatePayload = {
       phase: input.phase,
+      stageChangedAt,
+      category: input.category,
+      intakeStage: input.intakeStage,
+      closedOutcome: input.closedOutcome ?? null,
+      ownerName: toNullableString(input.ownerName),
+      nextStepDueAt,
+      lastMeaningfulActivityAt,
+      declineReasonNotes: toNullableString(input.declineReasonNotes),
+      coInvestorEngagement: toNullableString(input.coInvestorEngagement),
+      dealFlowContribution: toNullableString(input.dealFlowContribution),
       intakeDecision: input.intakeDecision,
       intakeDecisionAt,
       intakeDecisionNotes: toNullableString(input.intakeDecisionNotes),
@@ -452,10 +515,6 @@ export async function PATCH(
       }
     }
 
-    const company = await prisma.company.findUnique({ where: { id }, include: { pipeline: true } });
-    if (!company) {
-      return NextResponse.json({ error: "Company not found" }, { status: 404 });
-    }
 
     if (shouldDebug) {
       const preUpdateClientState = debugClientUpdatedAtComparison(

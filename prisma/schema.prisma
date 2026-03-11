@@ -85,6 +85,27 @@ enum CompanyDeclineReason {
   OTHER
 }
 
+enum CompanyPipelineCategory {
+  ACTIVE
+  CLOSED
+  RE_ENGAGE_LATER
+}
+
+enum CompanyPipelineIntakeStage {
+  RECEIVED
+  INTRO_CALLS
+  ACTIVE_INTAKE
+  MANAGEMENT_PRESENTATION
+}
+
+enum CompanyClosedOutcome {
+  INVESTED
+  PASSED
+  LOST
+  WITHDREW
+  OTHER
+}
+
 enum CompanyIntakeStatus {
   NOT_SCHEDULED
   SCHEDULED
@@ -118,6 +139,7 @@ enum CompanyPipelinePhase {
   LOI_COLLECTION
   COMMERCIAL_NEGOTIATION
   PORTFOLIO_GROWTH
+  CLOSED
 }
 
 enum CompanyIntakeDecision {
@@ -592,10 +614,20 @@ model CompanyPipeline {
   id                              String                @id @default(cuid())
   companyId                       String                @unique
   phase                           CompanyPipelinePhase  @default(INTAKE)
+  stageChangedAt                  DateTime                @default(now())
+  category                        CompanyPipelineCategory @default(ACTIVE)
+  intakeStage                     CompanyPipelineIntakeStage @default(RECEIVED)
+  closedOutcome                   CompanyClosedOutcome?
   intakeDecision                  CompanyIntakeDecision @default(PENDING)
   intakeDecisionAt                DateTime?
   intakeDecisionNotes             String?
   nextStep                        String?
+  nextStepDueAt                   DateTime?
+  lastMeaningfulActivityAt        DateTime?
+  ownerName                       String?
+  declineReasonNotes              String?
+  coInvestorEngagement            String?
+  dealFlowContribution            String?
   ventureStudioContractExecutedAt DateTime?
   screeningWebinarDate1At         DateTime?
   screeningWebinarDate2At         DateTime?

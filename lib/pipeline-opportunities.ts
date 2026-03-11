@@ -41,7 +41,8 @@ export type PipelinePhase =
   | "SCREENING"
   | "LOI_COLLECTION"
   | "COMMERCIAL_NEGOTIATION"
-  | "PORTFOLIO_GROWTH";
+  | "PORTFOLIO_GROWTH"
+  | "CLOSED";
 
 export type PipelineIntakeStatus = "NOT_SCHEDULED" | "SCHEDULED" | "COMPLETED" | "SCREENING_EVALUATION";
 export type PipelineIntakeDecision = "PENDING" | "ADVANCE_TO_NEGOTIATION" | "DECLINE";
@@ -62,7 +63,8 @@ export const PIPELINE_PHASE_OPTIONS: Array<{ value: PipelinePhase; label: string
   { value: "SCREENING", label: "Screening" },
   { value: "LOI_COLLECTION", label: "LOI Collection" },
   { value: "COMMERCIAL_NEGOTIATION", label: "Commercial Negotiation" },
-  { value: "PORTFOLIO_GROWTH", label: "Portfolio Growth" }
+  { value: "PORTFOLIO_GROWTH", label: "Portfolio Growth" },
+  { value: "CLOSED", label: "Closed" }
 ];
 
 const screeningPhases = new Set<PipelinePhase>(["SCREENING", "LOI_COLLECTION"]);
@@ -90,7 +92,7 @@ export function inferDefaultDecisionFromCompany(company: {
 }
 
 export function mapPhaseToBoardColumn(phase: PipelinePhase): PipelineBoardColumn | null {
-  if (phase === "DECLINED") return null;
+  if (phase === "DECLINED" || phase === "CLOSED") return null;
   if (phase === "INTAKE") return "INTAKE";
   if (phase === "VENTURE_STUDIO_NEGOTIATION") return "VENTURE_STUDIO_CONTRACT_EVALUATION";
   if (screeningPhases.has(phase)) return "SCREENING";

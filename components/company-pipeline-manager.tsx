@@ -22,9 +22,13 @@ type PipelinePhase =
   | "SCREENING"
   | "LOI_COLLECTION"
   | "COMMERCIAL_NEGOTIATION"
-  | "PORTFOLIO_GROWTH";
+  | "PORTFOLIO_GROWTH"
+  | "CLOSED";
 
 type IntakeDecision = "PENDING" | "ADVANCE_TO_NEGOTIATION" | "DECLINE";
+type PipelineCategory = "ACTIVE" | "CLOSED" | "RE_ENGAGE_LATER";
+type PipelineIntakeStage = "RECEIVED" | "INTRO_CALLS" | "ACTIVE_INTAKE" | "MANAGEMENT_PRESENTATION";
+type ClosedOutcome = "INVESTED" | "PASSED" | "LOST" | "WITHDREW" | "OTHER";
 type DocumentType =
   | "INTAKE_REPORT"
   | "SCREENING_REPORT"
@@ -137,6 +141,16 @@ type FundraiseDraft = {
 
 type PipelineDraft = {
   phase: PipelinePhase;
+  stageChangedAt: string;
+  category: PipelineCategory;
+  intakeStage: PipelineIntakeStage;
+  closedOutcome: ClosedOutcome | "";
+  ownerName: string;
+  nextStepDueAt: string;
+  lastMeaningfulActivityAt: string;
+  declineReasonNotes: string;
+  coInvestorEngagement: string;
+  dealFlowContribution: string;
   intakeDecision: IntakeDecision;
   intakeDecisionAt: string;
   intakeDecisionNotes: string;
@@ -169,13 +183,36 @@ const pipelinePhaseOptions: Array<{ value: PipelinePhase; label: string }> = [
   { value: "SCREENING", label: "Screening" },
   { value: "LOI_COLLECTION", label: "LOI Collection" },
   { value: "COMMERCIAL_NEGOTIATION", label: "Commercial Negotiation" },
-  { value: "PORTFOLIO_GROWTH", label: "Portfolio Growth" }
+  { value: "PORTFOLIO_GROWTH", label: "Portfolio Growth" },
+  { value: "CLOSED", label: "Closed" }
 ];
 
 const intakeDecisionOptions: Array<{ value: IntakeDecision; label: string }> = [
   { value: "PENDING", label: "Pending" },
   { value: "ADVANCE_TO_NEGOTIATION", label: "Advance" },
   { value: "DECLINE", label: "Decline" }
+];
+
+const pipelineCategoryOptions: Array<{ value: PipelineCategory; label: string }> = [
+  { value: "ACTIVE", label: "Active" },
+  { value: "CLOSED", label: "Closed" },
+  { value: "RE_ENGAGE_LATER", label: "Re-engage later" }
+];
+
+const pipelineIntakeStageOptions: Array<{ value: PipelineIntakeStage; label: string }> = [
+  { value: "RECEIVED", label: "Received" },
+  { value: "INTRO_CALLS", label: "Intro calls" },
+  { value: "ACTIVE_INTAKE", label: "Active intake" },
+  { value: "MANAGEMENT_PRESENTATION", label: "Management presentation" }
+];
+
+const closedOutcomeOptions: Array<{ value: ClosedOutcome | ""; label: string }> = [
+  { value: "", label: "Not closed" },
+  { value: "INVESTED", label: "Invested" },
+  { value: "PASSED", label: "Passed" },
+  { value: "LOST", label: "Lost" },
+  { value: "WITHDREW", label: "Withdrew" },
+  { value: "OTHER", label: "Other" }
 ];
 
 const documentTypeOptions: Array<{ value: DocumentType; label: string }> = [
@@ -401,6 +438,16 @@ function hydratePipelineDraft(input: unknown): PipelineDraft {
 
   return {
     phase: (payload.phase as PipelinePhase) || "INTAKE",
+    stageChangedAt: toDateInputValue(payload.stageChangedAt),
+    category: (payload.category as PipelineCategory) || "ACTIVE",
+    intakeStage: (payload.intakeStage as PipelineIntakeStage) || "RECEIVED",
+    closedOutcome: (payload.closedOutcome as ClosedOutcome) || "",
+    ownerName: toText(payload.ownerName),
+    nextStepDueAt: toDateInputValue(payload.nextStepDueAt),
+    lastMeaningfulActivityAt: toDateInputValue(payload.lastMeaningfulActivityAt),
+    declineReasonNotes: toText(payload.declineReasonNotes),
+    coInvestorEngagement: toText(payload.coInvestorEngagement),
+    dealFlowContribution: toText(payload.dealFlowContribution),
     intakeDecision: (payload.intakeDecision as IntakeDecision) || "PENDING",
     intakeDecisionAt: toDateInputValue(payload.intakeDecisionAt),
     intakeDecisionNotes: toText(payload.intakeDecisionNotes),
@@ -498,6 +545,15 @@ function hydratePipelineDraft(input: unknown): PipelineDraft {
 function serializePipelineDraft(draft: PipelineDraft) {
   return {
     phase: draft.phase,
+    category: draft.category,
+    intakeStage: draft.intakeStage,
+    closedOutcome: draft.closedOutcome || null,
+    ownerName: draft.ownerName.trim() || null,
+    nextStepDueAt: draft.nextStepDueAt || null,
+    lastMeaningfulActivityAt: draft.lastMeaningfulActivityAt || null,
+    declineReasonNotes: draft.declineReasonNotes.trim() || null,
+    coInvestorEngagement: draft.coInvestorEngagement.trim() || null,
+    dealFlowContribution: draft.dealFlowContribution.trim() || null,
     intakeDecision: draft.intakeDecision,
     intakeDecisionAt: draft.intakeDecisionAt || null,
     intakeDecisionNotes: draft.intakeDecisionNotes || null,
@@ -1078,12 +1134,57 @@ export function CompanyPipelineManager({
         Track intake, venture studio negotiation, screening participation, LOI conversion, fundraise, and ongoing
         commercial pursuits.
       </p>
+      <p className="muted">
+        Stage changed: {draft.stageChangedAt ? new Date(draft.stageChangedAt).toLocaleDateString() : "Not yet tracked"}
+      </p>
 
       <div className="detail-grid">
         <div>
           <label>Pipeline Phase</label>
           <select value={draft.phase} onChange={(event) => updateDraft({ phase: event.target.value as PipelinePhase })}>
             {pipelinePhaseOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label>Category</label>
+          <select value={draft.category} onChange={(event) => updateDraft({ category: event.target.value as PipelineCategory })}>
+            {pipelineCategoryOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label>Intake Stage</label>
+          <select value={draft.intakeStage} onChange={(event) => updateDraft({ intakeStage: event.target.value as PipelineIntakeStage })}>
+            {pipelineIntakeStageOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label>Owner</label>
+          <input value={draft.ownerName} onChange={(event) => updateDraft({ ownerName: event.target.value })} placeholder="Owner name" />
+        </div>
+        <div>
+          <label>Next Step Due</label>
+          <DateInputField value={draft.nextStepDueAt} onChange={(nextValue) => updateDraft({ nextStepDueAt: nextValue })} />
+        </div>
+        <div>
+          <label>Last Meaningful Activity</label>
+          <DateInputField value={draft.lastMeaningfulActivityAt} onChange={(nextValue) => updateDraft({ lastMeaningfulActivityAt: nextValue })} />
+        </div>
+        <div>
+          <label>Closed Outcome</label>
+          <select value={draft.closedOutcome} onChange={(event) => updateDraft({ closedOutcome: event.target.value as ClosedOutcome | "" })}>
+            {closedOutcomeOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -1145,6 +1246,30 @@ export function CompanyPipelineManager({
             onChange={(nextValue) => updateDraft({ screeningWebinarDate2At: nextValue })}
           />
         </div>
+      </div>
+
+      <div className="detail-section">
+        <label>Co-Investor Engagement</label>
+        <RichTextArea
+          value={draft.coInvestorEngagement}
+          onChange={(value) => updateDraft({ coInvestorEngagement: value })}
+          placeholder="Current syndicate engagement, sentiment, and key interactions"
+          rows={5}
+        />
+        <label>Deal Flow Contribution</label>
+        <RichTextArea
+          value={draft.dealFlowContribution}
+          onChange={(value) => updateDraft({ dealFlowContribution: value })}
+          placeholder="Who sourced or materially moved this deal forward"
+          rows={5}
+        />
+        <label>Decline Reason Notes</label>
+        <RichTextArea
+          value={draft.declineReasonNotes}
+          onChange={(value) => updateDraft({ declineReasonNotes: value })}
+          placeholder="Supporting context for the primary decline reason"
+          rows={5}
+        />
       </div>
 
       {showExtendedPipelineSections ? (

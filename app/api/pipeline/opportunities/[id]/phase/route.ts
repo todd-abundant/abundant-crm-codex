@@ -16,7 +16,8 @@ const phaseUpdateSchema = z.object({
     "SCREENING",
     "LOI_COLLECTION",
     "COMMERCIAL_NEGOTIATION",
-    "PORTFOLIO_GROWTH"
+    "PORTFOLIO_GROWTH",
+    "CLOSED"
   ])
 });
 
@@ -34,7 +35,8 @@ export async function PATCH(
       select: {
         id: true,
         intakeStatus: true,
-        declineReason: true
+        declineReason: true,
+        pipeline: { select: { phase: true } }
       }
     });
 
@@ -47,10 +49,12 @@ export async function PATCH(
       create: {
         companyId: id,
         phase: input.phase,
+        stageChangedAt: new Date(),
         intakeDecision: inferDefaultDecisionFromCompany(company)
       },
       update: {
-        phase: input.phase
+        phase: input.phase,
+        stageChangedAt: company.pipeline?.phase === input.phase ? undefined : new Date()
       }
     });
 
