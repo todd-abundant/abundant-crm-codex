@@ -2392,20 +2392,19 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
   border-bottom-color: #9cb5cf;
 }
 
+.screening-material-preview-action {
+  margin-left: auto;
+  white-space: nowrap;
+  margin-right: 0;
+  align-self: center;
+}
+
 .screening-material-tab-bar {
   display: flex;
   align-items: center;
 }
 
 .screening-material-tab-bar .detail-tab {
-  white-space: nowrap;
-}
-
-.screening-material-preview-action {
-  margin-left: auto;
-  margin-right: 2px;
-  margin-top: 0;
-  margin-bottom: -1px;
   white-space: nowrap;
 }
 

@@ -4955,6 +4955,43 @@ function stripCurrencyFormatting(value: string) {
             </button>
           </div>
         ) : null}
+        {activeIntakeDetailTab === "screening-materials" && item.isScreeningStage ? (
+          <div className="detail-tabs detail-subtabs screening-material-tab-bar" role="tablist" aria-label="Screening materials sections">
+            {screeningDetailViewOptions.map((view) => (
+              <button
+                key={view.key}
+                type="button"
+                role="tab"
+                className={`detail-tab ${screeningDetailView === view.key ? "active" : ""}`}
+                aria-selected={screeningDetailView === view.key}
+                onClick={() => setScreeningDetailView(view.key)}
+              >
+                {view.label}
+              </button>
+            ))}
+            {screeningDetailView === "status" ? (
+              <button className="detail-tab screening-material-preview-action" type="button" onClick={openScreeningStatusPreview}>
+                Preview Format
+              </button>
+            ) : screeningDetailView === "quantitative" ? (
+              <button
+                className="detail-tab screening-material-preview-action"
+                type="button"
+                onClick={openScreeningQuantitativePreview}
+              >
+                Preview Format
+              </button>
+            ) : screeningDetailView === "qualitative" ? (
+              <button
+                className="detail-tab screening-material-preview-action"
+                type="button"
+                onClick={openScreeningQualitativePreview}
+              >
+                Preview Format
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <div className="pipeline-detail-tab-content">
 
         {activeIntakeDetailTab === "pipeline-status" || (activeIntakeDetailTab === "opportunities" && showOpportunitiesTab) ? (
@@ -5926,42 +5963,6 @@ function stripCurrencyFormatting(value: string) {
 
         {activeIntakeDetailTab === "screening-materials" && item.isScreeningStage ? (
           <>
-          <div className="detail-tabs detail-subtabs screening-material-tab-bar">
-            {screeningDetailViewOptions.map((view) => (
-              <button
-                key={view.key}
-                type="button"
-                role="tab"
-                className={`detail-tab ${screeningDetailView === view.key ? "active" : ""}`}
-                aria-selected={screeningDetailView === view.key}
-                onClick={() => setScreeningDetailView(view.key)}
-              >
-                {view.label}
-              </button>
-            ))}
-            {screeningDetailView === "status" ? (
-              <button className="detail-tab screening-material-preview-action" type="button" onClick={openScreeningStatusPreview}>
-                Preview Format
-              </button>
-            ) : screeningDetailView === "quantitative" ? (
-              <button
-                className="detail-tab screening-material-preview-action"
-                type="button"
-                onClick={openScreeningQuantitativePreview}
-              >
-                Preview Format
-              </button>
-            ) : screeningDetailView === "qualitative" ? (
-              <button
-                className="detail-tab screening-material-preview-action"
-                type="button"
-                onClick={openScreeningQualitativePreview}
-              >
-                Preview Format
-              </button>
-            ) : null}
-          </div>
-
           {screeningDetailView === "status" ? (
             <>
               <div className="screening-overview-table-wrap">
