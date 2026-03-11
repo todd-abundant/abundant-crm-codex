@@ -121,7 +121,11 @@ export async function GET(request: Request) {
 
     const pipelineEntries = companies
       .map((company) => {
-        const phase = (company.pipeline?.phase || inferDefaultPhaseFromCompany(company)) as PipelinePhase;
+        const persistedPhase = (company.pipeline?.phase || inferDefaultPhaseFromCompany(company)) as PipelinePhase;
+        const phase =
+          company.pipeline?.intakeStage === "RECEIVED" && (company.pipeline?.category || "ACTIVE") === "ACTIVE"
+            ? ("INTAKE" as const)
+            : persistedPhase;
         const column = mapPhaseToBoardColumn(phase);
 
         const companyNotes = notesByCompanyId.get(company.id) || [];
@@ -184,8 +188,15 @@ export async function GET(request: Request) {
       })
       .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 
-    const opportunities = pipelineEntries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry && entry.column && entry.companyCategory === "ACTIVE"));
-    const inactiveOpportunities = pipelineEntries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry) && (!entry.column || entry.companyCategory !== "ACTIVE"));
+    const visiblePipelineEntries = pipelineEntries.filter(
+      (entry): entry is NonNullable<typeof entry> => Boolean(entry) && entry.companyCategory !== "RE_ENGAGE_LATER"
+    );
+    const opportunities = visiblePipelineEntries.filter(
+      (entry): entry is NonNullable<typeof entry> => Boolean(entry.column && entry.companyCategory === "ACTIVE")
+    );
+    const inactiveOpportunities = visiblePipelineEntries.filter(
+      (entry): entry is NonNullable<typeof entry> => Boolean(!entry.column || entry.companyCategory !== "ACTIVE")
+    );
 
     return NextResponse.json({
       companyType,

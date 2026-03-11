@@ -27,7 +27,7 @@ function normalizePipelinePhase(phase: PipelinePhase) {
   return phase === "CLOSED" ? "DECLINED" : phase;
 }
 
-const intakeDecisionSchema = z.enum(["PENDING", "ADVANCE_TO_NEGOTIATION", "DECLINE"]);
+const intakeDecisionSchema = z.enum(["PENDING", "ADVANCE_TO_NEGOTIATION", "DECLINE", "REVISIT_LATER"]);
 
 const documentSchema = z.object({
   type: z

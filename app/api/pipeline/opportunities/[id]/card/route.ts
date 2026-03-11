@@ -29,6 +29,7 @@ const pipelinePhaseSchema = z.enum([
 ]);
 
 const closedOutcomeSchema = z.enum(["INVESTED", "PASSED", "LOST", "WITHDREW", "OTHER"]);
+const intakeDecisionSchema = z.enum(["PENDING", "ADVANCE_TO_NEGOTIATION", "DECLINE", "REVISIT_LATER"]);
 
 function normalizePipelinePhase(phase: PipelinePhase | undefined) {
   if (!phase) return phase;
@@ -40,6 +41,7 @@ const cardUpdateSchema = z.object({
   closedOutcome: closedOutcomeSchema.optional().nullable(),
   declineReasonNotes: z.string().optional().nullable(),
   nextStep: z.string().optional().nullable(),
+  intakeDecision: intakeDecisionSchema.optional(),
   intakeDecisionAt: z.string().optional().nullable(),
   ventureStudioContractExecutedAt: z.string().optional().nullable(),
   screeningWebinarDate1At: z.string().optional().nullable(),
@@ -289,7 +291,7 @@ export async function PATCH(
       closedOutcome?: "INVESTED" | "PASSED" | "LOST" | "WITHDREW" | "OTHER" | null;
       declineReasonNotes?: string | null;
       nextStep?: string | null;
-      intakeDecision?: "PENDING" | "ADVANCE_TO_NEGOTIATION" | "DECLINE";
+      intakeDecision?: "PENDING" | "ADVANCE_TO_NEGOTIATION" | "DECLINE" | "REVISIT_LATER";
       intakeDecisionAt?: Date | null;
       ventureStudioContractExecutedAt?: Date | null;
       screeningWebinarDate1At?: Date | null;
@@ -314,6 +316,9 @@ export async function PATCH(
     }
     if (Object.prototype.hasOwnProperty.call(body, "declineReasonNotes")) {
       updatePayload.declineReasonNotes = toNullableString(input.declineReasonNotes);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "intakeDecision")) {
+      updatePayload.intakeDecision = input.intakeDecision;
     }
     if (Object.prototype.hasOwnProperty.call(body, "intakeDecisionAt")) {
       updatePayload.intakeDecisionAt = toNullableDate(input.intakeDecisionAt);
@@ -445,9 +450,12 @@ export async function PATCH(
     const requestedPhase = Object.prototype.hasOwnProperty.call(body, "phase")
       ? normalizePipelinePhase(input.phase)
       : undefined;
+    const hasExplicitIntakeDecision = Object.prototype.hasOwnProperty.call(body, "intakeDecision");
     if (requestedPhase) {
       const currentPhase = (company.pipeline?.phase || inferDefaultPhaseFromCompany(company)) as PipelinePhase;
-      const nextIntakeDecision = intakeDecisionForPhase(requestedPhase);
+      const nextIntakeDecision = hasExplicitIntakeDecision
+        ? (input.intakeDecision ?? intakeDecisionForPhase(requestedPhase))
+        : intakeDecisionForPhase(requestedPhase);
       updatePayload.phase = requestedPhase;
       if (requestedPhase !== currentPhase) {
         updatePayload.stageChangedAt = new Date();
@@ -460,6 +468,14 @@ export async function PATCH(
       }
       if (requestedPhase !== "DECLINED" && !Object.prototype.hasOwnProperty.call(body, "closedOutcome")) {
         updatePayload.closedOutcome = null;
+      }
+    } else if (hasExplicitIntakeDecision && input.intakeDecision) {
+      if (input.intakeDecision === "PENDING") {
+        if (!Object.prototype.hasOwnProperty.call(body, "intakeDecisionAt")) {
+          updatePayload.intakeDecisionAt = null;
+        }
+      } else if (!Object.prototype.hasOwnProperty.call(body, "intakeDecisionAt")) {
+        updatePayload.intakeDecisionAt = company.pipeline?.intakeDecisionAt ?? new Date();
       }
     }
 
@@ -474,6 +490,7 @@ export async function PATCH(
         existingPipeline: company.pipeline
           ? {
             nextStep: company.pipeline.nextStep,
+            intakeDecision: company.pipeline.intakeDecision,
             intakeDecisionAt: company.pipeline.intakeDecisionAt
               ? formatDateForDebug(company.pipeline.intakeDecisionAt)
               : null,
@@ -570,6 +587,12 @@ export async function PATCH(
             previous: beforePipeline?.nextStep || null,
             persisted: pipeline.nextStep || null
           },
+          intakeDecision: {
+            requested: hasExplicitIntakeDecision ? input.intakeDecision : null,
+            previous: beforePipeline?.intakeDecision || null,
+            persisted: pipeline.intakeDecision,
+            matched: hasExplicitIntakeDecision ? pipeline.intakeDecision === input.intakeDecision : null
+          },
           intakeDecisionAt: debugDatePayloadField(
             dateFieldPresence.intakeDecisionAt ? updatePayload.intakeDecisionAt : null,
             pipeline.intakeDecisionAt || null,
@@ -608,6 +631,7 @@ export async function PATCH(
         saved: {
           updatedAt: pipeline.updatedAt.toISOString(),
           nextStep: pipeline.nextStep,
+          intakeDecision: pipeline.intakeDecision,
           intakeDecisionAt: formatDateForDebug(pipeline.intakeDecisionAt),
           ventureStudioContractExecutedAt: pipeline.ventureStudioContractExecutedAt
             ? formatDateForDebug(pipeline.ventureStudioContractExecutedAt)
@@ -630,6 +654,7 @@ export async function PATCH(
       item: {
         id,
         nextStep: pipeline.nextStep || "",
+        intakeDecision: pipeline.intakeDecision,
         intakeDecisionAt: pipeline.intakeDecisionAt,
         ventureStudioContractExecutedAt: pipeline.ventureStudioContractExecutedAt,
         screeningWebinarDate1At: pipeline.screeningWebinarDate1At,

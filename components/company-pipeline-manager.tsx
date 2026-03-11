@@ -25,7 +25,7 @@ type PipelinePhase =
   | "PORTFOLIO_GROWTH"
   | "CLOSED";
 
-type IntakeDecision = "PENDING" | "ADVANCE_TO_NEGOTIATION" | "DECLINE";
+type IntakeDecision = "PENDING" | "ADVANCE_TO_NEGOTIATION" | "DECLINE" | "REVISIT_LATER";
 type PipelineCategory = "ACTIVE" | "CLOSED" | "RE_ENGAGE_LATER";
 type PipelineIntakeStage = "RECEIVED" | "INTRO_CALLS" | "ACTIVE_INTAKE" | "MANAGEMENT_PRESENTATION";
 type ClosedOutcome = "INVESTED" | "PASSED" | "LOST" | "WITHDREW" | "OTHER";
@@ -190,7 +190,8 @@ const pipelinePhaseOptions: Array<{ value: PipelinePhase; label: string }> = [
 const intakeDecisionOptions: Array<{ value: IntakeDecision; label: string }> = [
   { value: "PENDING", label: "Pending" },
   { value: "ADVANCE_TO_NEGOTIATION", label: "Advance" },
-  { value: "DECLINE", label: "Decline" }
+  { value: "DECLINE", label: "Decline" },
+  { value: "REVISIT_LATER", label: "Revisit later" }
 ];
 
 const pipelineCategoryOptions: Array<{ value: PipelineCategory; label: string }> = [

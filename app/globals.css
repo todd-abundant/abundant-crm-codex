@@ -4518,11 +4518,28 @@ select {
   margin: 2px 0 0;
 }
 
+.pipeline-board-page {
+  height: calc(100dvh - 74px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.pipeline-board-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
 .pipeline-kanban {
   display: grid;
   grid-template-columns: repeat(4, minmax(240px, 1fr));
   gap: 12px;
-  margin-top: 12px;
+  margin-top: 0;
+  min-height: 0;
 }
 
 .pipeline-view-selector {
@@ -4534,10 +4551,12 @@ select {
   background: #ffffff;
   border: 1px solid var(--colorBorder);
   border-radius: var(--radiusCard);
-  min-height: 320px;
+  min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   box-shadow: 0 2px 8px rgba(10, 47, 90, 0.05);
+  overflow: hidden;
 }
 
 .pipeline-column.drag-over {
@@ -4550,7 +4569,10 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 10px 0;
+  padding: 10px;
+  background: #ffffff;
+  border-bottom: 1px solid #dce7f3;
+  flex: 0 0 auto;
 }
 
 .pipeline-column-head h2 {
@@ -4564,6 +4586,9 @@ select {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .pipeline-column-add-row {
@@ -4589,12 +4614,15 @@ select {
 }
 
 .pipeline-inactive-queue {
-  margin-top: 18px;
+  margin-top: 0;
   background: #ffffff;
   border: 1px solid var(--colorBorder);
   border-radius: var(--radiusCard);
   box-shadow: 0 2px 8px rgba(10, 47, 90, 0.05);
   padding: 14px;
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
 }
 
 .pipeline-inactive-queue-head {
@@ -4615,6 +4643,9 @@ select {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 10px;
+  max-height: min(34vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .pipeline-card-inactive {
@@ -7435,8 +7466,36 @@ select {
 }
 
 @media (max-width: 1220px) {
+  .pipeline-board-page {
+    height: auto;
+    overflow: visible;
+  }
+
+  .pipeline-board-shell {
+    display: block;
+  }
+
   .pipeline-kanban {
+    margin-top: 12px;
     grid-template-columns: repeat(2, minmax(250px, 1fr));
+  }
+
+  .pipeline-column {
+    height: auto;
+  }
+
+  .pipeline-column-body {
+    overflow-y: visible;
+  }
+
+  .pipeline-inactive-queue {
+    position: static;
+    margin-top: 18px;
+  }
+
+  .pipeline-inactive-grid {
+    max-height: none;
+    overflow-y: visible;
   }
 
   .screening-survey-question-row {

@@ -8,6 +8,7 @@ import {
   mapPhaseToBoardColumn,
   phaseLabel,
   type PipelineBoardColumn,
+  type PipelineIntakeDecision,
   type PipelinePhase
 } from "@/lib/pipeline-opportunities";
 import { generateOpportunityTitle } from "@/lib/opportunity-title";
@@ -42,6 +43,8 @@ type ScreeningFeedbackSentiment = "POSITIVE" | "MIXED" | "NEUTRAL" | "NEGATIVE";
 type ScreeningCellField = "RELEVANT_FEEDBACK" | "STATUS_UPDATE";
 type ClosedOutcome = "INVESTED" | "PASSED" | "LOST" | "WITHDREW" | "OTHER";
 type ScreeningPipelineStatus = "OPEN" | "CLOSED_LOST";
+type IntakeVenturePipelineStatus = "OPEN" | "CLOSED_LOST" | "CLOSED_REVISIT";
+type IntakeVentureLifecycleSection = "INTAKE" | "VENTURE_STUDIO";
 type CompanyDocumentType =
   | "INTAKE_REPORT"
   | "SCREENING_REPORT"
@@ -206,6 +209,7 @@ type PipelineOpportunityDetail = {
   isScreeningStage: boolean;
   closedOutcome: ClosedOutcome | null;
   declineReasonNotes: string | null;
+  intakeDecision: PipelineIntakeDecision;
   intakeDecisionAt: string | null;
   ventureStudioContractExecutedAt: string | null;
   screeningWebinarDate1At: string | null;
@@ -328,6 +332,19 @@ function formatTimestamp(value: string | null | undefined) {
 
 function toDateInputValue(value: string | null | undefined) {
   return formatDateInputValue(value);
+}
+
+function deriveIntakeVenturePipelineStatus(
+  item: Pick<PipelineOpportunityDetail, "phase" | "intakeDecision"> | null | undefined
+): IntakeVenturePipelineStatus {
+  if (!item) return "OPEN";
+  if ((item.phase === "DECLINED" || item.phase === "CLOSED") && item.intakeDecision === "REVISIT_LATER") {
+    return "CLOSED_REVISIT";
+  }
+  if (item.phase === "DECLINED" || item.phase === "CLOSED") {
+    return "CLOSED_LOST";
+  }
+  return "OPEN";
 }
 
 function parseNoteAffiliations(raw: unknown): NoteAffiliation[] {
@@ -1245,10 +1262,15 @@ export function PipelineOpportunityDetailView({
   const isScreeningClosedLost =
     (item?.phase === "DECLINED" || item?.phase === "CLOSED") && item.closedOutcome === "LOST";
   const persistedScreeningPipelineStatus: ScreeningPipelineStatus = isScreeningClosedLost ? "CLOSED_LOST" : "OPEN";
+  const persistedIntakeVenturePipelineStatus = deriveIntakeVenturePipelineStatus(item);
   const screeningPipelineStatus = pendingScreeningPipelineStatus || persistedScreeningPipelineStatus;
   const showScreeningPipelineLifecycle = Boolean(
     item &&
     (activePipelineColumn === "SCREENING" || ((item.phase === "DECLINED" || item.phase === "CLOSED") && item.closedOutcome === "LOST"))
+  );
+  const showIntakePipelineLifecycle = Boolean(item && activePipelineColumn === "INTAKE");
+  const showVentureStudioPipelineLifecycle = Boolean(
+    item && activePipelineColumn === "VENTURE_STUDIO_CONTRACT_EVALUATION"
   );
   const showOpportunitiesTab = Boolean(
     item && (activePipelineColumn === "SCREENING" || activePipelineColumn === "COMMERCIAL_ACCELERATION")
@@ -2840,6 +2862,7 @@ export function PipelineOpportunityDetailView({
     phase?: PipelinePhase;
     closedOutcome?: ClosedOutcome | null;
     declineReasonNotes?: string | null;
+    intakeDecision?: PipelineIntakeDecision;
     intakeDecisionAt?: string | null;
     ventureStudioContractExecutedAt?: string | null;
     screeningWebinarDate1At?: string | null;
@@ -2856,6 +2879,7 @@ export function PipelineOpportunityDetailView({
       phase: Object.prototype.hasOwnProperty.call(input, "phase"),
       closedOutcome: Object.prototype.hasOwnProperty.call(input, "closedOutcome"),
       declineReasonNotes: Object.prototype.hasOwnProperty.call(input, "declineReasonNotes"),
+      intakeDecision: Object.prototype.hasOwnProperty.call(input, "intakeDecision"),
       intakeDecisionAt: Object.prototype.hasOwnProperty.call(input, "intakeDecisionAt"),
       ventureStudioContractExecutedAt: Object.prototype.hasOwnProperty.call(input, "ventureStudioContractExecutedAt"),
       screeningWebinarDate1At: Object.prototype.hasOwnProperty.call(input, "screeningWebinarDate1At"),
@@ -2892,6 +2916,7 @@ export function PipelineOpportunityDetailView({
         phase: item.phase,
         closedOutcome: item.closedOutcome,
         declineReasonNotes: item.declineReasonNotes,
+        intakeDecision: item.intakeDecision,
         intakeDecisionAt: item.intakeDecisionAt,
         ventureStudioContractExecutedAt: item.ventureStudioContractExecutedAt,
         screeningWebinarDate1At: item.screeningWebinarDate1At,
@@ -2926,6 +2951,7 @@ export function PipelineOpportunityDetailView({
         phase: returnedItem?.phase ?? item.phase,
         closedOutcome: returnedItem?.closedOutcome ?? item.closedOutcome,
         declineReasonNotes: returnedItem?.declineReasonNotes ?? item.declineReasonNotes,
+        intakeDecision: returnedItem?.intakeDecision ?? item.intakeDecision,
         intakeDecisionAt: returnedItem?.intakeDecisionAt ?? null,
         ventureStudioContractExecutedAt: returnedItem?.ventureStudioContractExecutedAt ?? null,
         screeningWebinarDate1At: returnedItem?.screeningWebinarDate1At ?? null,
@@ -2968,6 +2994,13 @@ export function PipelineOpportunityDetailView({
                 matched:
                   (requestPayload.declineReasonNotes || "").trim() ===
                   (responseDates.declineReasonNotes || "").trim()
+              }
+            : null,
+          intakeDecision: requestHas.intakeDecision
+            ? {
+                requested: requestPayload.intakeDecision,
+                persisted: responseDates.intakeDecision,
+                matched: requestPayload.intakeDecision === responseDates.intakeDecision
               }
             : null,
           intakeDecisionAt: requestHas.intakeDecisionAt
@@ -3029,6 +3062,13 @@ export function PipelineOpportunityDetailView({
         typeof returnedItem?.intakeDecisionAt === "string" || returnedItem?.intakeDecisionAt === null
           ? (returnedItem?.intakeDecisionAt ?? null)
           : input.intakeDecisionAt ?? item.intakeDecisionAt;
+      const updatedIntakeDecision =
+        returnedItem?.intakeDecision === "PENDING" ||
+        returnedItem?.intakeDecision === "ADVANCE_TO_NEGOTIATION" ||
+        returnedItem?.intakeDecision === "DECLINE" ||
+        returnedItem?.intakeDecision === "REVISIT_LATER"
+          ? (returnedItem.intakeDecision as PipelineIntakeDecision)
+          : input.intakeDecision ?? item.intakeDecision;
       const updatedVentureStudioContractExecutedAt =
         typeof returnedItem?.ventureStudioContractExecutedAt === "string" ||
         returnedItem?.ventureStudioContractExecutedAt === null
@@ -3097,6 +3137,7 @@ export function PipelineOpportunityDetailView({
               isScreeningStage: mapPhaseToBoardColumn(updatedPhase) === "SCREENING",
               closedOutcome: updatedClosedOutcome,
               declineReasonNotes: updatedDeclineReasonNotes,
+              intakeDecision: updatedIntakeDecision,
               intakeDecisionAt: updatedIntakeDecisionDate,
               ventureStudioContractExecutedAt: updatedVentureStudioContractExecutedAt,
               screeningWebinarDate1At: updatedScreeningWebinarDate1At,
@@ -3287,6 +3328,50 @@ export function PipelineOpportunityDetailView({
     setPendingScreeningPipelineStatus(null);
     setStatus(null);
     setScreeningClosedLostReasonModalDraft(screeningClosedLostReasonDraft || item?.declineReasonNotes || "");
+  }
+
+  async function handleIntakeVenturePipelineStatusChange(
+    section: IntakeVentureLifecycleSection,
+    nextStatus: IntakeVenturePipelineStatus
+  ) {
+    if (!item) return;
+    const currentStatus = deriveIntakeVenturePipelineStatus(item);
+    if (currentStatus === nextStatus) return;
+
+    if (nextStatus === "OPEN") {
+      if (section === "INTAKE") {
+        await updatePipelineCardMeta({
+          phase: "INTAKE",
+          intakeDecision: "PENDING",
+          closedOutcome: null,
+          declineReasonNotes: null
+        });
+        return;
+      }
+      await updatePipelineCardMeta({
+        phase: "VENTURE_STUDIO_NEGOTIATION",
+        intakeDecision: "ADVANCE_TO_NEGOTIATION",
+        closedOutcome: null,
+        declineReasonNotes: null
+      });
+      return;
+    }
+
+    if (nextStatus === "CLOSED_REVISIT") {
+      await updatePipelineCardMeta({
+        phase: "DECLINED",
+        intakeDecision: "REVISIT_LATER",
+        closedOutcome: null,
+        declineReasonNotes: null
+      });
+      return;
+    }
+
+    await updatePipelineCardMeta({
+      phase: "DECLINED",
+      intakeDecision: "DECLINE",
+      closedOutcome: null
+    });
   }
 
   async function saveIntakeDecisionDate(nextValue: string) {
@@ -5332,9 +5417,93 @@ function stripCurrencyFormatting(value: string) {
                   />
                 </div>
 
+                {showIntakePipelineLifecycle ? (
+                  <div className="detail-section">
+                    <p className="detail-label">Opportunity Status</p>
+                    <div className="inline-edit-field">
+                      <label>Status</label>
+                      <div className="opportunity-filter-options" role="radiogroup" aria-label="Intake opportunity status">
+                        {[
+                          { value: "OPEN", label: "Open" },
+                          { value: "CLOSED_LOST", label: "Closed/Lost" },
+                          { value: "CLOSED_REVISIT", label: "Closed/Revisit" }
+                        ].map((option) => {
+                          const selected = persistedIntakeVenturePipelineStatus === option.value;
+                          return (
+                            <label
+                              key={option.value}
+                              className={`opportunity-filter-option ${selected ? "active" : ""}`}
+                              htmlFor={`intake-opportunity-lifecycle-${item.id}-${option.value}`}
+                            >
+                              <span>{option.label}</span>
+                              <input
+                                id={`intake-opportunity-lifecycle-${item.id}-${option.value}`}
+                                type="radio"
+                                name={`intake-opportunity-lifecycle-${item.id}`}
+                                value={option.value}
+                                checked={selected}
+                                onChange={() =>
+                                  void handleIntakeVenturePipelineStatusChange(
+                                    "INTAKE",
+                                    option.value as IntakeVenturePipelineStatus
+                                  )
+                                }
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {showVentureStudioPipelineLifecycle ? (
+                  <div className="detail-section">
+                    <p className="detail-label">Opportunity Status</p>
+                    <div className="inline-edit-field">
+                      <label>Status</label>
+                      <div
+                        className="opportunity-filter-options"
+                        role="radiogroup"
+                        aria-label="Venture studio contract execution status"
+                      >
+                        {[
+                          { value: "OPEN", label: "Open" },
+                          { value: "CLOSED_LOST", label: "Closed/Lost" },
+                          { value: "CLOSED_REVISIT", label: "Closed/Revisit" }
+                        ].map((option) => {
+                          const selected = persistedIntakeVenturePipelineStatus === option.value;
+                          return (
+                            <label
+                              key={option.value}
+                              className={`opportunity-filter-option ${selected ? "active" : ""}`}
+                              htmlFor={`venture-studio-opportunity-lifecycle-${item.id}-${option.value}`}
+                            >
+                              <span>{option.label}</span>
+                              <input
+                                id={`venture-studio-opportunity-lifecycle-${item.id}-${option.value}`}
+                                type="radio"
+                                name={`venture-studio-opportunity-lifecycle-${item.id}`}
+                                value={option.value}
+                                checked={selected}
+                                onChange={() =>
+                                  void handleIntakeVenturePipelineStatusChange(
+                                    "VENTURE_STUDIO",
+                                    option.value as IntakeVenturePipelineStatus
+                                  )
+                                }
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 {showScreeningPipelineLifecycle ? (
                   <div className="detail-section">
-                    <p className="detail-label">Screening Opportunity Lifecycle</p>
+                    <p className="detail-label">Opportunity Status</p>
                     <div className="row">
                       <div>
                         <div className="inline-edit-field">

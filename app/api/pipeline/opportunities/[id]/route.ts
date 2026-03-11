@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { marketLandscapePayloadFromRecord } from "@/lib/market-landscape";
 import {
+  inferDefaultDecisionFromCompany,
   inferDefaultPhaseFromCompany,
   isScreeningPhase,
   mapPhaseToBoardColumn,
@@ -254,7 +255,11 @@ export async function GET(
       }
     });
 
-    const phase = (company.pipeline?.phase || inferDefaultPhaseFromCompany(company)) as PipelinePhase;
+    const persistedPhase = (company.pipeline?.phase || inferDefaultPhaseFromCompany(company)) as PipelinePhase;
+    const phase =
+      company.pipeline?.intakeStage === "RECEIVED" && (company.pipeline?.category || "ACTIVE") === "ACTIVE"
+        ? ("INTAKE" as const)
+        : persistedPhase;
     const column = mapPhaseToBoardColumn(phase);
 
     const attendeeHealthSystemIds = Array.from(
@@ -609,6 +614,7 @@ export async function GET(
         isScreeningStage: isScreeningPhase(phase),
         closedOutcome: company.pipeline?.closedOutcome ?? null,
         declineReasonNotes: company.pipeline?.declineReasonNotes ?? null,
+        intakeDecision: company.pipeline?.intakeDecision ?? inferDefaultDecisionFromCompany(company),
         intakeDecisionAt: company.pipeline?.intakeDecisionAt ?? company.intakeScheduledAt ?? null,
         ventureStudioContractExecutedAt: company.pipeline?.ventureStudioContractExecutedAt ?? null,
         screeningWebinarDate1At: company.pipeline?.screeningWebinarDate1At ?? null,

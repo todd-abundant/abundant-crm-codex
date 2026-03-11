@@ -1177,105 +1177,106 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
 }
 
   return (
-    <main>
+    <main className="pipeline-board-page">
       {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
       {loading ? <p className="status">Loading pipeline board...</p> : null}
 
-      <section className="pipeline-kanban" aria-label="Pipeline opportunities board">
-        {PIPELINE_BOARD_COLUMNS.map((column) => {
-          const columnItems = groupedItems[column.key];
-          const isOver = dragOverColumn === column.key;
-          return (
-            <article
-              key={column.key}
-              className={`pipeline-column ${isOver ? "drag-over" : ""}`}
-              onDragOver={(event) => {
-                event.preventDefault();
-                if (dragOverColumn !== column.key) setDragOverColumn(column.key);
-              }}
-              onDragLeave={() => {
-                if (dragOverColumn === column.key) setDragOverColumn(null);
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                const droppedId = event.dataTransfer.getData("text/pipeline-item-id");
-                setDragOverColumn(null);
-                if (droppedId) {
-                  void moveItemToColumn(droppedId, column.key);
-                }
-              }}
-            >
-              <header className="pipeline-column-head">
-                <h2>{column.label}</h2>
-                <span className="status-pill draft">{columnItems.length}</span>
-              </header>
+      <div className="pipeline-board-shell">
+        <section className="pipeline-kanban" aria-label="Pipeline opportunities board">
+          {PIPELINE_BOARD_COLUMNS.map((column) => {
+            const columnItems = groupedItems[column.key];
+            const isOver = dragOverColumn === column.key;
+            return (
+              <article
+                key={column.key}
+                className={`pipeline-column ${isOver ? "drag-over" : ""}`}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  if (dragOverColumn !== column.key) setDragOverColumn(column.key);
+                }}
+                onDragLeave={() => {
+                  if (dragOverColumn === column.key) setDragOverColumn(null);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const droppedId = event.dataTransfer.getData("text/pipeline-item-id");
+                  setDragOverColumn(null);
+                  if (droppedId) {
+                    void moveItemToColumn(droppedId, column.key);
+                  }
+                }}
+              >
+                <header className="pipeline-column-head">
+                  <h2>{column.label}</h2>
+                  <span className="status-pill draft">{columnItems.length}</span>
+                </header>
 
-              <div className="pipeline-column-body">
-                {column.key === "INTAKE" ? (
-                  <div className="pipeline-column-add-row">
-                    <button
-                      type="button"
-                      className="pipeline-column-add-button"
-                      onClick={() => setIntakeAddModalSignal((current) => current + 1)}
-                    >
-                      + Add New Company
-                    </button>
-                    <EntityLookupInput
-                      entityKind="COMPANY"
-                      value={intakeAddLookupValue}
-                      onChange={setIntakeAddLookupValue}
-                      companyCreateDefaults={{ companyType }}
-                      onEntityCreated={(created) => {
-                        void handleIntakeCompanyCreated(created);
-                      }}
-                      openAddModalSignal={intakeAddModalSignal}
-                      hideLookupField
-                    />
-                  </div>
-                ) : null}
-                {columnItems.length === 0 ? <p className="muted">No items in this stage.</p> : null}
+                <div className="pipeline-column-body">
+                  {column.key === "INTAKE" ? (
+                    <div className="pipeline-column-add-row">
+                      <button
+                        type="button"
+                        className="pipeline-column-add-button"
+                        onClick={() => setIntakeAddModalSignal((current) => current + 1)}
+                      >
+                        + Add New Company
+                      </button>
+                      <EntityLookupInput
+                        entityKind="COMPANY"
+                        value={intakeAddLookupValue}
+                        onChange={setIntakeAddLookupValue}
+                        companyCreateDefaults={{ companyType }}
+                        onEntityCreated={(created) => {
+                          void handleIntakeCompanyCreated(created);
+                        }}
+                        openAddModalSignal={intakeAddModalSignal}
+                        hideLookupField
+                      />
+                    </div>
+                  ) : null}
+                  {columnItems.length === 0 ? <p className="muted">No items in this stage.</p> : null}
 
-                {columnItems.map((item) => {
-                  const openOpportunities = item.openOpportunities || [];
-                  const intakeDraft = getIntakeDraft(item);
-                  const cardMetaDraft = getCardMetaDraft(item);
-                  const filteredHealthSystems = intakeDraft.leadSource.trim()
-                    ? healthSystems
-                        .filter((entry) => entry.name.toLowerCase().includes(intakeDraft.leadSource.toLowerCase()))
-                        .slice(0, 8)
-                    : healthSystems.slice(0, 8);
+                  {columnItems.map((item) => {
+                    const openOpportunities = item.openOpportunities || [];
+                    const intakeDraft = getIntakeDraft(item);
+                    const cardMetaDraft = getCardMetaDraft(item);
+                    const filteredHealthSystems = intakeDraft.leadSource.trim()
+                      ? healthSystems
+                          .filter((entry) => entry.name.toLowerCase().includes(intakeDraft.leadSource.toLowerCase()))
+                          .slice(0, 8)
+                      : healthSystems.slice(0, 8);
 
-                  return (
-                    <div
-                      key={item.id}
-                      className={`pipeline-card ${highlightedItemId === item.id ? "newly-added" : ""} ${draggingId === item.id ? "dragging" : ""}`}
-                      draggable={updatingId !== item.id}
-                      onDragStart={(event) => {
-                        setDraggingId(item.id);
-                        event.dataTransfer.effectAllowed = "move";
-                        event.dataTransfer.setData("text/pipeline-item-id", item.id);
-                      }}
-                      onDragEnd={() => {
-                        setDraggingId(null);
-                        setDragOverColumn(null);
-                      }}
-                      onClick={() => openCardDetail(item.id)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(event) => {
-                        if (event.target !== event.currentTarget) return;
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openCardDetail(item.id);
-                        }
-                      }}
-                    >
-                      <div className="pipeline-card-head">
-                        <h3>{item.name}</h3>
-                        <span className={`pipeline-phase-pill ${pipelinePhasePillClass(item.column)}`}>
-                          {item.phaseLabel}
-                        </span>
-                      </div>
+                    return (
+                      <div
+                        key={item.id}
+                        className={`pipeline-card ${highlightedItemId === item.id ? "newly-added" : ""} ${draggingId === item.id ? "dragging" : ""}`}
+                        draggable={updatingId !== item.id}
+                        onDragStart={(event) => {
+                          setDraggingId(item.id);
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData("text/pipeline-item-id", item.id);
+                        }}
+                        onDragEnd={() => {
+                          setDraggingId(null);
+                          setDragOverColumn(null);
+                        }}
+                        onClick={() => openCardDetail(item.id)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(event) => {
+                          if (event.target !== event.currentTarget) return;
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openCardDetail(item.id);
+                          }
+                        }}
+                      >
+                        <div className="pipeline-card-head">
+                          <h3>{item.name}</h3>
+                          <span className={`pipeline-phase-pill ${pipelinePhasePillClass(item.column)}`}>
+                            {item.phaseLabel}
+                          </span>
+                        </div>
                       <p className="muted">{item.location || "Location unavailable"}</p>
                       <div className="pipeline-card-signals pipeline-card-signals-inactive">
                         <span className={`pipeline-signal-pill ${item.staleLevel ? `pipeline-signal-pill-${item.staleLevel}` : ""}`}>
@@ -1818,67 +1819,68 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                       </div>
 
                       {updatingId === item.id ? <p className="status">Saving stage change...</p> : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </article>
-          );
-        })}
-      </section>
+                      </div>
+                    );
+                  })}
+                </div>
+              </article>
+            );
+          })}
+        </section>
 
-      <section className="pipeline-inactive-queue" aria-label="Inactive pipeline queue">
-        <button
-          type="button"
-          className="pipeline-inactive-queue-head pipeline-inactive-queue-toggle"
-          onClick={() => setInactiveQueueExpanded((current) => !current)}
-          aria-expanded={inactiveQueueExpanded}
-        >
-          <div>
-            <h2>Closed and revisit queue</h2>
-            <p className="muted">Companies that fell out of the active process live here instead of as a pipeline stage.</p>
-          </div>
-          <div className="pipeline-inactive-queue-head-right">
-            <span className="status-pill draft">{inactiveItems.length}</span>
-            <span className="pipeline-collapse-indicator">{inactiveQueueExpanded ? "Hide" : "Show"}</span>
-          </div>
-        </button>
-        {inactiveQueueExpanded ? (
-          inactiveItems.length === 0 ? (
-            <p className="muted">No closed or revisit-later companies right now.</p>
-          ) : (
-            <div className="pipeline-inactive-grid">
-              {inactiveItems.map((item) => (
-                <button
-                  key={`inactive-${item.id}`}
-                  type="button"
-                  className="pipeline-card pipeline-card-inactive"
-                  onClick={() => openCardDetail(item.id)}
-                >
-                  <div className="pipeline-card-head">
-                    <h3>{item.name}</h3>
-                    <span className={"pipeline-signal-pill pipeline-signal-pill-category " + (item.companyCategory === "RE_ENGAGE_LATER" ? "pipeline-signal-pill-reengage" : "pipeline-signal-pill-closed")}>
-                      {companyCategoryLabel(item.companyCategory)}
-                    </span>
-                  </div>
-                  <p className="muted">{item.location || "Location unavailable"}</p>
-                  <div className="pipeline-card-signals pipeline-card-signals-inactive">
-                    <span className="pipeline-signal-pill">{item.phaseLabel}</span>
-                    <span className="pipeline-signal-pill">{timeInStageLabel(item)}</span>
-                    {item.closedOutcome ? <span className="pipeline-signal-pill">{closedOutcomeLabel(item.closedOutcome)}</span> : null}
-                    {item.declineReason ? <span className="pipeline-signal-pill">{declineReasonLabel(item.declineReason)}</span> : null}
-                  </div>
-                  <div className="pipeline-card-submeta">
-                    <span><strong>Owner:</strong> {item.ownerName || "Unassigned"}</span>
-                    <span><strong>Next due:</strong> {toDateDisplayValue(item.nextStepDueAt)}</span>
-                    <span><strong>Last activity:</strong> {formatTimestamp(item.lastMeaningfulActivityAt)}</span>
-                  </div>
-                </button>
-              ))}
+        <section className="pipeline-inactive-queue" aria-label="Inactive pipeline queue">
+          <button
+            type="button"
+            className="pipeline-inactive-queue-head pipeline-inactive-queue-toggle"
+            onClick={() => setInactiveQueueExpanded((current) => !current)}
+            aria-expanded={inactiveQueueExpanded}
+          >
+            <div>
+              <h2>Closed and revisit queue</h2>
+              <p className="muted">Companies that fell out of the active process live here instead of as a pipeline stage.</p>
             </div>
-          )
-        ) : null}
-      </section>
+            <div className="pipeline-inactive-queue-head-right">
+              <span className="status-pill draft">{inactiveItems.length}</span>
+              <span className="pipeline-collapse-indicator">{inactiveQueueExpanded ? "Hide" : "Show"}</span>
+            </div>
+          </button>
+          {inactiveQueueExpanded ? (
+            inactiveItems.length === 0 ? (
+              <p className="muted">No closed or revisit-later companies right now.</p>
+            ) : (
+              <div className="pipeline-inactive-grid">
+                {inactiveItems.map((item) => (
+                  <button
+                    key={`inactive-${item.id}`}
+                    type="button"
+                    className="pipeline-card pipeline-card-inactive"
+                    onClick={() => openCardDetail(item.id)}
+                  >
+                    <div className="pipeline-card-head">
+                      <h3>{item.name}</h3>
+                      <span className={"pipeline-signal-pill pipeline-signal-pill-category " + (item.companyCategory === "RE_ENGAGE_LATER" ? "pipeline-signal-pill-reengage" : "pipeline-signal-pill-closed")}>
+                        {companyCategoryLabel(item.companyCategory)}
+                      </span>
+                    </div>
+                    <p className="muted">{item.location || "Location unavailable"}</p>
+                    <div className="pipeline-card-signals pipeline-card-signals-inactive">
+                      <span className="pipeline-signal-pill">{item.phaseLabel}</span>
+                      <span className="pipeline-signal-pill">{timeInStageLabel(item)}</span>
+                      {item.closedOutcome ? <span className="pipeline-signal-pill">{closedOutcomeLabel(item.closedOutcome)}</span> : null}
+                      {item.declineReason ? <span className="pipeline-signal-pill">{declineReasonLabel(item.declineReason)}</span> : null}
+                    </div>
+                    <div className="pipeline-card-submeta">
+                      <span><strong>Owner:</strong> {item.ownerName || "Unassigned"}</span>
+                      <span><strong>Next due:</strong> {toDateDisplayValue(item.nextStepDueAt)}</span>
+                      <span><strong>Last activity:</strong> {formatTimestamp(item.lastMeaningfulActivityAt)}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )
+          ) : null}
+        </section>
+      </div>
 
       {undoToast ? (
         <div className="pipeline-undo-toast" role="status" aria-live="polite">

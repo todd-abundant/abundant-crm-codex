@@ -146,6 +146,7 @@ enum CompanyIntakeDecision {
   PENDING
   ADVANCE_TO_NEGOTIATION
   DECLINE
+  REVISIT_LATER
 }
 
 enum CompanyDocumentType {
