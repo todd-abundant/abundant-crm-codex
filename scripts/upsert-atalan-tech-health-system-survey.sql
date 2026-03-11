@@ -222,19 +222,25 @@ INSERT INTO _stg_health_system (
   headquarters_country
 )
 VALUES
+  ('ChristianaCare', 'Christiana Care Health Services, Inc.', 'https://www.christianacare.org', 'Wilmington', 'DE', 'USA'),
+  ('Confluence Health', 'Confluence Health', 'https://www.confluencehealth.org', 'Wenatchee', 'WA', 'USA'),
+  ('Endeavor Health', 'Endeavor Health', 'https://www.endeavorhealth.org', 'Evanston', 'IL', 'USA'),
+  ('Henry Ford Health', 'Henry Ford Health', 'https://www.henryford.com', 'Detroit', 'MI', 'USA'),
   ('Kettering Health', 'Kettering Health', 'https://ketteringhealth.org', 'Dayton', 'OH', 'USA'),
   ('Lurie Children''s Hospital', 'Ann & Robert H. Lurie Children''s Hospital of Chicago', 'https://www.luriechildrens.org', 'Chicago', 'IL', 'USA'),
-  ('Confluence Health', 'Confluence Health', 'https://www.confluencehealth.org', 'Wenatchee', 'WA', 'USA'),
-  ('WellSpan Health', 'WellSpan Health', 'https://www.wellspan.org', 'York', 'PA', 'USA'),
-  ('The University of Kansas Health System', 'The University of Kansas Health System', 'https://www.kansashealthsystem.com', 'Kansas City', 'KS', 'USA'),
-  ('Rush University System for Health', 'Rush University System for Health', 'https://www.rush.edu', 'Chicago', 'IL', 'USA'),
   ('MedStar Health', 'MedStar Health', 'https://www.medstarhealth.org', 'Columbia', 'MD', 'USA'),
-  ('OSF HealthCare', 'OSF HealthCare', 'https://www.osfhealthcare.org', 'Peoria', 'IL', 'USA'),
-  ('Endeavor Health', 'Endeavor Health', 'https://www.endeavorhealth.org', 'Evanston', 'IL', 'USA'),
-  ('Healthcare (Needs Verification)', 'Healthcare (Needs Verification)', NULL, NULL, NULL, NULL),
   ('MemorialCare', 'MemorialCare', 'https://www.memorialcare.org', 'Fountain Valley', 'CA', 'USA'),
+  ('MUSC Health', 'Medical University of South Carolina Health', 'https://muschealth.org', 'Charleston', 'SC', 'USA'),
   ('Nemours Children''s Health', 'Nemours Children''s Health', 'https://www.nemours.org', 'Jacksonville', 'FL', 'USA'),
-  ('Henry Ford Health', 'Henry Ford Health', 'https://www.henryford.com', 'Detroit', 'MI', 'USA');
+  ('Northwestern Medicine', 'Northwestern Medicine', 'https://www.nm.org', 'Chicago', 'IL', 'USA'),
+  ('OSF HealthCare', 'OSF HealthCare', 'https://www.osfhealthcare.org', 'Peoria', 'IL', 'USA'),
+  ('Rush University System for Health', 'Rush University System for Health', 'https://www.rush.edu', 'Chicago', 'IL', 'USA'),
+  ('Sharp Healthcare', 'Sharp Healthcare', 'https://www.sharp.com', 'San Diego', 'CA', 'USA'),
+  ('St. Luke''s University Health Network', 'St. Luke''s University Health Network', 'https://www.sluh.org', 'Pennsylvania', 'PA', 'USA'),
+  ('Sutter Health', 'Sutter Health', 'https://www.sutterhealth.org', 'Sacramento', 'CA', 'USA'),
+  ('The University of Kansas Health System', 'The University of Kansas Health System', 'https://www.kansashealthsystem.com', 'Kansas City', 'KS', 'USA'),
+  ('WellSpan Health', 'WellSpan Health', 'https://www.wellspan.org', 'York', 'PA', 'USA'),
+  ('Healthcare (Needs Verification)', 'Healthcare (Needs Verification)', NULL, NULL, NULL, NULL),
 
 CREATE TEMP TABLE _stg_health_system_alias (
   canonical_name TEXT NOT NULL,
@@ -243,33 +249,57 @@ CREATE TEMP TABLE _stg_health_system_alias (
 
 INSERT INTO _stg_health_system_alias (canonical_name, alias_name)
 VALUES
+  ('ChristianaCare', 'ChristianaCare'),
+  ('ChristianaCare', 'Christiana Care Health Services, Inc.'),
+  ('ChristianaCare', 'Christiana Care'),
+  ('Confluence Health', 'Confluence'),
+  ('Confluence Health', 'Confluence Health'),
+  ('Confluence Health', 'Confluence Health Systems'),
   ('Kettering Health', 'Kettering Health'),
+  ('Kettering Health', 'Kettering Health Network'),
   ('Lurie Children''s Hospital', 'Lurie'),
   ('Lurie Children''s Hospital', 'Lurie Children''s Hospital'),
   ('Lurie Children''s Hospital', 'Lurie Children''s'),
   ('Lurie Children''s Hospital', 'Ann & Robert H. Lurie Children''s Hospital of Chicago'),
-  ('Confluence Health', 'Confluence'),
-  ('Confluence Health', 'Confluence Health'),
   ('WellSpan Health', 'Wellspan'),
   ('WellSpan Health', 'WellSpan Health'),
   ('WellSpan Health', 'Wellspan Health'),
+  ('WellSpan Health', 'WellSpan'),
+  ('MUSC Health', 'MUSC Health'),
+  ('MUSC Health', 'MUSC'),
+  ('MUSC Health', 'Medical University of South Carolina'),
+  ('Nemours Children''s Health', 'Nemours'),
+  ('Nemours Children''s Health', 'Nemours Children''s Health'),
+  ('Nemours Children''s Health', 'Nemours Childrens Health'),
+  ('Northwestern Medicine', 'Northwestern Medicine'),
+  ('Northwestern Medicine', 'Northwestern'),
+  ('Northwestern Medicine', 'NW'),
   ('The University of Kansas Health System', 'TUKHS'),
   ('The University of Kansas Health System', 'The University of Kansas Health System'),
   ('The University of Kansas Health System', 'University of Kansas Health System'),
   ('Rush University System for Health', 'Rush University System for Health'),
   ('Rush University System for Health', 'Rush'),
   ('MedStar Health', 'MedStar Health'),
+  ('MedStar Health', 'MedStar'),
   ('OSF HealthCare', 'OSF HealthCare'),
+  ('OSF HealthCare', 'OSF'),
   ('Endeavor Health', 'Endeavor health'),
   ('Endeavor Health', 'Endeavor Health'),
+  ('Endeavor Health', 'Endeavor'),
+  ('Henry Ford Health', 'Henry Ford Health'),
+  ('Henry Ford Health', 'Henry Ford'),
+  ('Sharp Healthcare', 'Sharp Healthcare'),
+  ('Sharp Healthcare', 'Sharp'),
+  ('Sutter Health', 'Sutter Health'),
+  ('Sutter Health', 'Sutter'),
+  ('St. Luke''s University Health Network', 'St. Luke''s University Health Network'),
+  ('St. Luke''s University Health Network', 'St. Luke''s'),
+  ('St. Luke''s University Health Network', 'St Luke''s University Health Network'),
   ('Healthcare (Needs Verification)', 'Healthcare'),
-  ('Healthcare (Needs Verification)', 'Healthcare (Needs Verification)'),
+  ('Healthcare (Needs Verification)', 'Healthcare (Needs Verification)');
   ('MemorialCare', 'Memorialcare'),
   ('MemorialCare', 'MemorialCare'),
-  ('MemorialCare', 'MemorialCare Health System'),
-  ('Nemours Children''s Health', 'Nemours Children''s Health'),
-  ('Nemours Children''s Health', 'Nemours Childrens Health'),
-  ('Henry Ford Health', 'Henry Ford Health');
+  ('MemorialCare', 'MemorialCare Health System');
 
 CREATE TEMP TABLE _resolved_health_system AS
 SELECT
@@ -445,40 +475,43 @@ SET
   "updatedAt" = NOW();
 
 -- 6) Screening matrix data:
---    - Randomized red/yellow/green LOI statuses
---    - Clean relevant feedback + next steps / status update text
---    - Attendees linked via screening events + participants
+--    - Directly mapped from Atalan Screening Update 3.5 slide 4
 CREATE TEMP TABLE _stg_screening_status AS
-WITH ranked AS (
-  SELECT
-    rhs.health_system_id,
-    rhs.health_system_name,
-    row_number() OVER (ORDER BY md5(rhs.health_system_name)) AS seq
-  FROM _resolved_health_system rhs
-)
 SELECT
   health_system_id,
   health_system_name,
   seq,
-  CASE seq % 3
-    WHEN 1 THEN 'DECLINED'::"CompanyLoiStatus"
-    WHEN 2 THEN 'PENDING'::"CompanyLoiStatus"
-    ELSE 'NEGOTIATING'::"CompanyLoiStatus"
+  CASE
+    WHEN lower(trim(slide_active_pursuit)) IN ('passing', 'passing.', 'na', 'n/a')
+      THEN 'DECLINED'::"CompanyLoiStatus"
+    ELSE 'PENDING'::"CompanyLoiStatus"
   END AS loi_status,
-  CASE seq % 3
-    WHEN 1 THEN health_system_name ||
-      ' flagged limited near-term implementation capacity. Next step: revisit after internal resourcing and budget reset.'
-    WHEN 2 THEN health_system_name ||
-      ' requested clearer KPI baselines and pilot scope definition. Next step: send outcomes framework and schedule a debrief.'
-    ELSE health_system_name ||
-      ' is aligned on problem importance and open to pilot structure. Next step: circulate LOI draft and confirm operational owners.'
-  END AS relevant_feedback,
-  CASE seq % 3
-    WHEN 1 THEN 'Red: deprioritized for this cycle; follow-up parked for a later quarter.'
-    WHEN 2 THEN 'Yellow: active evaluation in progress; follow-up call requested with clinical and HR stakeholders.'
-    ELSE 'Green: moving forward with LOI review and implementation planning.'
-  END AS status_update
-FROM ranked;
+  slide_active_pursuit AS relevant_feedback,
+  slide_status_update AS status_update
+FROM _resolved_health_system rhs
+JOIN (
+  VALUES
+    (1,  'ChristianaCare', 'NA', 'Need feedback.'),
+    (2,  'Confluence Health', 'Passing.', 'Attendee: Becket Mahnke.'),
+    (3,  'Endeavor Health', 'Need feedback.', 'Need feedback from SMEs, and shared LOI and materials for internal discussion.'),
+    (4,  'Henry Ford Health', 'Need feedback.', 'Shared presentation materials and LOI awaiting feedback.'),
+    (5,  'Kettering Health', 'Need feedback.', 'Shared presentation materials and LOI awaiting feedback.'),
+    (6,  'Lurie Children''s Hospital', 'Passing.', 'Passing on this account.'),
+    (7,  'MedStar Health', 'Need feedback.', 'Onsite with Dan and Ellie March to review details.'),
+    (8,  'MemorialCare', 'Passing.', 'Passing on this account.'),
+    (9,  'MUSC Health', 'Passing.', 'Passing on this account.'),
+    (10, 'Nemours Children''s Health', 'Need feedback.', 'Followed up with Abundant main contact; screening remains in progress with an upcoming demo.'),
+    (11, 'Northwestern Medicine', 'NA', 'Provided feedback asynchronously.'),
+    (12, 'OSF HealthCare', 'Need feedback.', 'Shared presentation materials and LOI awaiting feedback.'),
+    (13, 'Rush University System for Health', 'Need feedback.', 'Shared presentation materials and LOI awaiting feedback.'),
+    (14, 'Sharp Healthcare', 'NA', 'Sent recording from Friday and following up with Abundant contact this Friday.'),
+    (15, 'St. Luke''s University Health Network', 'Need feedback.', 'Team debriefing internally; awaiting consolidated feedback.'),
+    (16, 'Sutter Health', 'Need feedback.', 'Team debriefing internally; shared presentation materials and LOI to support internal discussions.'),
+    (17, 'The University of Kansas Health System', 'Need feedback.', 'Screening call scheduled; sharing LO and materials for review.'),
+    (18, 'WellSpan Health', 'Need feedback.', 'WellSpan check in with operations; sharing LO and materials.')
+) AS stg_statuses(seq, health_system_name, slide_active_pursuit, slide_status_update)
+  ON lower(rhs.health_system_name) = lower(stg_statuses.health_system_name)
+ORDER BY stg_statuses.seq;
 
 INSERT INTO "CompanyLoi" (
   "id",

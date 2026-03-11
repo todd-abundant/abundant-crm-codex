@@ -1153,7 +1153,6 @@ export function PipelineOpportunityDetailView({
     React.useState<QualitativeFeedbackEditDraft | null>(null);
   const [savingQualitativeEntryById, setSavingQualitativeEntryById] = React.useState<Record<string, boolean>>({});
   const [deletingQualitativeEntryById, setDeletingQualitativeEntryById] = React.useState<Record<string, boolean>>({});
-  const [showQualitativePreview, setShowQualitativePreview] = React.useState(false);
   const [showAddQualitativeFeedbackModal, setShowAddQualitativeFeedbackModal] = React.useState(false);
   const [quantitativeQuestionCategories, setQuantitativeQuestionCategories] = React.useState<
     QuantitativeQuestionCategory[]
@@ -1572,7 +1571,6 @@ export function PipelineOpportunityDetailView({
       setQualitativeDraft(emptyQualitativeFeedbackDraft(""));
       setEditingQualitativeFeedbackId(null);
       setEditingQualitativeDraft(null);
-      setShowQualitativePreview(false);
       return;
     }
 
@@ -5223,11 +5221,6 @@ function stripCurrencyFormatting(value: string) {
 
         {activeIntakeDetailTab === "intake-materials" && activeIntakeMaterialsTab === "at-a-glance" ? (
           <>
-            <div className="actions actions-flush">
-              <button className="secondary small" type="button" onClick={openAtAGlancePreview}>
-                Preview Format
-              </button>
-            </div>
             <p className="muted">Capture concise intake framing using markdown-style formatting.</p>
             <div className="detail-section">
               {atAGlanceFields.map((field) => (
@@ -5252,11 +5245,6 @@ function stripCurrencyFormatting(value: string) {
 
         {activeIntakeDetailTab === "intake-materials" && activeIntakeMaterialsTab === "venture-studio-criteria" ? (
           <>
-            <div className="actions actions-flush">
-              <button className="secondary small" type="button" onClick={openVentureStudioCriteriaPreview}>
-                Preview Format
-              </button>
-            </div>
             <p className="muted">Capture each fixed criterion with an assessment and rationale.</p>
             <div className="venture-studio-criteria-table-wrap">
               <table className="venture-studio-criteria-table">
@@ -5938,37 +5926,44 @@ function stripCurrencyFormatting(value: string) {
 
         {activeIntakeDetailTab === "screening-materials" && item.isScreeningStage ? (
           <>
-          <h2>Alliance Screening Status</h2>
-          <p className="muted">
-            Overview mirrors screening operations: all alliance systems, tracked individuals, and each system LOI status.
-          </p>
-          <p className="muted">{`Showing ${item.screening.healthSystems.length} alliance members.`}</p>
-
-          <div className="detail-action-bar screening-bubble-nav" role="tablist" aria-label="Screening detail views">
+          <div className="detail-tabs detail-subtabs screening-material-tab-bar">
             {screeningDetailViewOptions.map((view) => (
               <button
                 key={view.key}
                 type="button"
                 role="tab"
-                className={`quick-action-pill screening-bubble-pill ${screeningDetailView === view.key ? "active" : ""}`}
+                className={`detail-tab ${screeningDetailView === view.key ? "active" : ""}`}
                 aria-selected={screeningDetailView === view.key}
                 onClick={() => setScreeningDetailView(view.key)}
               >
-                <span className="screening-bubble-icon" aria-hidden="true">
-                  {view.icon}
-                </span>
                 {view.label}
               </button>
             ))}
+            {screeningDetailView === "status" ? (
+              <button className="detail-tab screening-material-preview-action" type="button" onClick={openScreeningStatusPreview}>
+                Preview Format
+              </button>
+            ) : screeningDetailView === "quantitative" ? (
+              <button
+                className="detail-tab screening-material-preview-action"
+                type="button"
+                onClick={openScreeningQuantitativePreview}
+              >
+                Preview Format
+              </button>
+            ) : screeningDetailView === "qualitative" ? (
+              <button
+                className="detail-tab screening-material-preview-action"
+                type="button"
+                onClick={openScreeningQualitativePreview}
+              >
+                Preview Format
+              </button>
+            ) : null}
           </div>
 
           {screeningDetailView === "status" ? (
             <>
-              <div className="actions actions-flush">
-                <button className="secondary small" type="button" onClick={openScreeningStatusPreview}>
-                  Preview Format
-                </button>
-              </div>
               <div className="screening-overview-table-wrap">
                 <table className="screening-overview-table">
                 <thead>
@@ -6156,13 +6151,6 @@ function stripCurrencyFormatting(value: string) {
                   <div className="pipeline-card-head">
                     <h3>Qualitative Data Entries</h3>
                     <div className="actions actions-flush">
-                      <button
-                        className="secondary small"
-                        type="button"
-                        onClick={() => setShowQualitativePreview((current) => !current)}
-                      >
-                        {showQualitativePreview ? "Hide Preview" : "Preview"}
-                      </button>
                       <span className="status-pill queued">{`${allQualitativeFeedbackEntries.length} entries`}</span>
                     </div>
                   </div>
@@ -6170,33 +6158,28 @@ function stripCurrencyFormatting(value: string) {
 
               {screeningDetailView === "quantitative" ? (
                 <>
-                  <div className="screening-quant-header">
-                    <div>
-                      <p className="detail-label">Quantitative Results</p>
-                      <p className="muted">
-                        Each dot is an individual survey response and each block shows the average score for that
-                        question.
-                      </p>
-                    </div>
-                    <div className="actions">
-                      <button className="secondary small" type="button" onClick={openScreeningQuantitativePreview}>
-                        Preview Format
+                <div className="screening-quant-header">
+                  <div>
+                    <p className="detail-label">Quantitative Results</p>
+                    <p className="muted">
+                      Each dot is an individual survey response and each block shows the average score for that
+                      question.
+                    </p>
+                  </div>
+                  <div className="actions">
+                    <button
+                      className="secondary small"
+                      type="button"
+                      onClick={() => setQuantitativeQuestionEditorOpen((current) => !current)}
+                    >
+                      {quantitativeQuestionEditorOpen ? "Done Editing Questions" : "Admin: Edit Questions"}
+                    </button>
+                    {quantitativeQuestionEditorOpen ? (
+                      <button className="ghost small" type="button" onClick={resetQuantitativeQuestions}>
+                        Reset to Standard Questions
                       </button>
-                      <button
-                        className="secondary small"
-                        type="button"
-                        onClick={() =>
-                          setQuantitativeQuestionEditorOpen((current) => !current)
-                        }
-                      >
-                        {quantitativeQuestionEditorOpen ? "Done Editing Questions" : "Admin: Edit Questions"}
-                      </button>
-                      {quantitativeQuestionEditorOpen ? (
-                        <button className="ghost small" type="button" onClick={resetQuantitativeQuestions}>
-                          Reset to Standard Questions
-                        </button>
-                      ) : null}
-                    </div>
+                    ) : null}
+                  </div>
                   </div>
                   <ScreeningSurveySessionSelector companyId={item.id} />
                   {quantitativeRespondingInstitutions.length > 0 ? (
@@ -6397,40 +6380,7 @@ function stripCurrencyFormatting(value: string) {
                     >
                       Add Qualitative Feedback
                     </a>
-                    <button className="secondary small" type="button" onClick={openScreeningQualitativePreview}>
-                      Preview Format
-                    </button>
                   </div>
-
-                  {showQualitativePreview ? (
-                    <div className="screening-qual-preview">
-                      <p className="detail-label">Report Preview</p>
-                      <p className="muted">
-                        Preview mirrors the final report structure: theme on the left and narrative detail on the
-                        right.
-                      </p>
-                      {allQualitativeFeedbackEntries.length === 0 ? (
-                        <p className="muted">No qualitative feedback captured yet.</p>
-                      ) : (
-                        <div className="screening-qual-preview-list">
-                          {allQualitativeFeedbackEntries.map((feedback) => (
-                            <div key={`preview-${feedback.id}`} className="screening-qual-preview-row">
-                              <div className="screening-qual-preview-theme">{feedback.theme}</div>
-                              <div className="screening-qual-preview-detail">
-                                <p>{feedback.feedback}</p>
-                                <p className="muted">
-                                  {(feedback.category || "Key Theme").trim()} | {feedback.healthSystemName} |{" "}
-                                  {feedback.contactTitle
-                                    ? `${feedback.contactName} (${feedback.contactTitle})`
-                                    : feedback.contactName}
-                                </p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
 
                   {allQualitativeFeedbackEntries.length === 0 ? (
                     <p className="muted">No qualitative feedback captured yet.</p>
