@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { AddRelationshipModal } from "./add-relationship-modal";
 import { EntityLookupInput } from "./entity-lookup-input";
 import { EntityDocumentsPane } from "./entity-documents-pane";
@@ -9,6 +10,7 @@ import { EntityNotesPane } from "./entity-notes-pane";
 type ContactRoleType = "EXECUTIVE" | "VENTURE_PARTNER" | "INVESTOR_PARTNER" | "COMPANY_CONTACT" | "OTHER";
 type AssociationType = "HEALTH_SYSTEM" | "CO_INVESTOR" | "COMPANY";
 type DetailTab = "overview" | "relationships" | "opportunities" | "notes" | "documents";
+type OpportunityStatusFilter = "open" | "closed";
 type EntityKind = "HEALTH_SYSTEM" | "CO_INVESTOR" | "COMPANY";
 type StatusMessage = { kind: "ok" | "error"; text: string };
 
@@ -177,6 +179,20 @@ function humanize(value: string) {
     .join(" ");
 }
 
+function isClosedOpportunityStage(stage: string) {
+  const normalized = normalize(stage);
+  if (!normalized) return false;
+  if (normalized.includes("closed")) return true;
+  return normalized === "won" || normalized === "lost";
+}
+
+function formatOpportunityDate(value: string | null | undefined) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
 function defaultRoleTypeForAssociation(associationType: AssociationType): ContactRoleType {
   if (associationType === "HEALTH_SYSTEM") return "EXECUTIVE";
   if (associationType === "CO_INVESTOR") return "INVESTOR_PARTNER";
@@ -296,6 +312,22 @@ function upsertEntityOption(
 }
 
 export function ContactWorkbench() {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const returnToRecordId = React.useMemo(() => searchParams.get("returnRecordId"), [searchParams]);
+  const returnToActiveTab = React.useMemo(() => {
+    const raw = searchParams.get("returnActiveTab");
+    if (
+      raw === "overview" ||
+      raw === "relationships" ||
+      raw === "opportunities" ||
+      raw === "notes" ||
+      raw === "documents"
+    ) {
+      return raw;
+    }
+    return null;
+  }, [searchParams]);
   const [records, setRecords] = React.useState<ContactRecord[]>([]);
   const [referenceData, setReferenceData] = React.useState<ReferenceData>({
     healthSystems: [],
@@ -349,11 +381,24 @@ export function ContactWorkbench() {
   const [newOpportunityRole, setNewOpportunityRole] = React.useState("");
   const [opportunitySearchTerm, setOpportunitySearchTerm] = React.useState("");
   const [savingOpportunity, setSavingOpportunity] = React.useState(false);
+  const [contactOpportunityStatusFilter, setContactOpportunityStatusFilter] =
+    React.useState<OpportunityStatusFilter>("open");
 
   const [editingOpportunityLinkId, setEditingOpportunityLinkId] = React.useState<string | null>(null);
   const [editingOpportunityRole, setEditingOpportunityRole] = React.useState("");
   const [savingEditedOpportunity, setSavingEditedOpportunity] = React.useState(false);
   const [deletingOpportunityLinkId, setDeletingOpportunityLinkId] = React.useState<string | null>(null);
+  const returnTo = React.useMemo(() => {
+    const queryParams = new URLSearchParams(searchParams);
+    if (selectedRecordId) {
+      queryParams.set("returnRecordId", selectedRecordId);
+    }
+    if (activeDetailTab) {
+      queryParams.set("returnActiveTab", activeDetailTab);
+    }
+    const query = queryParams.toString();
+    return query ? `${pathname}?${query}` : pathname;
+  }, [searchParams, pathname, selectedRecordId, activeDetailTab]);
 
   const selectedRecord = React.useMemo(
     () => records.find((record) => record.id === selectedRecordId) || null,
@@ -372,6 +417,15 @@ export function ContactWorkbench() {
       );
     });
   }, [opportunitySearchTerm, referenceData.opportunities]);
+
+  const filteredOpportunityLinks = React.useMemo(() => {
+    const links = selectedRecord?.opportunityLinks || [];
+    if (contactOpportunityStatusFilter === "open") {
+      return links.filter((link) => !isClosedOpportunityStage(link.opportunity.stage));
+    }
+
+    return links.filter((link) => isClosedOpportunityStage(link.opportunity.stage));
+  }, [contactOpportunityStatusFilter, selectedRecord?.opportunityLinks]);
 
   const hasNoMatchesForLookup =
     !loadingRecords &&
@@ -505,7 +559,31 @@ export function ContactWorkbench() {
     }
 
     setDetailDraft(draftFromRecord(selectedRecord));
-  }, [selectedRecord]);
+    if (returnToActiveTab && selectedRecord.id === returnToRecordId) {
+      setActiveDetailTab(returnToActiveTab);
+    }
+  }, [returnToActiveTab, returnToRecordId, selectedRecord]);
+
+  React.useEffect(() => {
+    if (records.length === 0) {
+      setSelectedRecordId(null);
+      return;
+    }
+
+    if (!selectedRecordId) {
+      if (returnToRecordId && records.some((record) => record.id === returnToRecordId)) {
+        setSelectedRecordId(returnToRecordId);
+        return;
+      }
+
+      setSelectedRecordId(records[0].id);
+      return;
+    }
+
+    if (!records.some((record) => record.id === selectedRecordId)) {
+      setSelectedRecordId(records[0].id);
+    }
+  }, [records, returnToRecordId, selectedRecordId]);
 
   React.useEffect(() => {
     if (activeDetailTab !== "overview") return;
@@ -1803,85 +1881,153 @@ export function ContactWorkbench() {
               ) : null}
 
               {activeDetailTab === "opportunities" ? (
-                <div className="detail-section">
-                  <div className="detail-action-bar">
-                    <button type="button" className="secondary" onClick={() => setOpportunityModalOpen(true)}>
-                      Add Opportunity Link
-                    </button>
+                <div className="detail-section opportunity-section">
+                  <p className="detail-label">Opportunities</p>
+                  <div className="opportunity-filter-bar" role="radiogroup" aria-label="Filter opportunities by status">
+                    <p className="opportunity-filter-label">Status</p>
+                    <div className="opportunity-filter-options">
+                      {(
+                        [
+                          { value: "open", label: "Open" },
+                          { value: "closed", label: "Closed" }
+                        ] as const
+                      ).map((option) => {
+                        const active = contactOpportunityStatusFilter === option.value;
+                        return (
+                          <label
+                            key={option.value}
+                            className={`opportunity-filter-option ${active ? "active" : ""}`}
+                            htmlFor={`contact-opportunities-filter-${selectedRecord.id}-${option.value}`}
+                          >
+                            <span>{option.label}</span>
+                            <input
+                              id={`contact-opportunities-filter-${selectedRecord.id}-${option.value}`}
+                              type="radio"
+                              name={`contact-opportunities-filter-${selectedRecord.id}`}
+                              value={option.value}
+                              checked={active}
+                              onChange={() => setContactOpportunityStatusFilter(option.value)}
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   {selectedRecord.opportunityLinks.length === 0 ? <p className="muted">No opportunity links yet.</p> : null}
+                  {selectedRecord.opportunityLinks.length > 0 && filteredOpportunityLinks.length === 0 ? (
+                    <p className="muted">
+                      {contactOpportunityStatusFilter === "open" ? "No open opportunities." : "No closed opportunities."}
+                    </p>
+                  ) : null}
 
-                  {selectedRecord.opportunityLinks.map((link) => {
-                    const isEditing = editingOpportunityLinkId === link.id;
-                    const isDeleting = deletingOpportunityLinkId === link.id;
+                  {filteredOpportunityLinks.length > 0 ? (
+                    <div className="table-wrap report-table-wrap">
+                      <table className="table table-dense report-table">
+                        <thead>
+                          <tr>
+                            <th>Company</th>
+                            <th>Opportunity</th>
+                            <th>Health System</th>
+                            <th>Type</th>
+                            <th>Stage</th>
+                            <th>Role</th>
+                            <th>Expected Close</th>
+                            <th>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredOpportunityLinks.map((link) => {
+                            const isEditing = editingOpportunityLinkId === link.id;
+                            const isDeleting = deletingOpportunityLinkId === link.id;
 
-                    return (
-                      <div key={link.id} className="detail-list-item">
-                        <div className="contact-row">
-                          <div className="contact-row-details">
-                            <strong>
-                              {link.opportunity.company.name} · {link.opportunity.title}
-                            </strong>
-                            <p className="muted">
-                              {humanize(link.opportunity.type)} · {humanize(link.opportunity.stage)}
-                              {link.opportunity.healthSystem ? ` · ${link.opportunity.healthSystem.name}` : ""}
-                            </p>
-                            <p className="muted">Role: {link.role || "Unspecified"}</p>
-                          </div>
-                          <div className="contact-row-actions">
-                            <button
-                              type="button"
-                              className="ghost small"
-                              onClick={() => {
-                                setEditingOpportunityLinkId(link.id);
-                                setEditingOpportunityRole(link.role || "");
-                              }}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              className="ghost small"
-                              onClick={() => void deleteOpportunityLink(link.id)}
-                              disabled={isDeleting}
-                            >
-                              {isDeleting ? "Removing..." : "Remove"}
-                            </button>
-                          </div>
-                        </div>
-                        {isEditing ? (
-                          <div className="detail-card">
-                            <div className="detail-grid">
-                              <div>
-                                <label>Role</label>
-                                <input
-                                  value={editingOpportunityRole}
-                                  onChange={(event) => setEditingOpportunityRole(event.target.value)}
-                                  placeholder="Role in opportunity"
-                                />
-                              </div>
-                            </div>
-                            <div className="actions">
-                              <button type="button" className="primary" onClick={() => void saveEditedOpportunity()} disabled={savingEditedOpportunity}>
-                                {savingEditedOpportunity ? "Saving..." : "Save Link"}
-                              </button>
-                              <button
-                                type="button"
-                                className="ghost small"
-                                onClick={() => {
-                                  setEditingOpportunityLinkId(null);
-                                  setEditingOpportunityRole("");
-                                }}
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
+                            return (
+                              <React.Fragment key={link.id}>
+                                <tr>
+                                  <td>{link.opportunity.company.name}</td>
+                                  <td>
+                                    <a
+                                      href={`/pipeline/${link.opportunity.company.id}?returnTo=${encodeURIComponent(
+                                        returnTo
+                                      )}&opportunityId=${encodeURIComponent(link.opportunity.id)}`}
+                                      className="report-opportunity-link"
+                                    >
+                                      {link.opportunity.title}
+                                    </a>
+                                  </td>
+                                  <td>{link.opportunity.healthSystem?.name || "-"}</td>
+                                  <td>{humanize(link.opportunity.type)}</td>
+                                  <td>{humanize(link.opportunity.stage)}</td>
+                                  <td>{link.role || "-"}</td>
+                                  <td>{formatOpportunityDate(link.opportunity.estimatedCloseDate)}</td>
+                                  <td>
+                                    <div className="actions" style={{ marginTop: 0 }}>
+                                      <button
+                                        type="button"
+                                        className="ghost small"
+                                        onClick={() => {
+                                          setEditingOpportunityLinkId(link.id);
+                                          setEditingOpportunityRole(link.role || "");
+                                        }}
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="ghost small"
+                                        onClick={() => void deleteOpportunityLink(link.id)}
+                                        disabled={isDeleting}
+                                      >
+                                        {isDeleting ? "Removing..." : "Remove"}
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                                {isEditing ? (
+                                  <tr>
+                                    <td colSpan={8}>
+                                      <div className="detail-card">
+                                        <div className="detail-grid">
+                                          <div>
+                                            <label>Role</label>
+                                            <input
+                                              value={editingOpportunityRole}
+                                              onChange={(event) => setEditingOpportunityRole(event.target.value)}
+                                              placeholder="Role in opportunity"
+                                            />
+                                          </div>
+                                        </div>
+                                        <div className="actions">
+                                          <button
+                                            type="button"
+                                            className="primary"
+                                            onClick={() => void saveEditedOpportunity()}
+                                            disabled={savingEditedOpportunity}
+                                          >
+                                            {savingEditedOpportunity ? "Saving..." : "Save Link"}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="ghost small"
+                                            onClick={() => {
+                                              setEditingOpportunityLinkId(null);
+                                              setEditingOpportunityRole("");
+                                            }}
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ) : null}
+                              </React.Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 

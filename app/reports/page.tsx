@@ -3,6 +3,7 @@
 import * as React from "react";
 import { EntityLookupInput } from "@/components/entity-lookup-input";
 import { getJsonErrorMessage, readJsonResponse } from "@/lib/http-response";
+import { useRouter } from "next/navigation";
 
 type ReportPreset = {
   key: string;
@@ -107,13 +108,6 @@ function formatCurrency(value: number | null | undefined) {
   });
 }
 
-function toDateInputValue(value: string | null | undefined) {
-  if (!value) return "";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
-}
-
 function parseNullableNumber(value: string) {
   const normalized = value.trim().replace(/[$,\s]/g, "");
   if (!normalized) return null;
@@ -156,6 +150,8 @@ function normalizeSavedPreset(raw: unknown): ReportPreset | null {
 }
 
 export default function ReportsPage() {
+  const router = useRouter();
+
   const [presets, setPresets] = React.useState<ReportPreset[]>([]);
   const [rows, setRows] = React.useState<ReportRow[]>([]);
   const [summary, setSummary] = React.useState<ReportResponse["summary"]>({
@@ -528,19 +524,10 @@ export default function ReportsPage() {
   }
 
   function openOpportunityModal(row: ReportRow) {
-    setActiveOpportunityModalDraft({
-      opportunityId: row.id,
-      companyId: row.company.id,
-      type: row.type,
-      stage: row.stage,
-      healthSystemId: row.healthSystem?.id || "",
-      likelihoodPercent: row.likelihoodPercent === null ? "" : String(row.likelihoodPercent),
-      contractPriceUsd: row.contractPriceUsd === null ? "" : String(row.contractPriceUsd),
-      estimatedCloseDate: toDateInputValue(row.estimatedCloseDate),
-      nextSteps: row.nextSteps || "",
-      closeReason: row.closeReason || "",
-      notes: row.notes || ""
-    });
+    const returnTo = `${window.location.pathname}${window.location.search}`;
+    router.push(
+      `/pipeline/${row.company.id}?returnTo=${encodeURIComponent(returnTo)}&opportunityId=${encodeURIComponent(row.id)}`
+    );
   }
 
   async function saveInlineNextStep(row: ReportRow, nextStepOverride?: string) {
