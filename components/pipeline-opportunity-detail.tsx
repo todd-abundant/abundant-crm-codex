@@ -1100,12 +1100,14 @@ export function PipelineOpportunityDetailView({
   itemId,
   inModal = false,
   onCloseModal,
-  initialIntakeDetailTab = "pipeline-status"
+  initialIntakeDetailTab = "pipeline-status",
+  initialOpportunityId = null
 }: {
   itemId: string;
   inModal?: boolean;
   onCloseModal?: () => void;
   initialIntakeDetailTab?: IntakeDetailTab;
+  initialOpportunityId?: string | null;
 }) {
   const [item, setItem] = React.useState<PipelineOpportunityDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -1227,6 +1229,7 @@ export function PipelineOpportunityDetailView({
   const [showAddDocumentModal, setShowAddDocumentModal] = React.useState(false);
   const [opportunityModal, setOpportunityModal] = React.useState<OpportunityModalState | null>(null);
   const [opportunityModalTab, setOpportunityModalTab] = React.useState<OpportunityModalTab>("details");
+  const initialOpportunityIdRef = React.useRef<string | null>(initialOpportunityId);
   const pipelineCardUpdateSequenceRef = React.useRef(0);
   const descriptionPlainText = React.useMemo(() => richTextToPlainText(item?.description), [item?.description]);
   const showOpportunitiesTab = Boolean(
@@ -1359,6 +1362,22 @@ export function PipelineOpportunityDetailView({
   React.useEffect(() => {
     void loadItem();
   }, [loadItem]);
+
+  React.useEffect(() => {
+    initialOpportunityIdRef.current = null;
+  }, [itemId, initialOpportunityId]);
+
+  React.useEffect(() => {
+    if (!initialOpportunityId) return;
+    if (initialOpportunityIdRef.current) return;
+    if (!item) return;
+    const opportunityExists = item.opportunities.some((entry) => entry.id === initialOpportunityId);
+    if (!opportunityExists) return;
+
+    setOpportunityModal({ mode: "edit", opportunityId: initialOpportunityId });
+    setOpportunityModalTab("details");
+    initialOpportunityIdRef.current = initialOpportunityId;
+  }, [initialOpportunityId, item]);
 
   React.useEffect(() => {
     setEditingCompanyDocumentId(null);
@@ -4411,11 +4430,29 @@ function stripCurrencyFormatting(value: string) {
     };
   }, [item?.documents]);
 
+  const showDismissControl = inModal || Boolean(onCloseModal);
+  const closeButton = onCloseModal ? (
+    <button
+      type="button"
+      className="modal-icon-close"
+      onClick={onCloseModal}
+      aria-label="Close pipeline detail"
+    >
+      <span aria-hidden="true">×</span>
+    </button>
+  ) : null;
+
   if (loading) {
     const LoadingWrapper: React.ElementType = inModal ? "div" : "main";
     return (
       <LoadingWrapper className={inModal ? "pipeline-detail-content" : undefined}>
         <section className="panel">
+          {showDismissControl ? (
+            <div className="detail-head">
+              <h3>Loading pipeline detail...</h3>
+              {closeButton}
+            </div>
+          ) : null}
           <p className="muted">Loading pipeline detail...</p>
         </section>
       </LoadingWrapper>
@@ -4427,6 +4464,12 @@ function stripCurrencyFormatting(value: string) {
     return (
       <EmptyWrapper className={inModal ? "pipeline-detail-content" : undefined}>
         <section className="panel">
+          {showDismissControl ? (
+            <div className="detail-head">
+              <h3>Opportunity not found.</h3>
+              {closeButton}
+            </div>
+          ) : null}
           <p className="muted">Pipeline item not found.</p>
           {!inModal ? (
             <div className="actions">
@@ -4807,19 +4850,10 @@ function stripCurrencyFormatting(value: string) {
       onMouseDown={inModal ? (event: React.MouseEvent) => event.stopPropagation() : undefined}
     >
       <section className={inModal ? "panel pipeline-detail-panel" : "panel"}>
-        {inModal ? (
+        {showDismissControl ? (
           <div className="detail-head">
             <h3>{item.name}</h3>
-            {onCloseModal ? (
-              <button
-                type="button"
-                className="modal-icon-close"
-                onClick={onCloseModal}
-                aria-label="Close pipeline detail dialog"
-              >
-                <span aria-hidden="true">×</span>
-              </button>
-            ) : null}
+            {closeButton}
           </div>
         ) : null}
         <div className="detail-tabs" role="tablist" aria-label="Pipeline intake detail sections">

@@ -6,6 +6,7 @@ import {
   InlineTextField,
   InlineTextareaField
 } from "./inline-detail-field";
+import { usePathname, useSearchParams } from "next/navigation";
 import { SearchMatchModal } from "./search-match-modal";
 import { CompanyPipelineManager } from "./company-pipeline-manager";
 import { EntityLookupInput } from "./entity-lookup-input";
@@ -539,6 +540,25 @@ function draftFromRecord(record: CompanyRecord): DetailDraft {
 }
 
 export function CompanyWorkbench() {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const returnToRecordId = React.useMemo(() => searchParams.get("returnRecordId"), [searchParams]);
+  const returnToActiveTab = React.useMemo(() => {
+    const raw = searchParams.get("returnActiveTab");
+    if (!raw) return null;
+    if (
+      raw === "overview" ||
+      raw === "documents" ||
+      raw === "pipeline" ||
+      raw === "notes" ||
+      raw === "contacts" ||
+      raw === "relationships" ||
+      raw === "opportunities"
+    ) {
+      return raw;
+    }
+    return null;
+  }, [searchParams]);
   const [query, setQuery] = React.useState("");
   const [records, setRecords] = React.useState<CompanyRecord[]>([]);
   const [healthSystems, setHealthSystems] = React.useState<HealthSystemOption[]>([]);
@@ -641,6 +661,17 @@ export function CompanyWorkbench() {
   const [opportunitiesLoading, setOpportunitiesLoading] = React.useState(false);
   const [opportunitiesError, setOpportunitiesError] = React.useState<string | null>(null);
   const [opportunityStatusFilter, setOpportunityStatusFilter] = React.useState<OpportunityStatusFilter>("open");
+  const returnTo = React.useMemo(() => {
+    const queryParams = new URLSearchParams(searchParams);
+    if (selectedRecordId) {
+      queryParams.set("returnRecordId", selectedRecordId);
+    }
+    if (activeDetailTab) {
+      queryParams.set("returnActiveTab", activeDetailTab);
+    }
+    const query = queryParams.toString();
+    return query ? `${pathname}?${query}` : pathname;
+  }, [pathname, searchParams, selectedRecordId, activeDetailTab]);
 
   const hasPending = React.useMemo(
     () => records.some((record) => record.researchStatus === "QUEUED" || record.researchStatus === "RUNNING"),
@@ -1695,10 +1726,20 @@ export function CompanyWorkbench() {
     }
 
     if (keepListView) return;
-    if (!selectedRecordId || !filteredRecords.some((record) => record.id === selectedRecordId)) {
+    if (!selectedRecordId) {
+      if (returnToRecordId && filteredRecords.some((record) => record.id === returnToRecordId)) {
+        setSelectedRecordId(returnToRecordId);
+        return;
+      }
+
+      setSelectedRecordId(filteredRecords[0].id);
+      return;
+    }
+
+    if (!filteredRecords.some((record) => record.id === selectedRecordId)) {
       setSelectedRecordId(filteredRecords[0].id);
     }
-  }, [filteredRecords, selectedRecordId, keepListView]);
+  }, [filteredRecords, selectedRecordId, keepListView, returnToRecordId]);
 
   React.useEffect(() => {
     if (!selectedRecord) {
@@ -1721,7 +1762,7 @@ export function CompanyWorkbench() {
       setDetailDraft(draftFromRecord(selectedRecord));
       setDraftRecordId(selectedRecord.id);
       setEditingLeadSourceHealthSystem(false);
-      setActiveDetailTab("overview");
+      setActiveDetailTab(returnToActiveTab && selectedRecord.id === returnToRecordId ? returnToActiveTab : "overview");
       setAddContactModalOpen(false);
       resetEditingHealthSystemLinkForm();
       resetEditingCoInvestorLinkForm();
@@ -1732,7 +1773,7 @@ export function CompanyWorkbench() {
       setOpportunitiesError(null);
       setOpportunityStatusFilter("open");
     }
-  }, [selectedRecord, draftRecordId]);
+  }, [returnToActiveTab, returnToRecordId, selectedRecord, draftRecordId]);
 
   React.useEffect(() => {
     if (!selectedRecord) {
@@ -2456,7 +2497,12 @@ export function CompanyWorkbench() {
                               <tr key={opportunity.id}>
                                 <td>{opportunity.company.name}</td>
                                 <td>
-                                  <a href={`/pipeline/${opportunity.id}`} className="report-opportunity-link">
+                                  <a
+                                    href={`/pipeline/${opportunity.company.id}?returnTo=${encodeURIComponent(
+                                      returnTo
+                                    )}&opportunityId=${encodeURIComponent(opportunity.id)}`}
+                                    className="report-opportunity-link"
+                                  >
                                     {opportunity.title}
                                   </a>
                                 </td>
