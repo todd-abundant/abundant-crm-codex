@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import {
-  inferDefaultDecisionFromCompany,
   mapPhaseToBoardColumn,
   phaseLabel,
   type PipelinePhase
@@ -21,6 +20,12 @@ const phaseUpdateSchema = z.object({
   ])
 });
 
+function intakeDecisionForPhase(phase: PipelinePhase) {
+  if (phase === "INTAKE") return "PENDING" as const;
+  if (phase === "DECLINED") return "DECLINE" as const;
+  return "ADVANCE_TO_NEGOTIATION" as const;
+}
+
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> }
@@ -34,9 +39,12 @@ export async function PATCH(
       where: { id },
       select: {
         id: true,
-        intakeStatus: true,
-        declineReason: true,
-        pipeline: { select: { phase: true } }
+        pipeline: {
+          select: {
+            phase: true,
+            intakeDecisionAt: true
+          }
+        }
       }
     });
 
@@ -44,17 +52,24 @@ export async function PATCH(
       return NextResponse.json({ error: "Pipeline item not found" }, { status: 404 });
     }
 
+    const nextIntakeDecision = intakeDecisionForPhase(input.phase);
+    const nextIntakeDecisionAt =
+      nextIntakeDecision === "PENDING" ? null : (company.pipeline?.intakeDecisionAt ?? new Date());
+
     const pipeline = await prisma.companyPipeline.upsert({
       where: { companyId: id },
       create: {
         companyId: id,
         phase: input.phase,
         stageChangedAt: new Date(),
-        intakeDecision: inferDefaultDecisionFromCompany(company)
+        intakeDecision: nextIntakeDecision,
+        intakeDecisionAt: nextIntakeDecisionAt
       },
       update: {
         phase: input.phase,
-        stageChangedAt: company.pipeline?.phase === input.phase ? undefined : new Date()
+        stageChangedAt: company.pipeline?.phase === input.phase ? undefined : new Date(),
+        intakeDecision: nextIntakeDecision,
+        intakeDecisionAt: nextIntakeDecisionAt
       }
     });
 

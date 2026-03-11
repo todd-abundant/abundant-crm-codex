@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { type CompanyOpportunityStage, type CompanyOpportunityType, type Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { parseDateInput } from "@/lib/date-parse";
+import { inferDefaultPhaseFromCompany } from "@/lib/pipeline-opportunities";
 
 const CLOSED_STAGES: CompanyOpportunityStage[] = ["CLOSED_WON", "CLOSED_LOST"];
 const VALID_TYPES: CompanyOpportunityType[] = [
@@ -23,6 +24,8 @@ const VALID_STAGES: CompanyOpportunityStage[] = [
 ];
 
 type PresetKey =
+  | "open_intake"
+  | "closed_intake"
   | "open_screening"
   | "closed_screening"
   | "open_commercial_acceleration"
@@ -38,7 +41,55 @@ type PresetConfig = {
   };
 };
 
+type ReportRow = {
+  id: string;
+  sourceKind: "OPPORTUNITY" | "INTAKE_COMPANY";
+  opportunityId: string | null;
+  title: string;
+  type: string;
+  stage: CompanyOpportunityStage;
+  company: {
+    id: string;
+    name: string;
+  };
+  declineReason: string | null;
+  declineReasonOther: string | null;
+  healthSystem: {
+    id: string;
+    name: string;
+  } | null;
+  likelihoodPercent: number | null;
+  contractPriceUsd: number | null;
+  durationDays: number;
+  nextSteps: string | null;
+  notes: string | null;
+  closeReason: string | null;
+  estimatedCloseDate: Date | null;
+  closedAt: Date | null;
+  contactCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 const presetConfigs: PresetConfig[] = [
+  {
+    key: "open_intake",
+    name: "Open Intake Opportunities",
+    description: "Intake-phase opportunities that are not closed.",
+    defaults: {
+      status: "open",
+      types: ["PROSPECT_PURSUIT"]
+    }
+  },
+  {
+    key: "closed_intake",
+    name: "Closed Intake Opportunities",
+    description: "Intake-phase opportunities that were won or lost.",
+    defaults: {
+      status: "closed",
+      types: ["PROSPECT_PURSUIT"]
+    }
+  },
   {
     key: "open_screening",
     name: "Open Screening Opportunities",
@@ -124,6 +175,12 @@ function toNumber(value: { toString(): string } | null) {
   return value ? Number(value.toString()) : null;
 }
 
+function mapIntakePhaseToReportStage(phase: string): CompanyOpportunityStage {
+  if (phase === "DECLINED") return "CLOSED_LOST";
+  if (phase === "INTAKE") return "QUALIFICATION";
+  return "CLOSED_WON";
+}
+
 export async function GET(request: Request) {
   try {
     const params = new URL(request.url).searchParams;
@@ -145,6 +202,7 @@ export async function GET(request: Request) {
     const selectedStages = parseStages(splitCsv(params.get("stages")));
     const createdFrom = toNullableDate(params.get("createdFrom"), false);
     const createdTo = toNullableDate(params.get("createdTo"), true);
+    const isIntakePreset = preset?.key === "open_intake" || preset?.key === "closed_intake";
 
     const where: Prisma.CompanyOpportunityWhereInput = {};
 
@@ -190,7 +248,9 @@ export async function GET(request: Request) {
       company: {
         select: {
           id: true,
-          name: true
+          name: true,
+          declineReason: true,
+          declineReasonOther: true
         }
       },
       healthSystem: {
@@ -212,8 +272,16 @@ export async function GET(request: Request) {
       orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }]
     });
 
-    const rows = opportunities.map((entry) => ({
+    const companiesWithProspectOpportunity = new Set(
+      opportunities
+        .filter((entry) => entry.type === "PROSPECT_PURSUIT")
+        .map((entry) => entry.companyId)
+    );
+
+    const rows: ReportRow[] = opportunities.map((entry) => ({
       id: entry.id,
+      sourceKind: "OPPORTUNITY" as const,
+      opportunityId: entry.id,
       title: entry.title,
       type: entry.type,
       stage: entry.stage,
@@ -221,6 +289,8 @@ export async function GET(request: Request) {
         id: entry.company.id,
         name: entry.company.name
       },
+      declineReason: entry.company.declineReason,
+      declineReasonOther: entry.company.declineReasonOther,
       healthSystem: entry.healthSystem
         ? {
             id: entry.healthSystem.id,
@@ -240,10 +310,110 @@ export async function GET(request: Request) {
       updatedAt: entry.updatedAt
     }));
 
+    const includeIntakeCompanyRows =
+      selectedTypes.includes("PROSPECT_PURSUIT") || (isIntakePreset && selectedTypes.length === 0);
+
+    if (includeIntakeCompanyRows) {
+      const companyWhere: Prisma.CompanyWhereInput = {};
+      if (companyIds.length > 0) {
+        companyWhere.id = { in: companyIds };
+      }
+      if (healthSystemIds.length > 0) {
+        companyWhere.leadSourceHealthSystemId = { in: healthSystemIds };
+      }
+      if (createdFrom || createdTo) {
+        companyWhere.createdAt = {};
+        if (createdFrom) companyWhere.createdAt.gte = createdFrom;
+        if (createdTo) companyWhere.createdAt.lte = createdTo;
+      }
+
+      const intakeCompanies = await prisma.company.findMany({
+        where: companyWhere,
+        include: {
+          leadSourceHealthSystem: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          pipeline: {
+            select: {
+              phase: true,
+              intakeDecisionAt: true,
+              intakeDecisionNotes: true,
+              updatedAt: true
+            }
+          },
+          _count: {
+            select: {
+              contactLinks: true
+            }
+          }
+        },
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }]
+      });
+
+      const intakeRows = intakeCompanies
+        .map((company) => {
+          if (companiesWithProspectOpportunity.has(company.id)) return null;
+
+          const phase =
+            company.pipeline?.phase ||
+            inferDefaultPhaseFromCompany({
+              intakeStatus: company.intakeStatus,
+              declineReason: company.declineReason
+            });
+          const isClosed = phase !== "INTAKE";
+
+          if (selectedStatus === "open" && isClosed) return null;
+          if (selectedStatus === "closed" && !isClosed) return null;
+
+          const stage = mapIntakePhaseToReportStage(phase);
+          if (selectedStages.length > 0 && !selectedStages.includes(stage)) return null;
+
+          const closedAt = isClosed ? (company.pipeline?.intakeDecisionAt ?? company.updatedAt) : null;
+
+          return {
+            id: `intake_company_${company.id}`,
+            sourceKind: "INTAKE_COMPANY" as const,
+            opportunityId: null,
+            title: "Intake Opportunity",
+            type: "PROSPECT_PURSUIT",
+            stage,
+            company: {
+              id: company.id,
+              name: company.name
+            },
+            declineReason: company.declineReason,
+            declineReasonOther: company.declineReasonOther,
+            healthSystem: company.leadSourceHealthSystem
+              ? {
+                  id: company.leadSourceHealthSystem.id,
+                  name: company.leadSourceHealthSystem.name
+                }
+              : null,
+            likelihoodPercent: null,
+            contractPriceUsd: null,
+            durationDays: computeDurationDays(company.createdAt, closedAt),
+            nextSteps: company.pipeline?.intakeDecisionNotes || null,
+            notes: company.researchNotes,
+            closeReason: null,
+            estimatedCloseDate: company.intakeScheduledAt,
+            closedAt,
+            contactCount: company._count.contactLinks,
+            createdAt: company.createdAt,
+            updatedAt: company.pipeline?.updatedAt ?? company.updatedAt
+          };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+      rows.push(...intakeRows);
+    }
+
     const summary = {
       total: rows.length,
-      openCount: rows.filter((entry) => !CLOSED_STAGES.includes(entry.stage as CompanyOpportunityStage)).length,
-      closedCount: rows.filter((entry) => CLOSED_STAGES.includes(entry.stage as CompanyOpportunityStage)).length,
+      openCount: rows.filter((entry) => !CLOSED_STAGES.includes(entry.stage)).length,
+      closedCount: rows.filter((entry) => CLOSED_STAGES.includes(entry.stage)).length,
       wonCount: rows.filter((entry) => entry.stage === "CLOSED_WON").length,
       lostCount: rows.filter((entry) => entry.stage === "CLOSED_LOST").length
     };

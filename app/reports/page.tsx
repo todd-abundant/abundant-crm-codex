@@ -18,11 +18,28 @@ type ReportPreset = {
 
 type ReportRow = {
   id: string;
+  sourceKind: "OPPORTUNITY" | "INTAKE_COMPANY";
+  opportunityId: string | null;
   title: string;
   type: string;
   stage: string;
   company: { id: string; name: string };
   healthSystem: { id: string; name: string } | null;
+  declineReason:
+    | "PRODUCT"
+    | "INSUFFICIENT_ROI"
+    | "HIGHLY_COMPETITIVE_LANDSCAPE"
+    | "OUT_OF_INVESTMENT_THESIS_SCOPE"
+    | "TOO_EARLY"
+    | "TOO_MATURE_FOR_SEED_INVESTMENT"
+    | "LACKS_PROOF_POINTS"
+    | "INSUFFICIENT_TAM"
+    | "TEAM"
+    | "HEALTH_SYSTEM_BUYING_PROCESS"
+    | "WORKFLOW_FRICTION"
+    | "OTHER"
+    | null;
+  declineReasonOther: string | null;
   likelihoodPercent: number | null;
   contractPriceUsd: number | null;
   durationDays: number | null;
@@ -68,6 +85,62 @@ type FilterOption = {
 };
 
 const CUSTOM_REPORT_PRESETS_STORAGE_KEY = "abundant-opportunity-report-presets";
+const STANDARD_REPORT_PRESETS: ReportPreset[] = [
+  {
+    key: "open_intake",
+    name: "Open Intake Opportunities",
+    description: "Intake-phase opportunities that are not closed.",
+    defaults: {
+      status: "open",
+      types: ["PROSPECT_PURSUIT"]
+    }
+  },
+  {
+    key: "closed_intake",
+    name: "Closed Intake Opportunities",
+    description: "Intake-phase opportunities that were won or lost.",
+    defaults: {
+      status: "closed",
+      types: ["PROSPECT_PURSUIT"]
+    }
+  },
+  {
+    key: "open_screening",
+    name: "Open Screening Opportunities",
+    description: "Screening-phase LOI opportunities that are not closed.",
+    defaults: {
+      status: "open",
+      types: ["SCREENING_LOI"]
+    }
+  },
+  {
+    key: "closed_screening",
+    name: "Closed Screening Opportunities",
+    description: "Screening-phase LOI opportunities that were won or lost.",
+    defaults: {
+      status: "closed",
+      types: ["SCREENING_LOI"]
+    }
+  },
+  {
+    key: "open_commercial_acceleration",
+    name: "Open Commercial Acceleration Opportunities",
+    description: "Commercial contract opportunities that are not closed.",
+    defaults: {
+      status: "open",
+      types: ["COMMERCIAL_CONTRACT"]
+    }
+  },
+  {
+    key: "closed_commercial_acceleration",
+    name: "Closed Commercial Acceleration Opportunities",
+    description: "Commercial contract opportunities that were won or lost.",
+    defaults: {
+      status: "closed",
+      types: ["COMMERCIAL_CONTRACT"]
+    }
+  }
+];
 
 const opportunityTypeOptions: Array<{ value: string; label: string }> = [
   { value: "SCREENING_LOI", label: "Screening LOI" },
@@ -87,6 +160,21 @@ const opportunityStageOptions: Array<{ value: string; label: string }> = [
   { value: "CLOSED_LOST", label: "Closed Lost" },
   { value: "ON_HOLD", label: "On Hold" }
 ];
+
+const declineReasonLabels: Record<Exclude<ReportRow["declineReason"], null>, string> = {
+  PRODUCT: "Product",
+  INSUFFICIENT_ROI: "Insufficient ROI",
+  HIGHLY_COMPETITIVE_LANDSCAPE: "Highly Competitive Landscape",
+  OUT_OF_INVESTMENT_THESIS_SCOPE: "Out of Investment Thesis Scope",
+  TOO_EARLY: "Too Early",
+  TOO_MATURE_FOR_SEED_INVESTMENT: "Too Mature for Seed Investment",
+  LACKS_PROOF_POINTS: "Lacks Proof Points",
+  INSUFFICIENT_TAM: "Insufficient TAM",
+  TEAM: "Team",
+  HEALTH_SYSTEM_BUYING_PROCESS: "Health System Buying Process",
+  WORKFLOW_FRICTION: "Workflow Friction",
+  OTHER: "Other"
+};
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "-";
@@ -115,8 +203,35 @@ function parseNullableNumber(value: string) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function formatDeclinedReason(row: ReportRow) {
+  const opportunityReason = row.closeReason?.trim();
+  if (opportunityReason) return opportunityReason;
+
+  if (row.declineReason === "OTHER") {
+    const otherReason = row.declineReasonOther?.trim();
+    return otherReason || "Other";
+  }
+
+  if (row.declineReason) {
+    return declineReasonLabels[row.declineReason] || row.declineReason;
+  }
+
+  return "-";
+}
+
 function makeCustomReportKey() {
   return `custom_report_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function mergeWithStandardReportPresets(presets: ReportPreset[]) {
+  const byKey = new Map<string, ReportPreset>();
+  for (const preset of STANDARD_REPORT_PRESETS) {
+    byKey.set(preset.key, preset);
+  }
+  for (const preset of presets) {
+    byKey.set(preset.key, preset);
+  }
+  return Array.from(byKey.values());
 }
 
 function normalizeSavedPreset(raw: unknown): ReportPreset | null {
@@ -152,7 +267,7 @@ function normalizeSavedPreset(raw: unknown): ReportPreset | null {
 export default function ReportsPage() {
   const router = useRouter();
 
-  const [presets, setPresets] = React.useState<ReportPreset[]>([]);
+  const [presets, setPresets] = React.useState<ReportPreset[]>(STANDARD_REPORT_PRESETS);
   const [rows, setRows] = React.useState<ReportRow[]>([]);
   const [summary, setSummary] = React.useState<ReportResponse["summary"]>({
     total: 0,
@@ -401,6 +516,7 @@ export default function ReportsPage() {
     setLoading(true);
 
     const query = new URLSearchParams();
+    if (selectedPreset) query.set("preset", selectedPreset);
     query.set("status", statusFilter);
     if (typeFilter) query.set("types", typeFilter);
     if (stageFilter) query.set("stages", stageFilter);
@@ -417,7 +533,11 @@ export default function ReportsPage() {
           throw new Error(getJsonErrorMessage(payload, "Failed to load report."));
         }
         if (!active) return;
-        setPresets(Array.isArray(payload.presets) ? (payload.presets as ReportPreset[]) : []);
+        setPresets(
+          mergeWithStandardReportPresets(
+            Array.isArray(payload.presets) ? (payload.presets as ReportPreset[]) : []
+          )
+        );
         setRows(Array.isArray(payload.rows) ? (payload.rows as ReportRow[]) : []);
         setSummary(
           (payload.summary as ReportResponse["summary"] | undefined) || {
@@ -525,12 +645,23 @@ export default function ReportsPage() {
 
   function openOpportunityModal(row: ReportRow) {
     const returnTo = `${window.location.pathname}${window.location.search}`;
-    router.push(
-      `/pipeline/${row.company.id}?returnTo=${encodeURIComponent(returnTo)}&opportunityId=${encodeURIComponent(row.id)}`
-    );
+    if (row.sourceKind === "OPPORTUNITY" && row.opportunityId) {
+      router.push(
+        `/pipeline/${row.company.id}?returnTo=${encodeURIComponent(returnTo)}&opportunityId=${encodeURIComponent(row.opportunityId)}`
+      );
+      return;
+    }
+    router.push(`/pipeline/${row.company.id}?returnTo=${encodeURIComponent(returnTo)}`);
+  }
+
+  function openCompanyIntakeModal(row: ReportRow) {
+    const returnTo = `${window.location.pathname}${window.location.search}`;
+    router.push(`/pipeline/${row.company.id}?returnTo=${encodeURIComponent(returnTo)}`);
   }
 
   async function saveInlineNextStep(row: ReportRow, nextStepOverride?: string) {
+    if (row.sourceKind !== "OPPORTUNITY") return;
+
     const nextValue = (nextStepOverride ?? inlineNextStepsById[row.id] ?? "").trim();
     const currentValue = (row.nextSteps || "").trim();
     setSavingNextStepId(row.id);
@@ -545,7 +676,7 @@ export default function ReportsPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          opportunityId: row.id,
+          opportunityId: row.opportunityId,
           nextSteps: nextValue || null
         })
       });
@@ -634,6 +765,8 @@ export default function ReportsPage() {
       setSavingOpportunityModal(false);
     }
   }
+
+  const showDeclinedReasonColumn = statusFilter === "closed";
 
   return (
     <main>
@@ -741,27 +874,42 @@ export default function ReportsPage() {
                     <th>Likelihood</th>
                     <th>Contract Price</th>
                     <th>Expected Close</th>
+                    {showDeclinedReasonColumn ? <th>Declined Reason</th> : null}
                     <th>Contacts</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((row) => (
                     <tr key={row.id}>
-                      <td>{row.company.name}</td>
                       <td>
                         <button
                           type="button"
                           className="report-opportunity-link"
-                          onClick={() => openOpportunityModal(row)}
+                          onClick={() => openCompanyIntakeModal(row)}
                         >
-                          {row.title}
+                          {row.company.name}
                         </button>
+                      </td>
+                      <td>
+                        {row.sourceKind === "OPPORTUNITY" ? (
+                          <button
+                            type="button"
+                            className="report-opportunity-link"
+                            onClick={() => openOpportunityModal(row)}
+                          >
+                            {row.title}
+                          </button>
+                        ) : (
+                          row.title
+                        )}
                       </td>
                       <td>{row.healthSystem?.name || "-"}</td>
                       <td>{row.stage}</td>
                       <td>
                         <div className="report-next-step-cell">
-                          {editingNextStepId === row.id ? (
+                          {row.sourceKind !== "OPPORTUNITY" ? (
+                            <span>{row.nextSteps?.trim() || "-"}</span>
+                          ) : editingNextStepId === row.id ? (
                             <input
                               className="report-next-step-input"
                               autoFocus
@@ -800,12 +948,15 @@ export default function ReportsPage() {
                               {inlineNextStepsById[row.id]?.trim() || "Add next step"}
                             </button>
                           )}
-                          {savingNextStepId === row.id ? <span className="muted">Saving…</span> : null}
+                          {row.sourceKind === "OPPORTUNITY" && savingNextStepId === row.id ? (
+                            <span className="muted">Saving…</span>
+                          ) : null}
                         </div>
                       </td>
                       <td>{row.likelihoodPercent === null ? "-" : `${row.likelihoodPercent}%`}</td>
                       <td>{formatCurrency(row.contractPriceUsd)}</td>
                       <td>{formatDate(row.estimatedCloseDate)}</td>
+                      {showDeclinedReasonColumn ? <td>{formatDeclinedReason(row)}</td> : null}
                       <td>{row.contactCount}</td>
                     </tr>
                   ))}
