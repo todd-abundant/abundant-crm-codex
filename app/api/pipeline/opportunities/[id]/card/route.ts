@@ -17,7 +17,28 @@ import {
   type PipelinePhase
 } from "@/lib/pipeline-opportunities";
 
+const pipelinePhaseSchema = z.enum([
+  "INTAKE",
+  "DECLINED",
+  "VENTURE_STUDIO_NEGOTIATION",
+  "SCREENING",
+  "LOI_COLLECTION",
+  "COMMERCIAL_NEGOTIATION",
+  "PORTFOLIO_GROWTH",
+  "CLOSED"
+]);
+
+const closedOutcomeSchema = z.enum(["INVESTED", "PASSED", "LOST", "WITHDREW", "OTHER"]);
+
+function normalizePipelinePhase(phase: PipelinePhase | undefined) {
+  if (!phase) return phase;
+  return phase === "CLOSED" ? "DECLINED" : phase;
+}
+
 const cardUpdateSchema = z.object({
+  phase: pipelinePhaseSchema.optional(),
+  closedOutcome: closedOutcomeSchema.optional().nullable(),
+  declineReasonNotes: z.string().optional().nullable(),
   nextStep: z.string().optional().nullable(),
   intakeDecisionAt: z.string().optional().nullable(),
   ventureStudioContractExecutedAt: z.string().optional().nullable(),
@@ -51,6 +72,12 @@ function toNullableDate(value?: string | null) {
 function toNullableString(value?: string | null) {
   const trimmed = (value || "").trim();
   return trimmed ? trimmed : null;
+}
+
+function intakeDecisionForPhase(phase: PipelinePhase) {
+  if (phase === "INTAKE") return "PENDING" as const;
+  if (phase === "DECLINED") return "DECLINE" as const;
+  return "ADVANCE_TO_NEGOTIATION" as const;
 }
 
 function hasDateField(input: unknown, field: string) {
@@ -257,7 +284,12 @@ export async function PATCH(
       ventureExpectedCloseDate: hasDateField(body, "ventureExpectedCloseDate")
     };
     const updatePayload: {
+      phase?: PipelinePhase;
+      stageChangedAt?: Date;
+      closedOutcome?: "INVESTED" | "PASSED" | "LOST" | "WITHDREW" | "OTHER" | null;
+      declineReasonNotes?: string | null;
       nextStep?: string | null;
+      intakeDecision?: "PENDING" | "ADVANCE_TO_NEGOTIATION" | "DECLINE";
       intakeDecisionAt?: Date | null;
       ventureStudioContractExecutedAt?: Date | null;
       screeningWebinarDate1At?: Date | null;
@@ -276,6 +308,12 @@ export async function PATCH(
     } = {};
     if (Object.prototype.hasOwnProperty.call(body, "nextStep")) {
       updatePayload.nextStep = toNullableString(input.nextStep);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "closedOutcome")) {
+      updatePayload.closedOutcome = input.closedOutcome ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "declineReasonNotes")) {
+      updatePayload.declineReasonNotes = toNullableString(input.declineReasonNotes);
     }
     if (Object.prototype.hasOwnProperty.call(body, "intakeDecisionAt")) {
       updatePayload.intakeDecisionAt = toNullableDate(input.intakeDecisionAt);
@@ -402,6 +440,27 @@ export async function PATCH(
 
     if (!company) {
       return NextResponse.json({ error: "Pipeline item not found" }, { status: 404 });
+    }
+
+    const requestedPhase = Object.prototype.hasOwnProperty.call(body, "phase")
+      ? normalizePipelinePhase(input.phase)
+      : undefined;
+    if (requestedPhase) {
+      const currentPhase = (company.pipeline?.phase || inferDefaultPhaseFromCompany(company)) as PipelinePhase;
+      const nextIntakeDecision = intakeDecisionForPhase(requestedPhase);
+      updatePayload.phase = requestedPhase;
+      if (requestedPhase !== currentPhase) {
+        updatePayload.stageChangedAt = new Date();
+      }
+      updatePayload.intakeDecision = nextIntakeDecision;
+      if (nextIntakeDecision === "PENDING") {
+        updatePayload.intakeDecisionAt = null;
+      } else if (!Object.prototype.hasOwnProperty.call(body, "intakeDecisionAt")) {
+        updatePayload.intakeDecisionAt = company.pipeline?.intakeDecisionAt ?? new Date();
+      }
+      if (requestedPhase !== "DECLINED" && !Object.prototype.hasOwnProperty.call(body, "closedOutcome")) {
+        updatePayload.closedOutcome = null;
+      }
     }
 
     if (shouldDebug) {
@@ -590,6 +649,8 @@ export async function PATCH(
         phase,
         phaseLabel: phaseLabel(phase),
         column: mapPhaseToBoardColumn(phase),
+        closedOutcome: pipeline.closedOutcome,
+        declineReasonNotes: pipeline.declineReasonNotes,
         updatedAt: pipeline.updatedAt.toISOString()
       },
       _dateDebug: debugContext

@@ -363,22 +363,20 @@ export async function PATCH(
       if (Object.prototype.hasOwnProperty.call(input, "estimatedCloseDate")) {
         updateData.estimatedCloseDate = toNullableDate(input.estimatedCloseDate);
       }
-      if (Object.prototype.hasOwnProperty.call(input, "closedAt")) {
-        updateData.closedAt = toNullableDate(input.closedAt);
+      const hasClosedAtInput = Object.prototype.hasOwnProperty.call(input, "closedAt");
+      const requestedClosedAt = hasClosedAtInput ? toNullableDate(input.closedAt) : undefined;
+      if (hasClosedAtInput) {
+        updateData.closedAt = requestedClosedAt;
       }
 
-      if (input.stage !== undefined) {
-        if (isClosedStage(nextStage)) {
-          updateData.closedAt =
-            Object.prototype.hasOwnProperty.call(input, "closedAt")
-              ? toNullableDate(input.closedAt)
-              : existing.closedAt;
-          if (!updateData.closedAt) {
-            updateData.closedAt = new Date();
-          }
-        } else if (!Object.prototype.hasOwnProperty.call(input, "closedAt")) {
-          updateData.closedAt = null;
+      if (isClosedStage(nextStage)) {
+        if (hasClosedAtInput) {
+          updateData.closedAt = requestedClosedAt || existing.closedAt || new Date();
+        } else if (!existing.closedAt) {
+          updateData.closedAt = new Date();
         }
+      } else if (input.stage !== undefined && !hasClosedAtInput) {
+        updateData.closedAt = null;
       }
 
       return tx.companyOpportunity.update({

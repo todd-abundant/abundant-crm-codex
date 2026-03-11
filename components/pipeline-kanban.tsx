@@ -1310,8 +1310,8 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                                   }
                                 }}
                               >
-                                <strong>{item.openOpportunityCount}</strong> open opportunity
-                                {item.openOpportunityCount === 1 ? "" : "ies"}
+                                  <strong>{item.openOpportunityCount}</strong> open{" "}
+                                  {item.openOpportunityCount === 1 ? "opportunity" : "opportunities"}
                               </span>
                               <span className="pipeline-open-opportunities-popover" role="tooltip">
                                 {openOpportunities.length === 0 ? (

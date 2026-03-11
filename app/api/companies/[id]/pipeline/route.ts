@@ -6,6 +6,7 @@ import { normalizeCompanyDocumentUrl } from "@/lib/company-document-links";
 import { parseDateInput } from "@/lib/date-parse";
 import { getDateDebugContextFromRequest, shouldLogDateRequest } from "@/lib/date-debug";
 import { generateOpportunityTitle } from "@/lib/opportunity-title";
+import { type PipelinePhase } from "@/lib/pipeline-opportunities";
 
 const pipelinePhaseSchema = z.enum([
   "INTAKE",
@@ -21,6 +22,10 @@ const pipelinePhaseSchema = z.enum([
 const pipelineCategorySchema = z.enum(["ACTIVE", "CLOSED", "RE_ENGAGE_LATER"]);
 const pipelineIntakeStageSchema = z.enum(["RECEIVED", "INTRO_CALLS", "ACTIVE_INTAKE", "MANAGEMENT_PRESENTATION"]);
 const closedOutcomeSchema = z.enum(["INVESTED", "PASSED", "LOST", "WITHDREW", "OTHER"]);
+
+function normalizePipelinePhase(phase: PipelinePhase) {
+  return phase === "CLOSED" ? "DECLINED" : phase;
+}
 
 const intakeDecisionSchema = z.enum(["PENDING", "ADVANCE_TO_NEGOTIATION", "DECLINE"]);
 
@@ -393,6 +398,7 @@ export async function PATCH(
     const { id } = await context.params;
     const body = await request.json();
     const input = pipelineUpdateSchema.parse(body);
+    const normalizedPhase = normalizePipelinePhase(input.phase);
     const shouldDebug = shouldLogDateRequest(request);
     const debugContext = getDateDebugContextFromRequest(request);
     const dateFieldPresence = {
@@ -418,10 +424,11 @@ export async function PATCH(
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
 
-    const stageChangedAt = company.pipeline?.phase === input.phase ? company.pipeline.stageChangedAt : new Date();
+    const stageChangedAt =
+      company.pipeline?.phase === normalizedPhase ? company.pipeline.stageChangedAt : new Date();
 
     const pipelineCreatePayload = {
-      phase: input.phase,
+      phase: normalizedPhase,
       stageChangedAt,
       category: input.category,
       intakeStage: input.intakeStage,
@@ -446,7 +453,7 @@ export async function PATCH(
     };
 
     const pipelineUpdatePayload = {
-      phase: input.phase,
+      phase: normalizedPhase,
       stageChangedAt,
       category: input.category,
       intakeStage: input.intakeStage,

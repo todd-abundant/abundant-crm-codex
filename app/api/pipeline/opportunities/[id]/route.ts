@@ -607,6 +607,8 @@ export async function GET(
         phaseLabel: phaseLabel(phase),
         column,
         isScreeningStage: isScreeningPhase(phase),
+        closedOutcome: company.pipeline?.closedOutcome ?? null,
+        declineReasonNotes: company.pipeline?.declineReasonNotes ?? null,
         intakeDecisionAt: company.pipeline?.intakeDecisionAt ?? company.intakeScheduledAt ?? null,
         ventureStudioContractExecutedAt: company.pipeline?.ventureStudioContractExecutedAt ?? null,
         screeningWebinarDate1At: company.pipeline?.screeningWebinarDate1At ?? null,

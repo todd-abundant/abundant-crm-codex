@@ -37,6 +37,7 @@ type TextAreaFieldProps = {
   label: React.ReactNode;
   value: string;
   onSave: (value: string) => void;
+  onDraftChange?: (value: string) => void;
   placeholder?: string;
   emptyText?: string;
   insight?: NoteInsightPayload;
@@ -53,6 +54,7 @@ type SelectFieldProps = {
   onSave: (value: string) => void;
   options: SelectOption[];
   emptyText?: string;
+  blurOnChange?: boolean;
 };
 
 type BooleanFieldProps = {
@@ -391,6 +393,7 @@ export function InlineTextareaField({
   label,
   value,
   onSave,
+  onDraftChange,
   placeholder,
   emptyText = emptyDisplayDefault,
   insight,
@@ -420,8 +423,9 @@ export function InlineTextareaField({
   React.useEffect(() => {
     if (!editing) {
       setDraft(value);
+      onDraftChange?.(value);
     }
-  }, [value, editing]);
+  }, [value, editing, onDraftChange]);
 
   const commit = (nextValue: string) => {
     setEditing(false);
@@ -440,6 +444,7 @@ export function InlineTextareaField({
 
   const cancel = () => {
     setDraft(value);
+    onDraftChange?.(value);
     setEditing(false);
   };
 
@@ -451,7 +456,10 @@ export function InlineTextareaField({
           <div className="inline-textarea-editor">
             <RichTextArea
               value={draft}
-              onChange={setDraft}
+              onChange={(nextValue) => {
+                setDraft(nextValue);
+                onDraftChange?.(nextValue);
+              }}
               rows={rows}
               placeholder={placeholder}
               className="inline-formatting-textarea"
@@ -476,7 +484,10 @@ export function InlineTextareaField({
             value={draft}
             rows={rows}
             placeholder={placeholder}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              onDraftChange?.(event.target.value);
+            }}
             onBlurCapture={(event) => {
               const nextFocus = event.relatedTarget as Node | null;
               if (nextFocus && event.currentTarget.contains(nextFocus)) return;
@@ -537,7 +548,8 @@ export function InlineSelectField({
   value,
   onSave,
   options,
-  emptyText = emptyDisplayDefault
+  emptyText = emptyDisplayDefault,
+  blurOnChange
 }: Omit<SelectFieldProps, "kind">) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(value);
@@ -562,10 +574,16 @@ export function InlineSelectField({
         <select
           value={draft}
           onChange={(event) => {
-            setDraft(event.target.value);
+            const nextValue = event.target.value;
+            setDraft(nextValue);
+            if (blurOnChange) {
+              commit(nextValue);
+            }
           }}
           onBlur={(event) => {
-            commit(event.target.value);
+            if (!blurOnChange) {
+              commit(event.target.value);
+            }
           }}
           onKeyDown={(event) => {
             if (event.key === "Enter") {

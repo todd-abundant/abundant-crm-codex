@@ -614,6 +614,7 @@ export default function ReportsPage() {
     notes: string | null;
     closeReason: string | null;
     estimatedCloseDate: string | null;
+    closedAt: string | null;
     updatedAt: string;
     healthSystem: { id: string; name: string } | null;
   }) {
@@ -631,6 +632,7 @@ export default function ReportsPage() {
               notes: opportunity.notes,
               closeReason: opportunity.closeReason,
               estimatedCloseDate: opportunity.estimatedCloseDate,
+              closedAt: opportunity.closedAt,
               updatedAt: opportunity.updatedAt,
               healthSystem: opportunity.healthSystem
             }
@@ -695,6 +697,7 @@ export default function ReportsPage() {
         notes: string | null;
         closeReason: string | null;
         estimatedCloseDate: string | null;
+        closedAt: string | null;
         updatedAt: string;
         healthSystem: { id: string; name: string } | null;
       };
@@ -753,6 +756,7 @@ export default function ReportsPage() {
         notes: string | null;
         closeReason: string | null;
         estimatedCloseDate: string | null;
+        closedAt: string | null;
         updatedAt: string;
         healthSystem: { id: string; name: string } | null;
       };
@@ -767,6 +771,7 @@ export default function ReportsPage() {
   }
 
   const showDeclinedReasonColumn = statusFilter === "closed";
+  const isClosedReportView = statusFilter === "closed";
 
   return (
     <main>
@@ -873,7 +878,7 @@ export default function ReportsPage() {
                     <th>Next Step</th>
                     <th>Likelihood</th>
                     <th>Contract Price</th>
-                    <th>Expected Close</th>
+                    <th>{isClosedReportView ? "Close Date" : "Expected Close"}</th>
                     {showDeclinedReasonColumn ? <th>Declined Reason</th> : null}
                     <th>Contacts</th>
                   </tr>
@@ -955,7 +960,7 @@ export default function ReportsPage() {
                       </td>
                       <td>{row.likelihoodPercent === null ? "-" : `${row.likelihoodPercent}%`}</td>
                       <td>{formatCurrency(row.contractPriceUsd)}</td>
-                      <td>{formatDate(row.estimatedCloseDate)}</td>
+                      <td>{formatDate(isClosedReportView ? row.closedAt : row.estimatedCloseDate)}</td>
                       {showDeclinedReasonColumn ? <td>{formatDeclinedReason(row)}</td> : null}
                       <td>{row.contactCount}</td>
                     </tr>

@@ -20,6 +20,10 @@ const phaseUpdateSchema = z.object({
   ])
 });
 
+function normalizePipelinePhase(phase: PipelinePhase) {
+  return phase === "CLOSED" ? "DECLINED" : phase;
+}
+
 function intakeDecisionForPhase(phase: PipelinePhase) {
   if (phase === "INTAKE") return "PENDING" as const;
   if (phase === "DECLINED") return "DECLINE" as const;
@@ -52,7 +56,8 @@ export async function PATCH(
       return NextResponse.json({ error: "Pipeline item not found" }, { status: 404 });
     }
 
-    const nextIntakeDecision = intakeDecisionForPhase(input.phase);
+    const normalizedPhase = normalizePipelinePhase(input.phase);
+    const nextIntakeDecision = intakeDecisionForPhase(normalizedPhase);
     const nextIntakeDecisionAt =
       nextIntakeDecision === "PENDING" ? null : (company.pipeline?.intakeDecisionAt ?? new Date());
 
@@ -60,14 +65,14 @@ export async function PATCH(
       where: { companyId: id },
       create: {
         companyId: id,
-        phase: input.phase,
+        phase: normalizedPhase,
         stageChangedAt: new Date(),
         intakeDecision: nextIntakeDecision,
         intakeDecisionAt: nextIntakeDecisionAt
       },
       update: {
-        phase: input.phase,
-        stageChangedAt: company.pipeline?.phase === input.phase ? undefined : new Date(),
+        phase: normalizedPhase,
+        stageChangedAt: company.pipeline?.phase === normalizedPhase ? undefined : new Date(),
         intakeDecision: nextIntakeDecision,
         intakeDecisionAt: nextIntakeDecisionAt
       }

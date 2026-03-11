@@ -40,6 +40,8 @@ type ScreeningStatus = "NOT_STARTED" | "PENDING" | "NEGOTIATING" | "SIGNED" | "D
 type ScreeningAttendanceStatus = "INVITED" | "ATTENDED" | "DECLINED" | "NO_SHOW";
 type ScreeningFeedbackSentiment = "POSITIVE" | "MIXED" | "NEUTRAL" | "NEGATIVE";
 type ScreeningCellField = "RELEVANT_FEEDBACK" | "STATUS_UPDATE";
+type ClosedOutcome = "INVESTED" | "PASSED" | "LOST" | "WITHDREW" | "OTHER";
+type ScreeningPipelineStatus = "OPEN" | "CLOSED_LOST";
 type CompanyDocumentType =
   | "INTAKE_REPORT"
   | "SCREENING_REPORT"
@@ -202,6 +204,8 @@ type PipelineOpportunityDetail = {
   phaseLabel: string;
   column: PipelineBoardColumn | null;
   isScreeningStage: boolean;
+  closedOutcome: ClosedOutcome | null;
+  declineReasonNotes: string | null;
   intakeDecisionAt: string | null;
   ventureStudioContractExecutedAt: string | null;
   screeningWebinarDate1At: string | null;
@@ -1112,6 +1116,12 @@ export function PipelineOpportunityDetailView({
   const [item, setItem] = React.useState<PipelineOpportunityDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [screeningClosedLostReasonDraft, setScreeningClosedLostReasonDraft] = React.useState("");
+  const [pendingScreeningPipelineStatus, setPendingScreeningPipelineStatus] =
+    React.useState<ScreeningPipelineStatus | null>(null);
+  const [showScreeningClosedLostReasonModal, setShowScreeningClosedLostReasonModal] = React.useState(false);
+  const [screeningClosedLostReasonModalDraft, setScreeningClosedLostReasonModalDraft] = React.useState("");
+  const [savingScreeningCloseModal, setSavingScreeningCloseModal] = React.useState(false);
   const [activeIntakeDetailTab, setActiveIntakeDetailTab] = React.useState<IntakeDetailTab>(initialIntakeDetailTab);
   const [activeIntakeMaterialsTab, setActiveIntakeMaterialsTab] =
     React.useState<IntakeMaterialsSubTab>("at-a-glance");
@@ -1231,8 +1241,17 @@ export function PipelineOpportunityDetailView({
   const initialOpportunityIdRef = React.useRef<string | null>(initialOpportunityId);
   const pipelineCardUpdateSequenceRef = React.useRef(0);
   const descriptionPlainText = React.useMemo(() => richTextToPlainText(item?.description), [item?.description]);
+  const activePipelineColumn = item ? item.column || mapPhaseToBoardColumn(item.phase) : null;
+  const isScreeningClosedLost =
+    (item?.phase === "DECLINED" || item?.phase === "CLOSED") && item.closedOutcome === "LOST";
+  const persistedScreeningPipelineStatus: ScreeningPipelineStatus = isScreeningClosedLost ? "CLOSED_LOST" : "OPEN";
+  const screeningPipelineStatus = pendingScreeningPipelineStatus || persistedScreeningPipelineStatus;
+  const showScreeningPipelineLifecycle = Boolean(
+    item &&
+    (activePipelineColumn === "SCREENING" || ((item.phase === "DECLINED" || item.phase === "CLOSED") && item.closedOutcome === "LOST"))
+  );
   const showOpportunitiesTab = Boolean(
-    item && (item.column === "SCREENING" || item.column === "COMMERCIAL_ACCELERATION")
+    item && (activePipelineColumn === "SCREENING" || activePipelineColumn === "COMMERCIAL_ACCELERATION")
   );
   const opportunityLifecycleCounts = React.useMemo(() => {
     if (!item) return { open: 0, won: 0, lost: 0 };
@@ -1365,6 +1384,14 @@ export function PipelineOpportunityDetailView({
   React.useEffect(() => {
     initialOpportunityIdRef.current = null;
   }, [itemId, initialOpportunityId]);
+
+  React.useEffect(() => {
+    setScreeningClosedLostReasonDraft(item?.declineReasonNotes || "");
+  }, [item?.id, item?.declineReasonNotes]);
+
+  React.useEffect(() => {
+    setPendingScreeningPipelineStatus(null);
+  }, [item?.id, item?.phase, item?.closedOutcome]);
 
   React.useEffect(() => {
     if (!initialOpportunityId) return;
@@ -2810,19 +2837,25 @@ export function PipelineOpportunityDetailView({
   }
 
   async function updatePipelineCardMeta(input: {
+    phase?: PipelinePhase;
+    closedOutcome?: ClosedOutcome | null;
+    declineReasonNotes?: string | null;
     intakeDecisionAt?: string | null;
     ventureStudioContractExecutedAt?: string | null;
     screeningWebinarDate1At?: string | null;
     screeningWebinarDate2At?: string | null;
     ventureLikelihoodPercent?: number | null;
     ventureExpectedCloseDate?: string | null;
-  }) {
-    if (!item) return;
+  }): Promise<boolean> {
+    if (!item) return false;
     const requestPayload = { ...input };
     const requestSequence = pipelineCardUpdateSequenceRef.current + 1;
     pipelineCardUpdateSequenceRef.current = requestSequence;
     const requestStartMs = Date.now();
     const requestHas = {
+      phase: Object.prototype.hasOwnProperty.call(input, "phase"),
+      closedOutcome: Object.prototype.hasOwnProperty.call(input, "closedOutcome"),
+      declineReasonNotes: Object.prototype.hasOwnProperty.call(input, "declineReasonNotes"),
       intakeDecisionAt: Object.prototype.hasOwnProperty.call(input, "intakeDecisionAt"),
       ventureStudioContractExecutedAt: Object.prototype.hasOwnProperty.call(input, "ventureStudioContractExecutedAt"),
       screeningWebinarDate1At: Object.prototype.hasOwnProperty.call(input, "screeningWebinarDate1At"),
@@ -2856,6 +2889,9 @@ export function PipelineOpportunityDetailView({
       requestHas,
       requestPayload,
       currentDates: {
+        phase: item.phase,
+        closedOutcome: item.closedOutcome,
+        declineReasonNotes: item.declineReasonNotes,
         intakeDecisionAt: item.intakeDecisionAt,
         ventureStudioContractExecutedAt: item.ventureStudioContractExecutedAt,
         screeningWebinarDate1At: item.screeningWebinarDate1At,
@@ -2884,9 +2920,12 @@ export function PipelineOpportunityDetailView({
           durationMs: Date.now() - requestStartMs,
           responseServerSequence: payload._dateDebug?.requestSequence ?? null
         });
-        return;
+        return false;
       }
       const responseDates = {
+        phase: returnedItem?.phase ?? item.phase,
+        closedOutcome: returnedItem?.closedOutcome ?? item.closedOutcome,
+        declineReasonNotes: returnedItem?.declineReasonNotes ?? item.declineReasonNotes,
         intakeDecisionAt: returnedItem?.intakeDecisionAt ?? null,
         ventureStudioContractExecutedAt: returnedItem?.ventureStudioContractExecutedAt ?? null,
         screeningWebinarDate1At: returnedItem?.screeningWebinarDate1At ?? null,
@@ -2908,6 +2947,29 @@ export function PipelineOpportunityDetailView({
         serverUpdatedAt: responseUpdatedAt,
         serverClientState,
         responseMismatch: {
+          phase: requestHas.phase
+            ? {
+                requested: requestPayload.phase,
+                persisted: responseDates.phase,
+                matched: requestPayload.phase === responseDates.phase
+              }
+            : null,
+          closedOutcome: requestHas.closedOutcome
+            ? {
+                requested: requestPayload.closedOutcome,
+                persisted: responseDates.closedOutcome,
+                matched: (requestPayload.closedOutcome ?? null) === responseDates.closedOutcome
+              }
+            : null,
+          declineReasonNotes: requestHas.declineReasonNotes
+            ? {
+                requested: (requestPayload.declineReasonNotes || "").trim(),
+                persisted: (responseDates.declineReasonNotes || "").trim(),
+                matched:
+                  (requestPayload.declineReasonNotes || "").trim() ===
+                  (responseDates.declineReasonNotes || "").trim()
+              }
+            : null,
           intakeDecisionAt: requestHas.intakeDecisionAt
             ? {
                 requested: requestPayload.intakeDecisionAt,
@@ -2990,11 +3052,51 @@ export function PipelineOpportunityDetailView({
         typeof returnedItem?.ventureExpectedCloseDate === "string" || returnedItem?.ventureExpectedCloseDate === null
           ? (returnedItem?.ventureExpectedCloseDate ?? null)
           : input.ventureExpectedCloseDate ?? item.ventureExpectedCloseDate;
+      const updatedPhase =
+        typeof returnedItem?.phase === "string"
+          ? (returnedItem.phase as PipelinePhase)
+          : input.phase ?? item.phase;
+      const updatedClosedOutcome =
+        returnedItem?.closedOutcome === null ||
+        returnedItem?.closedOutcome === "INVESTED" ||
+        returnedItem?.closedOutcome === "PASSED" ||
+        returnedItem?.closedOutcome === "LOST" ||
+        returnedItem?.closedOutcome === "WITHDREW" ||
+        returnedItem?.closedOutcome === "OTHER"
+          ? (returnedItem?.closedOutcome ?? null)
+          : requestHas.closedOutcome
+            ? (input.closedOutcome ?? null)
+            : item.closedOutcome;
+      const updatedDeclineReasonNotes =
+        typeof returnedItem?.declineReasonNotes === "string" || returnedItem?.declineReasonNotes === null
+          ? (returnedItem?.declineReasonNotes ?? null)
+          : requestHas.declineReasonNotes
+            ? (input.declineReasonNotes?.trim() || null)
+            : item.declineReasonNotes;
+      const updatedPhaseLabel = typeof returnedItem?.phaseLabel === "string" ? returnedItem.phaseLabel : phaseLabel(updatedPhase);
+      const updatedColumn = (() => {
+        if (returnedItem?.column === null) return null;
+        if (
+          returnedItem?.column === "INTAKE" ||
+          returnedItem?.column === "VENTURE_STUDIO_CONTRACT_EVALUATION" ||
+          returnedItem?.column === "SCREENING" ||
+          returnedItem?.column === "COMMERCIAL_ACCELERATION"
+        ) {
+          return returnedItem.column as PipelineBoardColumn;
+        }
+        return mapPhaseToBoardColumn(updatedPhase);
+      })();
 
       setItem((current) =>
         current
           ? {
               ...current,
+              phase: updatedPhase,
+              phaseLabel: updatedPhaseLabel,
+              column: updatedColumn,
+              isScreeningStage: mapPhaseToBoardColumn(updatedPhase) === "SCREENING",
+              closedOutcome: updatedClosedOutcome,
+              declineReasonNotes: updatedDeclineReasonNotes,
               intakeDecisionAt: updatedIntakeDecisionDate,
               ventureStudioContractExecutedAt: updatedVentureStudioContractExecutedAt,
               screeningWebinarDate1At: updatedScreeningWebinarDate1At,
@@ -3003,9 +3105,10 @@ export function PipelineOpportunityDetailView({
               ventureExpectedCloseDate: updatedCloseDate,
               updatedAt: responseUpdatedAt || current.updatedAt
             }
-          : current
+            : current
       );
       setStatus({ kind: "ok", text: "Pipeline status updated." });
+      return true;
     } catch (error) {
       const latestSequence = pipelineCardUpdateSequenceRef.current;
       if (latestSequence !== requestSequence) {
@@ -3018,7 +3121,7 @@ export function PipelineOpportunityDetailView({
           error: error instanceof Error ? error.message : String(error),
           responseStatus: "ignored_stale_error"
         });
-        return;
+        return false;
       }
       setStatus({
         kind: "error",
@@ -3032,6 +3135,7 @@ export function PipelineOpportunityDetailView({
         input,
         error: error instanceof Error ? error.message : String(error)
       });
+      return false;
     }
   }
 
@@ -3074,6 +3178,115 @@ export function PipelineOpportunityDetailView({
     }
     if (item.ventureExpectedCloseDate && toDateInputValue(item.ventureExpectedCloseDate) === trimmed) return;
     await updatePipelineCardMeta({ ventureExpectedCloseDate: trimmed });
+  }
+
+  async function saveScreeningPipelineStatus(nextStatus: ScreeningPipelineStatus, nextReason?: string): Promise<boolean> {
+    if (!item) return false;
+    const currentStatus = pendingScreeningPipelineStatus || persistedScreeningPipelineStatus;
+    if (typeof nextReason === "undefined" && currentStatus === nextStatus) return false;
+    const reason = typeof nextReason === "string"
+      ? nextReason.trim()
+      : (screeningClosedLostReasonDraft || item.declineReasonNotes || "").trim();
+    if (nextStatus === "CLOSED_LOST" && !reason) {
+      setStatus({
+        kind: "error",
+        text: "Add a closed/lost reason to complete closure."
+      });
+      return false;
+    }
+
+    if (nextStatus === "OPEN") {
+      setPendingScreeningPipelineStatus(null);
+    } else if (nextStatus === "CLOSED_LOST" && !pendingScreeningPipelineStatus) {
+      setPendingScreeningPipelineStatus("CLOSED_LOST");
+    }
+
+    if (nextStatus === "CLOSED_LOST") {
+      const saved = await updatePipelineCardMeta({
+        phase: "DECLINED",
+        closedOutcome: "LOST",
+        declineReasonNotes: reason
+      });
+      if (saved) {
+        setPendingScreeningPipelineStatus(null);
+      } else if (!pendingScreeningPipelineStatus) {
+        setPendingScreeningPipelineStatus(currentStatus);
+      }
+      return saved;
+    }
+
+    const saved = await updatePipelineCardMeta({
+      phase: "SCREENING",
+      closedOutcome: null
+    });
+    return saved;
+  }
+
+  async function saveScreeningClosedLostReason(nextValue: string) {
+    if (!item) return;
+    const trimmed = nextValue.trim();
+    const persistedReason = (item.declineReasonNotes || "").trim();
+    const shouldCompletePendingClosure = pendingScreeningPipelineStatus === "CLOSED_LOST" && Boolean(trimmed);
+    if (persistedReason === trimmed && !shouldCompletePendingClosure) return;
+
+    if (shouldCompletePendingClosure) {
+      setPendingScreeningPipelineStatus("CLOSED_LOST");
+      await saveScreeningPipelineStatus("CLOSED_LOST", trimmed);
+      return;
+    }
+
+    await updatePipelineCardMeta({ declineReasonNotes: trimmed || null });
+  }
+
+  async function handleScreeningPipelineStatusChange(nextStatus: ScreeningPipelineStatus) {
+    if (!item) return;
+    const currentStatus = pendingScreeningPipelineStatus || persistedScreeningPipelineStatus;
+    if (currentStatus === nextStatus) return;
+
+    if (nextStatus === "CLOSED_LOST") {
+      setStatus(null);
+      setScreeningClosedLostReasonModalDraft(
+        (screeningClosedLostReasonDraft || item.declineReasonNotes || "").trim()
+      );
+      setPendingScreeningPipelineStatus(nextStatus);
+      setShowScreeningClosedLostReasonModal(true);
+      return;
+    }
+
+    setShowScreeningClosedLostReasonModal(false);
+    await saveScreeningPipelineStatus(nextStatus);
+  }
+
+  async function saveScreeningClosedLostReasonFromModal() {
+    if (!item) return;
+    const reason = screeningClosedLostReasonModalDraft.trim();
+    if (!reason) {
+      setStatus({
+        kind: "error",
+        text: "Add a closed/lost reason to complete closure."
+      });
+      return;
+    }
+
+    setSavingScreeningCloseModal(true);
+    try {
+      const saved = await saveScreeningPipelineStatus("CLOSED_LOST", reason);
+      if (saved) {
+        setShowScreeningClosedLostReasonModal(false);
+        setPendingScreeningPipelineStatus(null);
+        setScreeningClosedLostReasonDraft(reason);
+      }
+    } finally {
+      setSavingScreeningCloseModal(false);
+    }
+  }
+
+  function closeScreeningClosedLostReasonModal() {
+    setShowScreeningClosedLostReasonModal(false);
+    setSavingScreeningCloseModal(false);
+    setPendingScreeningPipelineStatus(null);
+    setStatus(null);
+    setScreeningClosedLostReasonModalDraft(screeningClosedLostReasonDraft || item?.declineReasonNotes || "");
   }
 
   async function saveIntakeDecisionDate(nextValue: string) {
@@ -5000,20 +5213,27 @@ function stripCurrencyFormatting(value: string) {
               <>
             <div className="row">
               <div>
-                <InlineSelectField
-                  label="Current Stage"
-                  value={item.column || mapPhaseToBoardColumn(item.phase) || "INTAKE"}
-                  options={PIPELINE_BOARD_COLUMNS.map((column) => ({
-                    value: column.key,
-                    label: column.label
-                  }))}
-                  onSave={(nextValue) => {
-                    const nextColumn = nextValue as PipelineBoardColumn;
-                    if (!savingPhase) {
-                      void updateColumn(nextColumn);
-                    }
-                  }}
-                />
+                {activePipelineColumn ? (
+                  <InlineSelectField
+                    label="Current Stage"
+                    value={activePipelineColumn}
+                    options={PIPELINE_BOARD_COLUMNS.map((column) => ({
+                      value: column.key,
+                      label: column.label
+                    }))}
+                    onSave={(nextValue) => {
+                      const nextColumn = nextValue as PipelineBoardColumn;
+                      if (!savingPhase) {
+                        void updateColumn(nextColumn);
+                      }
+                    }}
+                  />
+                ) : (
+                  <div className="inline-edit-field pipeline-status-readonly-field">
+                    <label>Current Stage</label>
+                    <div className="pipeline-status-readonly-value">Closed / Inactive</div>
+                  </div>
+                )}
               </div>
               <div>
                 <div className="inline-edit-field pipeline-status-readonly-field">
@@ -5068,7 +5288,7 @@ function stripCurrencyFormatting(value: string) {
                 />
               </div>
             </div>
-            {item.column !== "INTAKE" ? (
+            {activePipelineColumn && activePipelineColumn !== "INTAKE" ? (
               <div className="row">
                 <div>
                   <InlineTextField
@@ -5112,10 +5332,63 @@ function stripCurrencyFormatting(value: string) {
                   />
                 </div>
 
-                {(item.column || mapPhaseToBoardColumn(item.phase)) === "SCREENING" ||
-                (item.column || mapPhaseToBoardColumn(item.phase)) === "COMMERCIAL_ACCELERATION" ? (
+                {showScreeningPipelineLifecycle ? (
                   <div className="detail-section">
-                    <p className="detail-label">Opportunity Lifecycle</p>
+                    <p className="detail-label">Screening Opportunity Lifecycle</p>
+                    <div className="row">
+                      <div>
+                        <div className="inline-edit-field">
+                          <label>Status</label>
+                          <div
+                            className="opportunity-filter-options"
+                            role="radiogroup"
+                            aria-label="Screening opportunity status"
+                          >
+                            {[
+                              { value: "OPEN", label: "Open" },
+                              { value: "CLOSED_LOST", label: "Closed/Lost" }
+                            ].map((option) => {
+                              const selected = screeningPipelineStatus === option.value;
+                              return (
+                                <label
+                                  key={option.value}
+                                  className={`opportunity-filter-option ${selected ? "active" : ""}`}
+                                  htmlFor={`screening-opportunity-lifecycle-${item.id}-${option.value}`}
+                                >
+                                  <span>{option.label}</span>
+                                    <input
+                                      id={`screening-opportunity-lifecycle-${item.id}-${option.value}`}
+                                      type="radio"
+                                      name={`screening-opportunity-lifecycle-${item.id}`}
+                                      value={option.value}
+                                      checked={selected}
+                                      onChange={() => {
+                                        void handleScreeningPipelineStatusChange(option.value as ScreeningPipelineStatus);
+                                      }}
+                                    />
+                                  </label>
+                                );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        <InlineTextareaField
+                          label={`Closed/Lost Reason${screeningPipelineStatus === "CLOSED_LOST" ? " (required)" : ""}`}
+                          value={item.declineReasonNotes || ""}
+                          onDraftChange={setScreeningClosedLostReasonDraft}
+                          multiline
+                          placeholder="Explain why this Screening opportunity did not graduate to Commercial Acceleration."
+                          onSave={(nextValue) => void saveScreeningClosedLostReason(nextValue)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {activePipelineColumn === "SCREENING" || activePipelineColumn === "COMMERCIAL_ACCELERATION" ? (
+                  <div className="detail-section">
+                    <p className="detail-label">Alliance Opportunities</p>
                     <div className="detail-grid">
                       <div className="inline-edit-field pipeline-status-readonly-field">
                         <label>Open</label>
@@ -7343,6 +7616,61 @@ function stripCurrencyFormatting(value: string) {
             ) : (
               <p className="muted">Opportunity not found.</p>
             )}
+          </div>
+        </div>
+      ) : null}
+
+      {showScreeningClosedLostReasonModal ? (
+        <div className="pipeline-note-backdrop" onMouseDown={() => closeScreeningClosedLostReasonModal()}>
+          <div
+            className="pipeline-note-modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="pipeline-card-head">
+              <h3>Screening Opportunity Closed/Lost</h3>
+              <button
+                className="modal-icon-close"
+                type="button"
+                onClick={() => closeScreeningClosedLostReasonModal()}
+                aria-label="Close close reason dialog"
+                disabled={savingScreeningCloseModal}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+            <p className="muted">Add a reason for closing this Screening Opportunity as closed/lost.</p>
+            <div className="pipeline-status-single-field">
+              <label htmlFor="screening-closed-lost-reason">Closed/Lost Reason</label>
+              <textarea
+                id="screening-closed-lost-reason"
+                className="pipeline-note-textarea"
+                value={screeningClosedLostReasonModalDraft}
+                onChange={(event) => setScreeningClosedLostReasonModalDraft(event.target.value)}
+                rows={6}
+                placeholder="Explain why this Screening opportunity did not graduate to Commercial Acceleration."
+                disabled={savingScreeningCloseModal}
+              />
+            </div>
+            <div className="actions">
+              <button
+                type="button"
+                className="ghost small"
+                onClick={() => closeScreeningClosedLostReasonModal()}
+                disabled={savingScreeningCloseModal}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="secondary small"
+                onClick={() => void saveScreeningClosedLostReasonFromModal()}
+                disabled={savingScreeningCloseModal}
+              >
+                {savingScreeningCloseModal ? "Saving..." : "Save"}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
