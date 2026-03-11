@@ -397,6 +397,7 @@ model CoInvestor {
   venturePartners           VenturePartner[]
   interactions              CoInvestorInteraction[]
   nextActions               NextAction[]
+  signalEvents              CoInvestorSignalEvent[]
   companyFundraiseInvestors CompanyFundraiseInvestor[]
 
   @@index([name])
@@ -433,6 +434,33 @@ model CoInvestorInvestment {
 
   @@index([coInvestorId])
   @@index([portfolioCompanyName])
+}
+
+model CoInvestorSignalEvent {
+  id                String   @id @default(cuid())
+  coInvestorId      String
+  eventType         String
+  headline          String
+  summary           String
+  suggestedOutreach String?
+  confidenceScore   Float?
+  relevanceScore    Int?
+  signalDate        DateTime?
+  sourceUrl         String
+  sourceDomain      String?
+  sourceTitle       String?
+  sourcePublishedAt DateTime?
+  dedupeKey         String
+  metadataJson      Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  coInvestor CoInvestor @relation(fields: [coInvestorId], references: [id], onDelete: Cascade)
+
+  @@unique([coInvestorId, dedupeKey])
+  @@index([coInvestorId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([sourcePublishedAt])
 }
 
 model CoInvestorResearchJob {
