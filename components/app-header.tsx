@@ -97,7 +97,9 @@ export function AppHeader({
   return (
     <header className="top-nav">
       <div className="top-nav-inner">
-        <div className="brand">Abundant CRM</div>
+        <Link href="/" className="brand" aria-label="Go to home">
+          Abundant CRM
+        </Link>
         <nav aria-label="Primary navigation" className="top-nav-links">
           <Link href="/" className="top-nav-link">
             Home
