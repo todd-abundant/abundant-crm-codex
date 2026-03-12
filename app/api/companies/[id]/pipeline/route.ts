@@ -464,11 +464,9 @@ export async function PATCH(
       s1Invested: input.s1Invested,
       s1InvestmentAt,
       s1InvestmentAmountUsd: input.s1InvestmentAmountUsd ?? null,
-      portfolioAddedAt
+      portfolioAddedAt,
+      ...(createdAt ? { createdAt } : {})
     };
-    if (createdAt) {
-      pipelineCreatePayload.createdAt = createdAt;
-    }
 
     const pipelineUpdatePayload = {
       phase: normalizedPhase,
@@ -494,11 +492,9 @@ export async function PATCH(
       s1Invested: input.s1Invested,
       s1InvestmentAt,
       s1InvestmentAmountUsd: input.s1InvestmentAmountUsd ?? null,
-      portfolioAddedAt
+      portfolioAddedAt,
+      ...(createdAt ? { createdAt } : {})
     };
-    if (createdAt) {
-      pipelineUpdatePayload.createdAt = createdAt;
-    }
 
     if (shouldDebug) {
       const parseWarnings = {

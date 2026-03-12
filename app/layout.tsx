@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   description: "Enterprise CRM + workflow for digital health investing"
 };
 
+export const dynamic = "force-dynamic";
+
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const currentUser = await getCurrentUser();
   const roles = currentUser?.roles || [];

@@ -5323,6 +5323,12 @@ select {
   padding: 10px 12px 16px;
 }
 
+.pipeline-detail-panel .opportunities-top-row {
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+
 .pipeline-detail-tab-panel {
   min-height: clamp(560px, 68vh, 820px);
 }

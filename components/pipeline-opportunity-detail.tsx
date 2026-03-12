@@ -5642,9 +5642,11 @@ function stripCurrencyFormatting(value: string) {
 
             {activeIntakeDetailTab === "opportunities" && showOpportunitiesTab ? (
               <>
-                <div className="detail-section">
-                  <p className="detail-label">Health System Opportunities</p>
-                  <p className="muted">Click a health system opportunity name to open details. Update Next Steps inline from this list.</p>
+                <div className="detail-section opportunities-top-row">
+                  <button type="button" className="opportunity-add-link" onClick={openCreateOpportunityModal}>
+                    + Add health system opportunity
+                  </button>
+                  <br />
                   <div className="opportunity-filter-options" role="radiogroup" aria-label="Health system opportunity status">
                     {[
                       { value: "all", label: "All" },
@@ -5667,13 +5669,10 @@ function stripCurrencyFormatting(value: string) {
                             checked={selected}
                             onChange={() => setOpportunityStatusFilter(option.value as OpportunityStatusFilter)}
                           />
-                        </label>
-                      );
-                    })}
+                          </label>
+                        );
+                      })}
                   </div>
-                  <button type="button" className="opportunity-add-link" onClick={openCreateOpportunityModal}>
-                    + Add health system opportunity
-                  </button>
 
                   {filteredOpportunities.length === 0 ? (
                     <p className="muted">
