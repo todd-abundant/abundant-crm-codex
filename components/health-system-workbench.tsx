@@ -94,7 +94,7 @@ type CompanyOption = {
   name: string;
 };
 
-type OpportunityStatusFilter = "open" | "closed";
+type OpportunityStatusFilter = "all" | "open" | "closed";
 
 type OpportunitySummary = {
   id: string;
@@ -106,6 +106,7 @@ type OpportunitySummary = {
   nextSteps: string | null;
   estimatedCloseDate: string | null;
   closedAt: string | null;
+  ownerName: string | null;
   contactCount: number;
   createdAt: string;
   updatedAt: string;
@@ -494,7 +495,7 @@ export function HealthSystemWorkbench() {
   const [opportunities, setOpportunities] = useState<OpportunitySummary[]>([]);
   const [opportunitiesLoading, setOpportunitiesLoading] = useState(false);
   const [opportunitiesError, setOpportunitiesError] = useState<string | null>(null);
-  const [opportunityStatusFilter, setOpportunityStatusFilter] = useState<OpportunityStatusFilter>("open");
+  const [opportunityStatusFilter, setOpportunityStatusFilter] = useState<OpportunityStatusFilter>("all");
   const candidateSearchCacheRef = useRef<Record<string, SearchCandidate[]>>({});
   const candidateSearchAbortRef = useRef<AbortController | null>(null);
   const returnTo = useMemo(() => {
@@ -546,11 +547,28 @@ export function HealthSystemWorkbench() {
   const filteredOpportunities = useMemo(
     () =>
       opportunities.filter((opportunity) =>
-        opportunityStatusFilter === "open"
-          ? !isClosedOpportunityStage(opportunity.stage)
-          : isClosedOpportunityStage(opportunity.stage)
+        opportunityStatusFilter === "all"
+          ? true
+          : opportunityStatusFilter === "open"
+            ? !isClosedOpportunityStage(opportunity.stage)
+            : isClosedOpportunityStage(opportunity.stage)
       ),
     [opportunities, opportunityStatusFilter]
+  );
+  const opportunityTabBadgeCounts = useMemo(
+    () =>
+      opportunities.reduce(
+        (counts, opportunity) => {
+          if (isClosedOpportunityStage(opportunity.stage)) {
+            counts.closed += 1;
+          } else {
+            counts.open += 1;
+          }
+          return counts;
+        },
+        { open: 0, closed: 0 }
+      ),
+    [opportunities]
   );
 
   const shouldOfferCreate = false;
@@ -1523,7 +1541,7 @@ export function HealthSystemWorkbench() {
       setOpportunities([]);
       setOpportunitiesLoading(false);
       setOpportunitiesError(null);
-      setOpportunityStatusFilter("open");
+      setOpportunityStatusFilter("all");
       return;
     }
 
@@ -1534,7 +1552,7 @@ export function HealthSystemWorkbench() {
       setAddContactModalOpen(false);
       resetInvestmentForm();
       resetCustomerForm();
-      setOpportunityStatusFilter("open");
+      setOpportunityStatusFilter("all");
     }
   }, [returnToActiveTab, returnToRecordId, selectedRecord, draftRecordId]);
 
@@ -1543,7 +1561,7 @@ export function HealthSystemWorkbench() {
       setOpportunities([]);
       setOpportunitiesLoading(false);
       setOpportunitiesError(null);
-      setOpportunityStatusFilter("open");
+      setOpportunityStatusFilter("all");
       return;
     }
 
@@ -1817,7 +1835,15 @@ export function HealthSystemWorkbench() {
                   aria-selected={activeDetailTab === "opportunities"}
                   onClick={() => setActiveDetailTab("opportunities")}
                 >
-                  Opportunities
+                  <span className="detail-tab-label-with-badges">
+                    <span>Health System Opportunities</span>
+                    {opportunityTabBadgeCounts.open > 0 ? (
+                      <span className="detail-tab-badge detail-tab-badge-open">{opportunityTabBadgeCounts.open}</span>
+                    ) : null}
+                    {opportunityTabBadgeCounts.closed > 0 ? (
+                      <span className="detail-tab-badge detail-tab-badge-closed">{opportunityTabBadgeCounts.closed}</span>
+                    ) : null}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -1940,11 +1966,12 @@ export function HealthSystemWorkbench() {
               {activeDetailTab === "opportunities" && (
                 <>
                   <div className="detail-section opportunity-section">
-                    <p className="detail-label">Opportunities</p>
-                    <div className="opportunity-filter-bar" role="radiogroup" aria-label="Filter opportunities by status">
+                    <p className="detail-label">Health System Opportunities</p>
+                    <div className="opportunity-filter-bar" role="radiogroup" aria-label="Filter health system opportunities by status">
                       <p className="opportunity-filter-label">Status</p>
                       <div className="opportunity-filter-options">
                         {([
+                          { value: "all", label: "All" },
                           { value: "open", label: "Open" },
                           { value: "closed", label: "Closed" }
                         ] as const).map((option) => {
@@ -1969,13 +1996,17 @@ export function HealthSystemWorkbench() {
                         })}
                       </div>
                     </div>
-                    {opportunitiesLoading ? <p className="muted">Loading opportunities...</p> : null}
+                    {opportunitiesLoading ? <p className="muted">Loading health system opportunities...</p> : null}
                     {opportunitiesError ? <p className="status error">{opportunitiesError}</p> : null}
                     {!opportunitiesLoading &&
                     !opportunitiesError &&
                     filteredOpportunities.length === 0 ? (
                       <p className="muted">
-                        {opportunityStatusFilter === "open" ? "No open opportunities." : "No closed opportunities."}
+                        {opportunityStatusFilter === "all"
+                          ? "No health system opportunities."
+                          : opportunityStatusFilter === "open"
+                            ? "No open health system opportunities."
+                            : "No closed health system opportunities."}
                       </p>
                     ) : null}
 
@@ -1985,13 +2016,21 @@ export function HealthSystemWorkbench() {
                           <thead>
                             <tr>
                               <th>Company</th>
-                              <th>Opportunity</th>
+                              <th>Health System Opportunity</th>
                               <th>Health System</th>
                               <th>Stage</th>
+                              <th>Owner</th>
+                              <th>Created</th>
                               <th>Next Step</th>
                               <th>Likelihood</th>
                               <th>Contract Price</th>
-                              <th>Expected Close</th>
+                              <th>
+                                {opportunityStatusFilter === "closed"
+                                  ? "Closed Date"
+                                  : opportunityStatusFilter === "open"
+                                    ? "Expected Close"
+                                    : "Close / Expected"}
+                              </th>
                               <th>Contacts</th>
                             </tr>
                           </thead>
@@ -2011,10 +2050,18 @@ export function HealthSystemWorkbench() {
                                 </td>
                                 <td>{opportunity.healthSystem?.name || "-"}</td>
                                 <td>{opportunity.stage}</td>
+                                <td>{opportunity.ownerName || "Unassigned"}</td>
+                                <td>{formatOpportunityDate(opportunity.createdAt)}</td>
                                 <td>{opportunity.nextSteps || "-"}</td>
                                 <td>{opportunity.likelihoodPercent === null ? "-" : `${opportunity.likelihoodPercent}%`}</td>
                                 <td>{formatOpportunityCurrency(opportunity.contractPriceUsd)}</td>
-                                <td>{formatOpportunityDate(opportunity.estimatedCloseDate)}</td>
+                                <td>
+                                  {formatOpportunityDate(
+                                    isClosedOpportunityStage(opportunity.stage)
+                                      ? opportunity.closedAt
+                                      : opportunity.estimatedCloseDate
+                                  )}
+                                </td>
                                 <td>{opportunity.contactCount}</td>
                               </tr>
                             ))}

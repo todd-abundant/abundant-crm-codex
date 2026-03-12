@@ -7,7 +7,8 @@ const prisma = new PrismaClient();
 const args = new Set(process.argv.slice(2));
 const shouldApply = args.has("--apply");
 
-function targetIntakeDecision(phase) {
+function targetIntakeDecision(phase, category) {
+  if (category === "RE_ENGAGE_LATER") return "REVISIT_LATER";
   if (phase === "INTAKE") return "PENDING";
   if (phase === "DECLINED") return "DECLINE";
   return "ADVANCE_TO_NEGOTIATION";
@@ -21,7 +22,7 @@ function summarizeMismatches(rows) {
   const mismatches = [];
 
   for (const row of rows) {
-    const nextDecision = targetIntakeDecision(row.phase);
+    const nextDecision = targetIntakeDecision(row.phase, row.category);
     const nextDecisionAt = nextDecision === "PENDING" ? null : row.intakeDecisionAt ?? row.updatedAt;
     const decisionChanged = row.intakeDecision !== nextDecision;
     const decisionAtChanged = !equivalentDatePresence(row.intakeDecisionAt, nextDecisionAt);
@@ -33,6 +34,7 @@ function summarizeMismatches(rows) {
       companyId: row.companyId,
       companyName: row.company?.name || null,
       phase: row.phase,
+      category: row.category,
       currentIntakeDecision: row.intakeDecision,
       nextIntakeDecision: nextDecision,
       currentIntakeDecisionAt: row.intakeDecisionAt,
@@ -49,6 +51,7 @@ async function fetchPipelines() {
       id: true,
       companyId: true,
       phase: true,
+      category: true,
       intakeDecision: true,
       intakeDecisionAt: true,
       updatedAt: true,

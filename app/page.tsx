@@ -208,7 +208,7 @@ function pacePerDay(value: number) {
 function kindLabel(kind: ActivityEvent["kind"]) {
   if (kind === "ENTRY") return "New Entrant";
   if (kind === "MOMENTUM") return "Momentum";
-  if (kind === "OPPORTUNITY") return "Opportunity";
+  if (kind === "OPPORTUNITY") return "Health System Opportunity";
   if (kind === "NOTE") return "Narrative";
   return "Screening";
 }
@@ -216,7 +216,7 @@ function kindLabel(kind: ActivityEvent["kind"]) {
 function kindClass(kind: ActivityEvent["kind"]) {
   if (kind === "ENTRY") return "entry";
   if (kind === "MOMENTUM") return "momentum";
-  if (kind === "OPPORTUNITY") return "opportunity";
+  if (kind === "OPPORTUNITY") return "health system opportunity";
   if (kind === "NOTE") return "note";
   return "screening";
 }
@@ -397,7 +397,7 @@ export default async function HomePage() {
         id: `opportunity-created-${group.companyId}-${group.bucket}`,
         timestamp: group.latestAt,
         actorName: null,
-        narrative: `A new ${group.bucket} opportunity was added for ${group.companyName} (${group.latestTitle}).`,
+        narrative: `A new  health system opportunity was added for ${group.companyName} (${group.latestTitle}).`,
         kind: "OPPORTUNITY",
         pipelineType: group.companyType
       });
@@ -421,7 +421,7 @@ export default async function HomePage() {
         id: `opportunity-momentum-${group.companyId}-${group.bucket}`,
         timestamp: group.latestAt,
         actorName: null,
-        narrative: `${group.companyName} advanced or updated one ${group.bucket} opportunity (${group.latestTitle}).`,
+        narrative: `${group.companyName} advanced or updated one  health system opportunity (${group.latestTitle}).`,
         kind: "OPPORTUNITY",
         pipelineType: group.companyType
       });
@@ -603,7 +603,7 @@ export default async function HomePage() {
             <div className="home-progress-track">
               <span style={{ width: `${overallProgressPercent}%` }} />
             </div>
-            <p className="muted">{totals.active} active opportunities currently in pipeline stages.</p>
+            <p className="muted">{totals.active} active health system opportunities currently in venture studio pipeline stages.</p>
           </div>
         </div>
 
@@ -650,7 +650,7 @@ export default async function HomePage() {
                   <div>
                     <h2>{section.label}</h2>
                     <p className="muted">
-                      {section.activeOpportunityCount} active opportunities, {section.totalEvents} tracked updates
+                      {section.activeOpportunityCount} active health system opportunities, {section.totalEvents} tracked updates
                     </p>
                   </div>
 

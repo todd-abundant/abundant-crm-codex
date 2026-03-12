@@ -95,7 +95,8 @@ export async function GET(request: Request) {
               id: true,
               title: true,
               stage: true,
-              likelihoodPercent: true
+              likelihoodPercent: true,
+              createdAt: true
             },
             orderBy: [{ updatedAt: "desc" }]
           }
@@ -172,7 +173,8 @@ export async function GET(request: Request) {
             id: opportunity.id,
             title: opportunity.title,
             stage: opportunity.stage,
-            likelihoodPercent: opportunity.likelihoodPercent
+            likelihoodPercent: opportunity.likelihoodPercent,
+            createdAt: opportunity.createdAt
           })),
           intakeScheduledAt: company.pipeline?.intakeDecisionAt ?? company.intakeScheduledAt,
           declineReason: company.declineReason,
@@ -215,8 +217,15 @@ export async function GET(request: Request) {
       })
       .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 
-    const opportunities = pipelineEntries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry && entry.column && entry.companyCategory === "ACTIVE"));
-    const inactiveOpportunities = pipelineEntries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry) && (!entry.column || entry.companyCategory !== "ACTIVE"));
+    const visiblePipelineEntries = pipelineEntries.filter(
+      (entry): entry is NonNullable<typeof entry> => Boolean(entry) && entry.companyCategory !== "RE_ENGAGE_LATER"
+    );
+    const opportunities = visiblePipelineEntries.filter(
+      (entry): entry is NonNullable<typeof entry> => Boolean(entry.column && entry.companyCategory === "ACTIVE")
+    );
+    const inactiveOpportunities = visiblePipelineEntries.filter(
+      (entry): entry is NonNullable<typeof entry> => Boolean(!entry.column || entry.companyCategory !== "ACTIVE")
+    );
 
     return NextResponse.json({
       companyType,

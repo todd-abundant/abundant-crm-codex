@@ -83,7 +83,7 @@ export async function POST(
         }
       }
 
-      return tx.companyOpportunityContact.upsert({
+      const link = await tx.companyOpportunityContact.upsert({
         where: {
           opportunityId_contactId: {
             opportunityId: opportunity.id,
@@ -109,6 +109,26 @@ export async function POST(
           }
         }
       });
+
+      await tx.healthSystemOpportunityContact.upsert({
+        where: {
+          opportunityId_contactId: {
+            opportunityId: opportunity.id,
+            contactId: contact.id
+          }
+        },
+        update: {
+          role: trimOrNull(input.role)
+        },
+        create: {
+          id: link.id,
+          opportunityId: opportunity.id,
+          contactId: contact.id,
+          role: trimOrNull(input.role)
+        }
+      });
+
+      return link;
     });
 
     return NextResponse.json({ link }, { status: 201 });
@@ -145,7 +165,7 @@ export async function PATCH(
         throw new Error("Opportunity contact not found");
       }
 
-      return tx.companyOpportunityContact.update({
+      const link = await tx.companyOpportunityContact.update({
         where: { id: existing.id },
         data: {
           role: trimOrNull(input.role)
@@ -161,6 +181,26 @@ export async function PATCH(
           }
         }
       });
+
+      await tx.healthSystemOpportunityContact.upsert({
+        where: {
+          opportunityId_contactId: {
+            opportunityId: existing.opportunityId,
+            contactId: existing.contactId
+          }
+        },
+        update: {
+          role: trimOrNull(input.role)
+        },
+        create: {
+          id: link.id,
+          opportunityId: existing.opportunityId,
+          contactId: existing.contactId,
+          role: trimOrNull(input.role)
+        }
+      });
+
+      return link;
     });
 
     return NextResponse.json({ link });
@@ -193,6 +233,12 @@ export async function DELETE(
     if (deleted.count === 0) {
       return NextResponse.json({ error: "Opportunity contact not found" }, { status: 404 });
     }
+
+    await prisma.healthSystemOpportunityContact.deleteMany({
+      where: {
+        id: input.linkId
+      }
+    });
 
     return NextResponse.json({ ok: true, removed: true });
   } catch (error) {

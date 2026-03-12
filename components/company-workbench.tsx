@@ -22,6 +22,7 @@ import {
   type PipelineBoardColumn,
   type PipelinePhase
 } from "@/lib/pipeline-opportunities";
+import { INTAKE_DECLINE_REASON_OPTIONS, type IntakeDeclineReason } from "@/lib/intake-decline-reasons";
 import { type CompanyOpportunityStage } from "@prisma/client";
 
 type SearchCandidate = {
@@ -47,7 +48,11 @@ type CoInvestorOption = {
   name: string;
 };
 
-type OpportunityStatusFilter = "open" | "closed";
+type OpportunityStatusFilter = "all" | "open" | "closed";
+type CompanyStatusFilter = "all" | "active" | "closed" | "review-later";
+
+type PipelineCategory = "ACTIVE" | "CLOSED" | "RE_ENGAGE_LATER";
+type IntakeDecision = "PENDING" | "ADVANCE_TO_NEGOTIATION" | "DECLINE" | "REVISIT_LATER";
 
 type OpportunitySummary = {
   id: string;
@@ -59,6 +64,7 @@ type OpportunitySummary = {
   nextSteps: string | null;
   estimatedCloseDate: string | null;
   closedAt: string | null;
+  ownerName: string | null;
   contactCount: number;
   createdAt: string;
   updatedAt: string;
@@ -90,19 +96,7 @@ type PrimaryCategory =
   | "SECURITY_PRIVACY_AND_COMPLIANCE_INFRASTRUCTURE"
   | "PROVIDER_EXPERIENCE_AND_DEVELOPMENT"
   | "OTHER";
-type DeclineReason =
-  | "PRODUCT"
-  | "INSUFFICIENT_ROI"
-  | "HIGHLY_COMPETITIVE_LANDSCAPE"
-  | "OUT_OF_INVESTMENT_THESIS_SCOPE"
-  | "TOO_EARLY"
-  | "TOO_MATURE_FOR_SEED_INVESTMENT"
-  | "LACKS_PROOF_POINTS"
-  | "INSUFFICIENT_TAM"
-  | "TEAM"
-  | "HEALTH_SYSTEM_BUYING_PROCESS"
-  | "WORKFLOW_FRICTION"
-  | "OTHER";
+type DeclineReason = IntakeDeclineReason;
 type LeadSourceType = "HEALTH_SYSTEM" | "OTHER";
 
 type CompanyHealthSystemLink = {
@@ -158,6 +152,8 @@ type CompanyRecord = {
   screeningEvaluationAt?: string | null;
   pipeline?: {
     phase: PipelinePhase;
+    category: PipelineCategory;
+    intakeDecision: IntakeDecision;
   } | null;
   researchStatus: ResearchStatus;
   researchNotes?: string | null;
@@ -272,25 +268,18 @@ const primaryCategoryOptions: Array<{ value: PrimaryCategory; label: string }> =
   { value: "OTHER", label: "Other" }
 ];
 
-const declineReasonOptions: Array<{ value: DeclineReason | ""; label: string }> = [
-  { value: "", label: "Not declined" },
-  { value: "PRODUCT", label: "Product" },
-  { value: "INSUFFICIENT_ROI", label: "Insufficient ROI" },
-  { value: "HIGHLY_COMPETITIVE_LANDSCAPE", label: "Highly Competitive Landscape" },
-  { value: "OUT_OF_INVESTMENT_THESIS_SCOPE", label: "Out of Investment Thesis Scope" },
-  { value: "TOO_EARLY", label: "Too Early" },
-  { value: "TOO_MATURE_FOR_SEED_INVESTMENT", label: "Too Mature for Seed Investment" },
-  { value: "LACKS_PROOF_POINTS", label: "Lacks Proof Points" },
-  { value: "INSUFFICIENT_TAM", label: "Insufficient TAM" },
-  { value: "TEAM", label: "Team" },
-  { value: "HEALTH_SYSTEM_BUYING_PROCESS", label: "Health System Buying Process" },
-  { value: "WORKFLOW_FRICTION", label: "Workflow Friction" },
-  { value: "OTHER", label: "Other" }
-];
+const declineReasonOptions: Array<{ value: DeclineReason | ""; label: string }> = INTAKE_DECLINE_REASON_OPTIONS;
 
 const leadSourceOptions: Array<{ value: LeadSourceType; label: string }> = [
   { value: "OTHER", label: "Other" },
   { value: "HEALTH_SYSTEM", label: "Health System" }
+];
+
+const companyCategoryFilterOptions: Array<{ value: CompanyStatusFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "closed", label: "Closed / Lost" },
+  { value: "review-later", label: "Review Later" }
 ];
 
 function formatLocation(record: {
@@ -448,8 +437,42 @@ function pipelinePhaseTagForCompany(record: Pick<CompanyRecord, "declineReason" 
   };
 }
 
+function pipelineStatusCategoryForRecord(record: Pick<CompanyRecord, "pipeline">) {
+  if (!record.pipeline) return "ACTIVE";
+
+  const category = record.pipeline.category;
+  if (record.pipeline.phase === "DECLINED" || record.pipeline.phase === "CLOSED") {
+    if (record.pipeline.intakeDecision === "REVISIT_LATER") {
+      return "RE_ENGAGE_LATER";
+    }
+    return "CLOSED";
+  }
+
+  if (category === "ACTIVE" || category === "CLOSED" || category === "RE_ENGAGE_LATER") {
+    return category;
+  }
+
+  return "ACTIVE";
+}
+
+function recordMatchesPipelineFilter(record: CompanyRecord, filter: CompanyStatusFilter) {
+  if (filter === "all") return true;
+  const category = pipelineStatusCategoryForRecord(record);
+  if (filter === "active") return category === "ACTIVE";
+  if (filter === "closed") return category === "CLOSED";
+  return category === "RE_ENGAGE_LATER";
+}
+
 function isClosedOpportunityStage(stage: CompanyOpportunityStage) {
   return stage === "CLOSED_WON" || stage === "CLOSED_LOST";
+}
+
+function isDeclinedVentureStudioOpportunity(opportunity: OpportunitySummary) {
+  return opportunity.type === "VENTURE_STUDIO_SERVICES" && opportunity.stage === "ON_HOLD";
+}
+
+function isClosedOpportunity(opportunity: OpportunitySummary) {
+  return isClosedOpportunityStage(opportunity.stage) || isDeclinedVentureStudioOpportunity(opportunity);
 }
 
 function formatOpportunityDate(value: string | null | undefined) {
@@ -660,7 +683,8 @@ export function CompanyWorkbench() {
   const [opportunities, setOpportunities] = React.useState<OpportunitySummary[]>([]);
   const [opportunitiesLoading, setOpportunitiesLoading] = React.useState(false);
   const [opportunitiesError, setOpportunitiesError] = React.useState<string | null>(null);
-  const [opportunityStatusFilter, setOpportunityStatusFilter] = React.useState<OpportunityStatusFilter>("open");
+  const [opportunityStatusFilter, setOpportunityStatusFilter] = React.useState<OpportunityStatusFilter>("all");
+  const [companyStatusFilter, setCompanyStatusFilter] = React.useState<CompanyStatusFilter>("active");
   const returnTo = React.useMemo(() => {
     const queryParams = new URLSearchParams(searchParams);
     if (selectedRecordId) {
@@ -698,11 +722,12 @@ export function CompanyWorkbench() {
 
           return haystack.includes(term);
         });
+    const statusFilteredRecords = matchingRecords.filter((record) => recordMatchesPipelineFilter(record, companyStatusFilter));
 
-    return [...matchingRecords].sort((left, right) =>
+    return [...statusFilteredRecords].sort((left, right) =>
       left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
     );
-  }, [records, query]);
+  }, [records, query, companyStatusFilter]);
 
   const selectedRecord = React.useMemo(
     () => records.find((record) => record.id === selectedRecordId) || null,
@@ -727,11 +752,28 @@ export function CompanyWorkbench() {
   const filteredOpportunities = React.useMemo(
     () =>
       opportunities.filter((opportunity) =>
-        opportunityStatusFilter === "open"
-          ? !isClosedOpportunityStage(opportunity.stage)
-          : isClosedOpportunityStage(opportunity.stage)
+        opportunityStatusFilter === "all"
+          ? true
+          : opportunityStatusFilter === "open"
+            ? !isClosedOpportunity(opportunity)
+            : isClosedOpportunity(opportunity)
       ),
     [opportunities, opportunityStatusFilter]
+  );
+  const opportunityTabBadgeCounts = React.useMemo(
+    () =>
+      opportunities.reduce(
+        (counts, opportunity) => {
+          if (isClosedOpportunity(opportunity)) {
+            counts.closed += 1;
+          } else {
+            counts.open += 1;
+          }
+          return counts;
+        },
+        { open: 0, closed: 0 }
+      ),
+    [opportunities]
   );
 
   const leadSourceHealthSystemName = React.useMemo(() => {
@@ -1754,7 +1796,7 @@ export function CompanyWorkbench() {
       setOpportunities([]);
       setOpportunitiesLoading(false);
       setOpportunitiesError(null);
-      setOpportunityStatusFilter("open");
+      setOpportunityStatusFilter("all");
       return;
     }
 
@@ -1771,7 +1813,7 @@ export function CompanyWorkbench() {
       setOpportunities([]);
       setOpportunitiesLoading(false);
       setOpportunitiesError(null);
-      setOpportunityStatusFilter("open");
+      setOpportunityStatusFilter("all");
     }
   }, [returnToActiveTab, returnToRecordId, selectedRecord, draftRecordId]);
 
@@ -1780,7 +1822,7 @@ export function CompanyWorkbench() {
       setOpportunities([]);
       setOpportunitiesLoading(false);
       setOpportunitiesError(null);
-      setOpportunityStatusFilter("open");
+      setOpportunityStatusFilter("all");
       return;
     }
 
@@ -1851,6 +1893,31 @@ export function CompanyWorkbench() {
                     Clear
                   </button>
                 ) : null}
+              </div>
+              <div className="opportunity-filter-bar" role="radiogroup" aria-label="Filter companies by venture studio opportunity status">
+                <p className="opportunity-filter-label">Venture Studio Opportunity Status</p>
+                <div className="opportunity-filter-options">
+                  {companyCategoryFilterOptions.map((option) => {
+                    const active = companyStatusFilter === option.value;
+                    return (
+                      <label
+                        key={option.value}
+                        className={`opportunity-filter-option ${active ? "active" : ""}`}
+                        htmlFor={`company-status-filter-${option.value}`}
+                      >
+                        <span>{option.label}</span>
+                        <input
+                          id={`company-status-filter-${option.value}`}
+                          type="radio"
+                          name="company-status-filter"
+                          value={option.value}
+                          checked={active}
+                          onChange={() => setCompanyStatusFilter(option.value)}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           <EntityLookupInput
@@ -2189,7 +2256,7 @@ export function CompanyWorkbench() {
                   aria-selected={activeDetailTab === "pipeline"}
                   onClick={() => setActiveDetailTab("pipeline")}
                 >
-                  Pipeline
+                  Venture Studio Opportunity
                 </button>
                 <button
                   type="button"
@@ -2198,7 +2265,15 @@ export function CompanyWorkbench() {
                   aria-selected={activeDetailTab === "opportunities"}
                   onClick={() => setActiveDetailTab("opportunities")}
                 >
-                  Opportunities
+                  <span className="detail-tab-label-with-badges">
+                    <span>Health System Opportunities</span>
+                    {opportunityTabBadgeCounts.open > 0 ? (
+                      <span className="detail-tab-badge detail-tab-badge-open">{opportunityTabBadgeCounts.open}</span>
+                    ) : null}
+                    {opportunityTabBadgeCounts.closed > 0 ? (
+                      <span className="detail-tab-badge detail-tab-badge-closed">{opportunityTabBadgeCounts.closed}</span>
+                    ) : null}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -2437,11 +2512,12 @@ export function CompanyWorkbench() {
               {activeDetailTab === "opportunities" && (
                 <>
                   <div className="detail-section opportunity-section">
-                    <p className="detail-label">Opportunities</p>
-                    <div className="opportunity-filter-bar" role="radiogroup" aria-label="Filter opportunities by status">
+                    <div aria-hidden="true" style={{ height: "0.35rem" }} />
+                    <div className="opportunity-filter-bar" role="radiogroup" aria-label="Filter health system opportunities by status">
                       <p className="opportunity-filter-label">Status</p>
                       <div className="opportunity-filter-options">
                         {([
+                          { value: "all", label: "All" },
                           { value: "open", label: "Open" },
                           { value: "closed", label: "Closed" }
                         ] as const).map((option) => {
@@ -2466,13 +2542,17 @@ export function CompanyWorkbench() {
                         })}
                       </div>
                     </div>
-                    {opportunitiesLoading ? <p className="muted">Loading opportunities...</p> : null}
+                    {opportunitiesLoading ? <p className="muted">Loading health system opportunities...</p> : null}
                     {opportunitiesError ? <p className="status error">{opportunitiesError}</p> : null}
                     {!opportunitiesLoading &&
                     !opportunitiesError &&
                     filteredOpportunities.length === 0 ? (
                       <p className="muted">
-                        {opportunityStatusFilter === "open" ? "No open opportunities." : "No closed opportunities."}
+                        {opportunityStatusFilter === "all"
+                          ? "No health system opportunities."
+                          : opportunityStatusFilter === "open"
+                            ? "No open health system opportunities."
+                            : "No closed health system opportunities."}
                       </p>
                     ) : null}
 
@@ -2482,13 +2562,21 @@ export function CompanyWorkbench() {
                           <thead>
                             <tr>
                               <th>Company</th>
-                              <th>Opportunity</th>
+                              <th>Health System Opportunity</th>
                               <th>Health System</th>
                               <th>Stage</th>
+                              <th>Owner</th>
+                              <th>Created</th>
                               <th>Next Step</th>
                               <th>Likelihood</th>
                               <th>Contract Price</th>
-                              <th>Expected Close</th>
+                              <th>
+                                {opportunityStatusFilter === "closed"
+                                  ? "Closed Date"
+                                  : opportunityStatusFilter === "open"
+                                    ? "Expected Close"
+                                    : "Close / Expected"}
+                              </th>
                               <th>Contacts</th>
                             </tr>
                           </thead>
@@ -2508,10 +2596,18 @@ export function CompanyWorkbench() {
                                 </td>
                                 <td>{opportunity.healthSystem?.name || "-"}</td>
                                 <td>{opportunity.stage}</td>
+                                <td>{opportunity.ownerName || "Unassigned"}</td>
+                                <td>{formatOpportunityDate(opportunity.createdAt)}</td>
                                 <td>{opportunity.nextSteps || "-"}</td>
                                 <td>{opportunity.likelihoodPercent === null ? "-" : `${opportunity.likelihoodPercent}%`}</td>
                                 <td>{formatOpportunityCurrency(opportunity.contractPriceUsd)}</td>
-                                <td>{formatOpportunityDate(opportunity.estimatedCloseDate)}</td>
+                                <td>
+                                  {formatOpportunityDate(
+                                    isClosedOpportunity(opportunity)
+                                      ? opportunity.closedAt
+                                      : opportunity.estimatedCloseDate
+                                  )}
+                                </td>
                                 <td>{opportunity.contactCount}</td>
                               </tr>
                             ))}

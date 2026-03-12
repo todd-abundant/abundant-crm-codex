@@ -146,6 +146,7 @@ enum CompanyIntakeDecision {
   PENDING
   ADVANCE_TO_NEGOTIATION
   DECLINE
+  REVISIT_LATER
 }
 
 enum CompanyDocumentType {
@@ -397,6 +398,7 @@ model CoInvestor {
   venturePartners           VenturePartner[]
   interactions              CoInvestorInteraction[]
   nextActions               NextAction[]
+  signalEvents              CoInvestorSignalEvent[]
   companyFundraiseInvestors CompanyFundraiseInvestor[]
 
   @@index([name])
@@ -433,6 +435,33 @@ model CoInvestorInvestment {
 
   @@index([coInvestorId])
   @@index([portfolioCompanyName])
+}
+
+model CoInvestorSignalEvent {
+  id                String   @id @default(cuid())
+  coInvestorId      String
+  eventType         String
+  headline          String
+  summary           String
+  suggestedOutreach String?
+  confidenceScore   Float?
+  relevanceScore    Int?
+  signalDate        DateTime?
+  sourceUrl         String
+  sourceDomain      String?
+  sourceTitle       String?
+  sourcePublishedAt DateTime?
+  dedupeKey         String
+  metadataJson      Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  coInvestor CoInvestor @relation(fields: [coInvestorId], references: [id], onDelete: Cascade)
+
+  @@unique([coInvestorId, dedupeKey])
+  @@index([coInvestorId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([sourcePublishedAt])
 }
 
 model CoInvestorResearchJob {
@@ -849,6 +878,43 @@ model CompanyOpportunityContact {
 
   @@unique([opportunityId, contactId])
   @@index([contactId])
+}
+
+model HealthSystemOpportunity {
+  id                         String                  @id
+  legacyCompanyOpportunityId String?                 @unique
+  companyId                  String
+  healthSystemId             String?
+  type                       CompanyOpportunityType
+  title                      String
+  stage                      CompanyOpportunityStage @default(IDENTIFIED)
+  likelihoodPercent          Int?
+  contractPriceUsd           Decimal?                @db.Decimal(16, 2)
+  durationDays               Int?
+  notes                      String?
+  nextSteps                  String?
+  closeReason                String?
+  estimatedCloseDate         DateTime?
+  closedAt                   DateTime?
+  createdAt                  DateTime                @default(now())
+  updatedAt                  DateTime                @updatedAt
+
+  @@index([companyId, type])
+  @@index([healthSystemId])
+  @@index([companyId, healthSystemId, type, stage])
+}
+
+model HealthSystemOpportunityContact {
+  id            String   @id @default(cuid())
+  opportunityId String
+  contactId     String
+  role          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([opportunityId, contactId])
+  @@index([contactId])
+  @@index([opportunityId])
 }
 
 model CompanyScreeningEvent {

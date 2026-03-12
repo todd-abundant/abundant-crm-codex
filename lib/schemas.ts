@@ -127,6 +127,17 @@ export const processResearchJobsRequestSchema = z.object({
   maxJobs: z.number().int().positive().max(10).optional().default(1)
 });
 
+export const coInvestorSignalsProcessRequestSchema = z.object({
+  maxCoInvestors: z.number().int().positive().max(100).optional().default(10),
+  maxSignalsPerCoInvestor: z.number().int().positive().max(10).optional().default(4),
+  lookbackDays: z.number().int().positive().max(30).optional().default(14)
+});
+
+export const coInvestorSignalsListQuerySchema = z.object({
+  limit: z.number().int().positive().max(200).optional().default(50),
+  days: z.number().int().positive().max(60).optional().default(7)
+});
+
 export const prefillRequestSchema = z.object({
   prompt: z.string().min(5)
 });

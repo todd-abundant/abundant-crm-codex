@@ -259,7 +259,9 @@ main {
   color: #eef5fd;
   font-weight: 700;
   letter-spacing: 0.02em;
+  text-decoration: none;
   text-shadow: 0 1px 0 rgba(4, 14, 30, 0.5);
+  margin-right: auto;
 }
 
 .top-nav nav {
@@ -2550,6 +2552,37 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
   border-bottom-color: #b5c8de;
 }
 
+.detail-tab-label-with-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.detail-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.detail-tab-badge-open {
+  border: 1px solid #9fd3b2;
+  background: #e7f7ed;
+  color: #1f7a3f;
+}
+
+.detail-tab-badge-closed {
+  border: 1px solid #f0b8be;
+  background: #feecee;
+  color: #b42318;
+}
+
 .admin-control-panel {
   padding: 0;
   overflow: hidden;
@@ -3143,6 +3176,67 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
   outline: none;
 }
 
+.entity-detail-panel .detail-grid > div > label:has(+ .react-datepicker-wrapper),
+.entity-detail-panel .detail-section > label:has(+ .react-datepicker-wrapper),
+.entity-detail-panel .detail-list-item > label:has(+ .react-datepicker-wrapper),
+.health-system-detail-panel .detail-grid > div > label:has(+ .react-datepicker-wrapper),
+.health-system-detail-panel .detail-section > label:has(+ .react-datepicker-wrapper),
+.health-system-detail-panel .detail-list-item > label:has(+ .react-datepicker-wrapper) {
+  display: inline-block;
+  width: var(--detail-field-label-width);
+  max-width: var(--detail-field-label-width);
+  margin: 0;
+  padding-top: 4px;
+  vertical-align: top;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.entity-detail-panel .detail-grid > div > label + .react-datepicker-wrapper,
+.entity-detail-panel .detail-section > label + .react-datepicker-wrapper,
+.entity-detail-panel .detail-list-item > label + .react-datepicker-wrapper,
+.health-system-detail-panel .detail-grid > div > label + .react-datepicker-wrapper,
+.health-system-detail-panel .detail-section > label + .react-datepicker-wrapper,
+.health-system-detail-panel .detail-list-item > label + .react-datepicker-wrapper {
+  display: inline-block;
+  width: calc(100% - var(--detail-field-label-width) - 10px);
+  min-width: 0;
+  vertical-align: top;
+}
+
+.entity-detail-panel .detail-grid > div > label + .react-datepicker-wrapper .react-datepicker__input-container input,
+.entity-detail-panel .detail-section > label + .react-datepicker-wrapper .react-datepicker__input-container input,
+.entity-detail-panel .detail-list-item > label + .react-datepicker-wrapper .react-datepicker__input-container input,
+.health-system-detail-panel .detail-grid > div > label + .react-datepicker-wrapper .react-datepicker__input-container input,
+.health-system-detail-panel .detail-section > label + .react-datepicker-wrapper .react-datepicker__input-container input,
+.health-system-detail-panel .detail-list-item > label + .react-datepicker-wrapper .react-datepicker__input-container input {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  padding: 4px 6px;
+  line-height: 1.35;
+  box-shadow: none;
+}
+
+.entity-detail-panel .detail-grid > div > label + .react-datepicker-wrapper .react-datepicker__input-container input:hover,
+.entity-detail-panel .detail-grid > div > label + .react-datepicker-wrapper .react-datepicker__input-container input:focus,
+.entity-detail-panel .detail-section > label + .react-datepicker-wrapper .react-datepicker__input-container input:hover,
+.entity-detail-panel .detail-section > label + .react-datepicker-wrapper .react-datepicker__input-container input:focus,
+.entity-detail-panel .detail-list-item > label + .react-datepicker-wrapper .react-datepicker__input-container input:hover,
+.entity-detail-panel .detail-list-item > label + .react-datepicker-wrapper .react-datepicker__input-container input:focus,
+.health-system-detail-panel .detail-grid > div > label + .react-datepicker-wrapper .react-datepicker__input-container input:hover,
+.health-system-detail-panel .detail-grid > div > label + .react-datepicker-wrapper .react-datepicker__input-container input:focus,
+.health-system-detail-panel .detail-section > label + .react-datepicker-wrapper .react-datepicker__input-container input:hover,
+.health-system-detail-panel .detail-section > label + .react-datepicker-wrapper .react-datepicker__input-container input:focus,
+.health-system-detail-panel .detail-list-item > label + .react-datepicker-wrapper .react-datepicker__input-container input:hover,
+.health-system-detail-panel .detail-list-item > label + .react-datepicker-wrapper .react-datepicker__input-container input:focus {
+  border-color: #d7e4f2;
+  background: #f7fbff;
+  outline: none;
+}
+
 .inline-edit-display {
   min-height: 30px;
   padding: 4px 6px;
@@ -3320,6 +3414,46 @@ button.entity-list-search-clear:focus-visible:not(:disabled) {
 .inline-edit-field textarea:focus {
   border-color: #7da7d2;
   box-shadow: 0 0 0 2px rgba(125, 167, 210, 0.18);
+}
+
+.entity-detail-panel .inline-edit-field input:not([type="checkbox"]):not([type="radio"]),
+.entity-detail-panel .detail-card .detail-grid > div:not(.inline-edit-field) > label + input:not([type="checkbox"]):not([type="radio"]),
+.entity-detail-panel .detail-card .detail-section > label + input:not([type="checkbox"]):not([type="radio"]),
+.entity-detail-panel .detail-card .detail-list-item > label + input:not([type="checkbox"]):not([type="radio"]),
+.entity-detail-panel .inline-date-edit .react-datepicker__input-container input,
+.health-system-detail-panel .inline-edit-field input:not([type="checkbox"]):not([type="radio"]),
+.health-system-detail-panel .detail-card .detail-grid > div:not(.inline-edit-field) > label + input:not([type="checkbox"]):not([type="radio"]),
+.health-system-detail-panel .detail-card .detail-section > label + input:not([type="checkbox"]):not([type="radio"]),
+.health-system-detail-panel .detail-card .detail-list-item > label + input:not([type="checkbox"]):not([type="radio"]),
+.health-system-detail-panel .inline-date-edit .react-datepicker__input-container input {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 6px;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.entity-detail-panel .inline-edit-field input:not([type="checkbox"]):not([type="radio"]):hover,
+.entity-detail-panel .inline-edit-field input:not([type="checkbox"]):not([type="radio"]):focus,
+.entity-detail-panel .inline-date-edit .react-datepicker__input-container input:hover,
+.entity-detail-panel .inline-date-edit .react-datepicker__input-container input:focus,
+.health-system-detail-panel .inline-edit-field input:not([type="checkbox"]):not([type="radio"]):hover,
+.health-system-detail-panel .inline-edit-field input:not([type="checkbox"]):not([type="radio"]):focus,
+.health-system-detail-panel .inline-date-edit .react-datepicker__input-container input:hover,
+.health-system-detail-panel .inline-date-edit .react-datepicker__input-container input:focus {
+  border-color: #d7e4f2;
+  background: #f7fbff;
+  padding-left: 6px;
+  padding-right: 6px;
+  box-shadow: none;
+}
+
+.entity-detail-panel .pipeline-status-readonly-value,
+.health-system-detail-panel .pipeline-status-readonly-value,
+.entity-detail-panel input[readonly]:not([type="checkbox"]):not([type="radio"]),
+.health-system-detail-panel input[readonly]:not([type="checkbox"]):not([type="radio"]) {
+  color: #66798f;
 }
 
 .app-date-picker-popper {
@@ -4516,11 +4650,29 @@ select {
   margin: 2px 0 0;
 }
 
+.pipeline-board-page {
+  height: calc(100dvh - 74px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.pipeline-board-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
 .pipeline-kanban {
   display: grid;
   grid-template-columns: repeat(4, minmax(240px, 1fr));
   gap: 12px;
-  margin-top: 12px;
+  margin-top: 0;
+  min-height: 0;
+  overflow-x: hidden;
 }
 
 .pipeline-view-selector {
@@ -4532,10 +4684,13 @@ select {
   background: #ffffff;
   border: 1px solid var(--colorBorder);
   border-radius: var(--radiusCard);
-  min-height: 320px;
+  min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   box-shadow: 0 2px 8px rgba(10, 47, 90, 0.05);
+  overflow: hidden;
+  min-width: 0;
 }
 
 .pipeline-column.drag-over {
@@ -4548,7 +4703,10 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 10px 0;
+  padding: 10px;
+  background: #ffffff;
+  border-bottom: 1px solid #dce7f3;
+  flex: 0 0 auto;
 }
 
 .pipeline-column-head h2 {
@@ -4562,6 +4720,15 @@ select {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-width: 0;
+}
+
+.pipeline-card {
+  min-width: 0;
 }
 
 .pipeline-column-add-row {
@@ -4570,53 +4737,24 @@ select {
   min-height: 24px;
 }
 
-.pipeline-filter-row {
+.pipeline-column-filter-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 6px;
 }
 
-.pipeline-filter-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid var(--colorBorder);
-  border-radius: 999px;
-  background: #f4f7fb;
-  color: var(--colorTextSecondary);
-  font: inherit;
-  font-size: 0.8rem;
-  font-weight: 600;
-  padding: 6px 10px;
-  cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+.pipeline-column-filter-input {
+  width: 100%;
+  min-height: 30px;
+  border: 1px solid #c6d8ea;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 5px 8px;
+  color: #1f2937;
 }
 
-.pipeline-filter-chip:hover,
-.pipeline-filter-chip:focus-visible {
-  border-color: #8cb4de;
-  color: var(--colorTextPrimary);
+.pipeline-column-filter-input:focus {
+  border-color: #7da7d2;
+  box-shadow: 0 0 0 2px rgba(125, 167, 210, 0.2);
   outline: none;
-}
-
-.pipeline-filter-chip.active {
-  background: #dcecff;
-  border-color: #7ea8d8;
-  color: #0a3d73;
-}
-
-.pipeline-filter-chip-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.35rem;
-  height: 1.35rem;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: rgba(10, 61, 115, 0.1);
-  color: inherit;
-  font-size: 0.74rem;
 }
 
 .pipeline-column-add-button {
@@ -4636,12 +4774,15 @@ select {
 }
 
 .pipeline-inactive-queue {
-  margin-top: 18px;
+  margin-top: 0;
   background: #ffffff;
   border: 1px solid var(--colorBorder);
   border-radius: var(--radiusCard);
   box-shadow: 0 2px 8px rgba(10, 47, 90, 0.05);
   padding: 14px;
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
 }
 
 .pipeline-inactive-queue-head {
@@ -4662,6 +4803,9 @@ select {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 10px;
+  max-height: min(34vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .pipeline-card-inactive {
@@ -4823,8 +4967,9 @@ select {
   left: 0;
   top: calc(100% + 6px);
   z-index: 20;
-  min-width: 220px;
-  max-width: 330px;
+  min-width: 300px;
+  max-width: 440px;
+  width: max-content;
   padding: 8px;
   border: 1px solid #cfdbea;
   border-radius: 8px;
@@ -4859,7 +5004,7 @@ select {
 
 .pipeline-open-opportunity-item {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto minmax(190px, 1fr) auto auto auto auto;
   align-items: center;
   gap: 7px;
   font-size: 11px;
@@ -4870,18 +5015,6 @@ select {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-}
-
-.pipeline-open-opportunity-status-red {
-  background: #d14343;
-}
-
-.pipeline-open-opportunity-status-yellow {
-  background: #d3a40a;
-}
-
-.pipeline-open-opportunity-status-green {
-  background: #2f9e60;
 }
 
 .pipeline-open-opportunity-name {
@@ -5190,6 +5323,12 @@ select {
   padding: 10px 12px 16px;
 }
 
+.pipeline-detail-panel .opportunities-top-row {
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+
 .pipeline-detail-tab-panel {
   min-height: clamp(560px, 68vh, 820px);
 }
@@ -5226,6 +5365,58 @@ select {
   white-space: pre-wrap;
   line-height: 1.5;
   color: var(--colorTextPrimary);
+}
+
+.entity-detail-panel .detail-section.company-pipeline-main-section,
+.health-system-detail-panel .detail-section.company-pipeline-main-section,
+.pipeline-detail-panel .detail-section.company-pipeline-main-section {
+  padding-top: 12px;
+}
+
+.pipeline-detail-panel .venture-studio-opportunity-tab-content {
+  --detail-field-label-width: 230px;
+}
+
+.pipeline-detail-panel .venture-studio-opportunity-tab-content .inline-edit-field > label {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.venture-studio-opportunity-tab-content .inline-edit-field > input,
+.venture-studio-opportunity-tab-content .inline-edit-field > select,
+.venture-studio-opportunity-tab-content .inline-edit-field > textarea,
+.venture-studio-opportunity-tab-content .inline-date-edit .react-datepicker__input-container input,
+.venture-studio-opportunity-tab-content .inline-edit-display {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 6px;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.venture-studio-opportunity-tab-content .inline-edit-field > input:not([type="checkbox"]):not([type="radio"]):hover,
+.venture-studio-opportunity-tab-content .inline-edit-field > input:not([type="checkbox"]):not([type="radio"]):focus,
+.venture-studio-opportunity-tab-content .inline-date-edit .react-datepicker__input-container input:hover,
+.venture-studio-opportunity-tab-content .inline-date-edit .react-datepicker__input-container input:focus,
+.venture-studio-opportunity-tab-content .inline-edit-display:hover,
+.venture-studio-opportunity-tab-content .inline-edit-display:focus-visible {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.entity-detail-panel .venture-studio-opportunity-tab-content {
+  padding-left: 12px;
+  padding-bottom: 10px;
+}
+
+.entity-detail-panel .company-pipeline-save-actions {
+  padding-left: 12px;
+  padding-bottom: 10px;
 }
 
 .pipeline-note-backdrop {
@@ -7482,8 +7673,36 @@ select {
 }
 
 @media (max-width: 1220px) {
+  .pipeline-board-page {
+    height: auto;
+    overflow: visible;
+  }
+
+  .pipeline-board-shell {
+    display: block;
+  }
+
   .pipeline-kanban {
+    margin-top: 12px;
     grid-template-columns: repeat(2, minmax(250px, 1fr));
+  }
+
+  .pipeline-column {
+    height: auto;
+  }
+
+  .pipeline-column-body {
+    overflow-y: visible;
+  }
+
+  .pipeline-inactive-queue {
+    position: static;
+    margin-top: 18px;
+  }
+
+  .pipeline-inactive-grid {
+    max-height: none;
+    overflow-y: visible;
   }
 
   .screening-survey-question-row {

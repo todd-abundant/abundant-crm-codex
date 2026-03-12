@@ -52,6 +52,7 @@ type ReportRow = {
     id: string;
     name: string;
   };
+  ownerName: string | null;
   declineReason: string | null;
   declineReasonOther: string | null;
   healthSystem: {
@@ -249,6 +250,11 @@ export async function GET(request: Request) {
         select: {
           id: true,
           name: true,
+          pipeline: {
+            select: {
+              ownerName: true
+            }
+          },
           declineReason: true,
           declineReasonOther: true
         }
@@ -289,6 +295,7 @@ export async function GET(request: Request) {
         id: entry.company.id,
         name: entry.company.name
       },
+      ownerName: entry.company.pipeline?.ownerName ?? null,
       declineReason: entry.company.declineReason,
       declineReasonOther: entry.company.declineReasonOther,
       healthSystem: entry.healthSystem
@@ -339,6 +346,7 @@ export async function GET(request: Request) {
           pipeline: {
             select: {
               phase: true,
+              ownerName: true,
               intakeDecisionAt: true,
               intakeDecisionNotes: true,
               updatedAt: true
@@ -384,6 +392,7 @@ export async function GET(request: Request) {
               id: company.id,
               name: company.name
             },
+            ownerName: company.pipeline?.ownerName ?? null,
             declineReason: company.declineReason,
             declineReasonOther: company.declineReasonOther,
             healthSystem: company.leadSourceHealthSystem

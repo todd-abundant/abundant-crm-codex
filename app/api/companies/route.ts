@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { companyInputSchema } from "@/lib/schemas";
 import { parseDateInput } from "@/lib/date-parse";
+import { getCurrentUser } from "@/lib/auth/server";
 
 function parseMoney(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
@@ -17,6 +18,14 @@ function parseDate(value?: string | null) {
 function toNullableString(value?: string | null) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+function parseOwnerNameFromUser(value?: string | null) {
+  const trimmed = (value || "").trim().replace(/\s+/g, " ");
+  if (!trimmed) return null;
+  const parts = trimmed.split(" ");
+  if (parts.length <= 1) return trimmed;
+  return `${parts[0]} ${parts[parts.length - 1]}`;
 }
 
 function normalizeText(value?: string | null) {
@@ -133,7 +142,9 @@ export async function GET() {
     include: {
       pipeline: {
         select: {
-          phase: true
+          phase: true,
+          category: true,
+          intakeDecision: true
         }
       },
       leadSourceHealthSystem: { select: { id: true, name: true } },
@@ -162,6 +173,8 @@ export async function POST(request: Request) {
     const body = await request.json();
     const input = companyInputSchema.parse(body);
     const base = mapCompanyCreateData(input);
+    const currentUser = await getCurrentUser();
+    const ownerName = parseOwnerNameFromUser(currentUser?.name || null);
 
     const existingCompanies = await prisma.company.findMany({
       where: { name: { mode: "insensitive", equals: base.name } },
@@ -213,6 +226,11 @@ export async function POST(request: Request) {
             notes: toNullableString(link.notes),
             investmentAmountUsd: parseMoney(link.investmentAmountUsd)
           }))
+        },
+        pipeline: {
+          create: {
+            ownerName
+          }
         }
       },
       include: {

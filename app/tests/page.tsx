@@ -23,6 +23,14 @@ export default function TestsHomePage() {
               </span>
             </div>
           </Link>
+          <Link className="list-row" href="/tests/co-investor-signals-digest">
+            <div className="list-row-main">
+              <strong>Co-Investor Signals Digest</strong>
+              <span className="muted">
+                Run a signal sweep and review recent co-investor congrats + strategic insight items in one table.
+              </span>
+            </div>
+          </Link>
         </div>
       </section>
     </main>

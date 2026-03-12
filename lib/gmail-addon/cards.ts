@@ -247,7 +247,7 @@ export function buildHomeCard(args: {
         ...suggestionWidgets("Contact", matches.contacts, "No likely contact match"),
         ...suggestionWidgets("Company", matches.companies, "No likely company match"),
         ...suggestionWidgets("Health system", matches.healthSystems, "No likely health system match"),
-        ...suggestionWidgets("Opportunity", matches.opportunities, "No likely opportunity match")
+        ...suggestionWidgets("Health System Opportunity", matches.opportunities, "No likely health system opportunity match")
       ]
     },
     {
@@ -257,7 +257,7 @@ export function buildHomeCard(args: {
         buttonWidget("Add Contact", endpoint, { addonAction: "nav_add_contact", ...params }),
         buttonWidget("Add Company", endpoint, { addonAction: "nav_add_company", ...params }),
         buttonWidget("Add Health System", endpoint, { addonAction: "nav_add_health_system", ...params }),
-        buttonWidget("Add Opportunity", endpoint, { addonAction: "nav_add_opportunity", ...params })
+        buttonWidget("Add Health System Opportunity", endpoint, { addonAction: "nav_add_opportunity", ...params })
       ]
     }
   ];
@@ -278,7 +278,7 @@ function targetItemsFromMatches(matches: MatchResults) {
     items.push({ text: `Health system: ${healthSystem.label}`, value: `HEALTH_SYSTEM:${healthSystem.id}` });
   }
   for (const opportunity of matches.opportunities.slice(0, 4)) {
-    items.push({ text: `Opportunity: ${opportunity.label}`, value: `OPPORTUNITY:${opportunity.id}` });
+    items.push({ text: `Health System Opportunity: ${opportunity.label}`, value: `OPPORTUNITY:${opportunity.id}` });
   }
 
   return items;
@@ -430,9 +430,9 @@ export function buildAddOpportunityCard(args: {
 }) {
   const { endpoint, message, companyOptions, healthSystemOptions } = args;
 
-  return baseCard("Add Opportunity", "Create an opportunity under a company", [
+  return baseCard("Add Health System Opportunity", "Create a health system opportunity under a company", [
     {
-      header: "Opportunity details",
+      header: "Health system opportunity details",
       widgets: [
         ...(companyOptions.length > 0
           ? [
@@ -454,7 +454,7 @@ export function buildAddOpportunityCard(args: {
                 }
               }
             ]),
-        textInputWidget("opportunityTitle", "Opportunity title", message.subject),
+        textInputWidget("opportunityTitle", "Health system opportunity title", message.subject),
         selectionWidget("opportunityType", "Type", "DROPDOWN", [
           { text: "Prospect pursuit", value: "PROSPECT_PURSUIT", selected: true },
           { text: "Screening LOI", value: "SCREENING_LOI" },
@@ -476,7 +476,7 @@ export function buildAddOpportunityCard(args: {
         ]),
         textInputWidget("opportunityNotes", "Notes (optional)", "", true),
         dualButtonWidget(
-          "Save Opportunity",
+          "Save Health System Opportunity",
           endpoint,
           {
             addonAction: "submit_add_opportunity",

@@ -98,7 +98,7 @@ function affiliationKindLabel(kind: NoteAffiliation["kind"]) {
   if (kind === "company") return "Company";
   if (kind === "healthSystem") return "Health System";
   if (kind === "contact") return "Contact";
-  return "Opportunity";
+  return "Health System Opportunity";
 }
 
 export function EntityNotesPane({ entityPath, entityId, onStatus }: EntityNotesPaneProps) {

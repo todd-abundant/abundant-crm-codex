@@ -3,6 +3,7 @@
 import * as React from "react";
 import { DateInputField } from "./date-input-field";
 import { EntityLookupInput } from "./entity-lookup-input";
+import { VentureStudioOpportunityTabContent } from "./venture-studio-opportunity-tab-content";
 import { RichTextArea } from "./rich-text-area";
 import {
   inferGoogleDocumentTitle,
@@ -14,6 +15,13 @@ import {
 import { resolveGoogleDocumentTitle } from "@/lib/google-document-title";
 import { toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
 import { createDateDebugContext, dateDebugHeaders, debugDateLog } from "@/lib/date-debug";
+import {
+  PIPELINE_BOARD_COLUMNS,
+  mapBoardColumnToCanonicalPhase,
+  mapPhaseToBoardColumn,
+  type PipelineBoardColumn
+} from "@/lib/pipeline-opportunities";
+import { INTAKE_DECLINE_REASON_TEXT_SUGGESTIONS } from "@/lib/intake-decline-reasons";
 
 type PipelinePhase =
   | "INTAKE"
@@ -25,7 +33,7 @@ type PipelinePhase =
   | "PORTFOLIO_GROWTH"
   | "CLOSED";
 
-type IntakeDecision = "PENDING" | "ADVANCE_TO_NEGOTIATION" | "DECLINE";
+type IntakeDecision = "PENDING" | "ADVANCE_TO_NEGOTIATION" | "DECLINE" | "REVISIT_LATER";
 type PipelineCategory = "ACTIVE" | "CLOSED" | "RE_ENGAGE_LATER";
 type PipelineIntakeStage = "RECEIVED" | "INTRO_CALLS" | "ACTIVE_INTAKE" | "MANAGEMENT_PRESENTATION";
 type PrimaryCategory =
@@ -72,6 +80,9 @@ type ScreeningEventType = "WEBINAR" | "INDIVIDUAL_SESSION" | "OTHER";
 type AttendanceStatus = "INVITED" | "ATTENDED" | "DECLINED" | "NO_SHOW";
 type LoiStatus = "NOT_STARTED" | "PENDING" | "NEGOTIATING" | "SIGNED" | "DECLINED";
 type FundraiseStatus = "PLANNED" | "OPEN" | "CLOSED" | "CANCELLED";
+type ScreeningPipelineStatus = "OPEN" | "CLOSED_LOST";
+type IntakeVenturePipelineStatus = "OPEN" | "CLOSED_WON" | "CLOSED_LOST" | "CLOSED_REVISIT";
+type IntakeVentureLifecycleSection = "INTAKE" | "VENTURE_STUDIO";
 
 type HealthSystemOption = {
   id: string;
@@ -102,6 +113,7 @@ type PipelineOpportunityDraft = {
   title: string;
   healthSystemId: string;
   stage: OpportunityStage;
+  createdAt: string;
   likelihoodPercent: string;
   contractPriceUsd: string;
   durationDays: string;
@@ -173,12 +185,15 @@ type PipelineDraft = {
   ventureStudioContractExecutedAt: string;
   screeningWebinarDate1At: string;
   screeningWebinarDate2At: string;
+  ventureLikelihoodPercent: string;
+  ventureExpectedCloseDate: string;
   updatedAt: string;
   targetLoiCount: string;
   s1Invested: boolean;
   s1InvestmentAt: string;
   s1InvestmentAmountUsd: string;
   portfolioAddedAt: string;
+  createdAt: string;
   documents: PipelineDocumentDraft[];
   opportunities: PipelineOpportunityDraft[];
   screeningEvents: ScreeningEventDraft[];
@@ -203,55 +218,10 @@ const pipelinePhaseOptions: Array<{ value: PipelinePhase; label: string }> = [
   { value: "CLOSED", label: "Closed" }
 ];
 
-const intakeDecisionOptions: Array<{ value: IntakeDecision; label: string }> = [
-  { value: "PENDING", label: "Pending" },
-  { value: "ADVANCE_TO_NEGOTIATION", label: "Advance" },
-  { value: "DECLINE", label: "Decline" }
-];
-
-const pipelineCategoryOptions: Array<{ value: PipelineCategory; label: string }> = [
-  { value: "ACTIVE", label: "Active" },
-  { value: "CLOSED", label: "Closed" },
-  { value: "RE_ENGAGE_LATER", label: "Re-engage later" }
-];
-
-const pipelineIntakeStageOptions: Array<{ value: PipelineIntakeStage; label: string }> = [
-  { value: "RECEIVED", label: "Received" },
-  { value: "INTRO_CALLS", label: "Intro calls" },
-  { value: "ACTIVE_INTAKE", label: "Active intake" },
-  { value: "MANAGEMENT_PRESENTATION", label: "Management presentation" }
-];
-
-const primaryCategoryOptions: Array<{ value: PrimaryCategory; label: string }> = [
-  { value: "PATIENT_ACCESS_AND_GROWTH", label: "Patient Access & Growth" },
-  { value: "CARE_DELIVERY_TECH_ENABLED_SERVICES", label: "Care Delivery (Tech-Enabled Services)" },
-  { value: "CLINICAL_WORKFLOW_AND_PRODUCTIVITY", label: "Clinical Workflow & Productivity" },
-  { value: "REVENUE_CYCLE_AND_FINANCIAL_OPERATIONS", label: "Revenue Cycle & Financial Operations" },
-  { value: "VALUE_BASED_CARE_AND_POPULATION_HEALTH_ENABLEMENT", label: "Value-Based Care & Population Health Enablement" },
-  { value: "AI_ENABLED_AUTOMATION_AND_DECISION_SUPPORT", label: "AI-Enabled Automation & Decision Support" },
-  { value: "DATA_PLATFORM_INTEROPERABILITY_AND_INTEGRATION", label: "Data Platform, Interoperability & Integration" },
-  { value: "REMOTE_PATIENT_MONITORING_AND_CONNECTED_DEVICES", label: "Remote Patient Monitoring & Connected Devices" },
-  { value: "DIAGNOSTICS_IMAGING_AND_TESTING_ENABLEMENT", label: "Diagnostics, Imaging & Testing Enablement" },
-  { value: "PHARMACY_AND_MEDICATION_ENABLEMENT", label: "Pharmacy & Medication Enablement" },
-  { value: "SUPPLY_CHAIN_PROCUREMENT_AND_ASSET_OPERATIONS", label: "Supply Chain, Procurement & Asset Operations" },
-  { value: "SECURITY_PRIVACY_AND_COMPLIANCE_INFRASTRUCTURE", label: "Security, Privacy & Compliance Infrastructure" },
-  { value: "PROVIDER_EXPERIENCE_AND_DEVELOPMENT", label: "Provider Experience & Development" },
-  { value: "OTHER", label: "Other" }
-];
-
-const closedOutcomeOptions: Array<{ value: ClosedOutcome | ""; label: string }> = [
-  { value: "", label: "Not closed" },
-  { value: "INVESTED", label: "Invested" },
-  { value: "PASSED", label: "Passed" },
-  { value: "LOST", label: "Lost" },
-  { value: "WITHDREW", label: "Withdrew" },
-  { value: "OTHER", label: "Other" }
-];
-
 const documentTypeOptions: Array<{ value: DocumentType; label: string }> = [
   { value: "INTAKE_REPORT", label: "Intake Report" },
   { value: "SCREENING_REPORT", label: "Screening Report" },
-  { value: "OPPORTUNITY_REPORT", label: "Opportunity Report" },
+  { value: "OPPORTUNITY_REPORT", label: "Health System Opportunity Report" },
   { value: "TERM_SHEET", label: "Term Sheet" },
   { value: "VENTURE_STUDIO_CONTRACT", label: "Venture Studio Contract" },
   { value: "LOI", label: "LOI" },
@@ -291,6 +261,25 @@ const likelihoodByStage: Record<OpportunityStage, number> = {
 
 function defaultLikelihoodForStage(stage: OpportunityStage) {
   return likelihoodByStage[stage];
+}
+
+function isClosedOpportunityStage(stage: OpportunityStage) {
+  return stage === "CLOSED_WON" || stage === "CLOSED_LOST";
+}
+
+function pipelinePhaseProgressRank(phase: PipelinePhase) {
+  if (phase === "INTAKE") return 0;
+  if (phase === "VENTURE_STUDIO_NEGOTIATION") return 1;
+  if (phase === "SCREENING") return 2;
+  if (phase === "LOI_COLLECTION") return 3;
+  if (phase === "COMMERCIAL_NEGOTIATION") return 4;
+  if (phase === "PORTFOLIO_GROWTH") return 5;
+  return -1;
+}
+
+function shouldAdvancePhase(currentPhase: PipelinePhase, targetPhase: PipelinePhase) {
+  if (currentPhase === "DECLINED" || currentPhase === "CLOSED") return true;
+  return pipelinePhaseProgressRank(targetPhase) > pipelinePhaseProgressRank(currentPhase);
 }
 
 const screeningEventTypeOptions: Array<{ value: ScreeningEventType; label: string }> = [
@@ -341,6 +330,16 @@ function parseNullableNumber(value: string) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function parseNullablePercent(value: string) {
+  const normalized = value.trim().replace(/[%\s]/g, "");
+  if (!normalized) return null;
+  const numeric = Number(normalized);
+  if (!Number.isFinite(numeric)) return null;
+  const rounded = Math.round(numeric);
+  if (rounded < 0 || rounded > 100) return null;
+  return rounded;
+}
+
 function compareUpdatedAt(
   clientUpdatedAt: string | null | undefined,
   serverUpdatedAt: string | null | undefined
@@ -379,6 +378,19 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+function deriveIntakeVenturePipelineStatus(
+  item: Pick<PipelineDraft, "phase" | "intakeDecision"> | null | undefined
+): IntakeVenturePipelineStatus {
+  if (!item) return "OPEN";
+  if ((item.phase === "DECLINED" || item.phase === "CLOSED") && item.intakeDecision === "REVISIT_LATER") {
+    return "CLOSED_REVISIT";
+  }
+  if (item.phase === "DECLINED" || item.phase === "CLOSED") {
+    return "CLOSED_LOST";
+  }
+  return "OPEN";
+}
+
 function emptyDocument(): PipelineDocumentDraft {
   return {
     type: "INTAKE_REPORT",
@@ -403,6 +415,7 @@ function emptyOpportunity(): PipelineOpportunityDraft {
     title: "",
     healthSystemId: "",
     stage: "IDENTIFIED",
+    createdAt: "",
     likelihoodPercent: String(defaultLikelihoodForStage("IDENTIFIED")),
     contractPriceUsd: "",
     durationDays: "",
@@ -488,11 +501,14 @@ function hydratePipelineDraft(input: unknown): PipelineDraft {
     ventureStudioContractExecutedAt: toDateInputValue(payload.ventureStudioContractExecutedAt),
     screeningWebinarDate1At: toDateInputValue(payload.screeningWebinarDate1At),
     screeningWebinarDate2At: toDateInputValue(payload.screeningWebinarDate2At),
+    ventureLikelihoodPercent: toText(payload.ventureLikelihoodPercent),
+    ventureExpectedCloseDate: toDateInputValue(payload.ventureExpectedCloseDate),
     targetLoiCount: toText(payload.targetLoiCount || "3"),
     s1Invested: Boolean(payload.s1Invested),
     s1InvestmentAt: toDateInputValue(payload.s1InvestmentAt),
     s1InvestmentAmountUsd: toText(payload.s1InvestmentAmountUsd),
     portfolioAddedAt: toDateInputValue(payload.portfolioAddedAt),
+    createdAt: toDateInputValue(payload.createdAt),
     updatedAt: toText(payload.updatedAt),
     documents: asArray(payload.documents).map((item) => {
       const entry = asObject(item);
@@ -513,6 +529,7 @@ function hydratePipelineDraft(input: unknown): PipelineDraft {
         title: toText(entry.title),
         healthSystemId: toText(entry.healthSystemId),
         stage,
+        createdAt: toDateInputValue(entry.createdAt),
         likelihoodPercent: likelihoodPercent || String(defaultLikelihoodForStage(stage)),
         contractPriceUsd: toText(entry.contractPriceUsd),
         durationDays: toText(entry.durationDays),
@@ -599,6 +616,11 @@ function currentRaiseSummary(fundraises: FundraiseDraft[]) {
 }
 
 function serializePipelineDraft(draft: PipelineDraft) {
+  const isClosedLostStatus =
+    (draft.phase === "DECLINED" || draft.phase === "CLOSED") &&
+    (draft.closedOutcome === "LOST" || draft.intakeDecision === "DECLINE");
+  const ventureLikelihoodPercent = isClosedLostStatus ? 0 : parseNullablePercent(draft.ventureLikelihoodPercent);
+
   return {
     phase: draft.phase,
     category: draft.category,
@@ -617,11 +639,14 @@ function serializePipelineDraft(draft: PipelineDraft) {
     ventureStudioContractExecutedAt: draft.ventureStudioContractExecutedAt || null,
     screeningWebinarDate1At: draft.screeningWebinarDate1At || null,
     screeningWebinarDate2At: draft.screeningWebinarDate2At || null,
+    ventureLikelihoodPercent,
+    ventureExpectedCloseDate: draft.ventureExpectedCloseDate || null,
     targetLoiCount: Math.max(1, Math.round(Number(draft.targetLoiCount) || 3)),
     s1Invested: draft.s1Invested,
     s1InvestmentAt: draft.s1InvestmentAt || null,
     s1InvestmentAmountUsd: parseNullableNumber(draft.s1InvestmentAmountUsd),
     portfolioAddedAt: draft.portfolioAddedAt || null,
+    createdAt: draft.createdAt || null,
     documents: draft.documents
       .map((document) => ({
         type: document.type,
@@ -797,11 +822,131 @@ export function CompanyPipelineManager({
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 3;
   }, [draft]);
   const showExtendedPipelineSections = false;
+  const activePipelineColumn = draft ? mapPhaseToBoardColumn(draft.phase) : null;
+  const phaseDisplayLabel = draft
+    ? pipelinePhaseOptions.find((option) => option.value === draft.phase)?.label || "Not set"
+    : "Not set";
+  const isScreeningClosedLost =
+    draft?.closedOutcome === "LOST" && (draft.phase === "DECLINED" || draft.phase === "CLOSED");
+  const screeningPipelineStatus: ScreeningPipelineStatus = isScreeningClosedLost ? "CLOSED_LOST" : "OPEN";
+  const intakeVenturePipelineStatus = deriveIntakeVenturePipelineStatus(draft);
+  const showScreeningPipelineLifecycle = Boolean(
+    draft &&
+      (activePipelineColumn === "SCREENING" ||
+        ((draft.phase === "DECLINED" || draft.phase === "CLOSED") && draft.closedOutcome === "LOST"))
+  );
+  const showIntakePipelineLifecycle = Boolean(draft && activePipelineColumn === "INTAKE");
+  const showVentureStudioPipelineLifecycle = Boolean(
+    draft && activePipelineColumn === "VENTURE_STUDIO_CONTRACT_EVALUATION"
+  );
+  const showClosedIntakeVentureLifecycle = Boolean(
+    draft &&
+      (draft.phase === "DECLINED" || draft.phase === "CLOSED") &&
+      draft.closedOutcome !== "LOST" &&
+      !showIntakePipelineLifecycle &&
+      !showVentureStudioPipelineLifecycle
+  );
+  const intakeVentureLifecycleSection: IntakeVentureLifecycleSection = (() => {
+    if (activePipelineColumn === "INTAKE") return "INTAKE";
+    if (activePipelineColumn === "VENTURE_STUDIO_CONTRACT_EVALUATION") return "VENTURE_STUDIO";
+    if (!draft) return "INTAKE";
+    return draft.intakeDecision === "PENDING" ? "INTAKE" : "VENTURE_STUDIO";
+  })();
 
   function updateDraft(patch: Partial<PipelineDraft>) {
     setDraft((current) => {
       if (!current) return current;
       return { ...current, ...patch };
+    });
+  }
+
+  function updateCurrentStage(nextColumn: PipelineBoardColumn) {
+    const nextPhase = mapBoardColumnToCanonicalPhase(nextColumn);
+    updateDraft({
+      phase: nextPhase,
+      closedOutcome: "",
+      intakeDecision: nextPhase === "INTAKE" ? "PENDING" : "ADVANCE_TO_NEGOTIATION"
+    });
+  }
+
+  function updateIntakeVenturePipelineStatus(
+    section: IntakeVentureLifecycleSection,
+    nextStatus: IntakeVenturePipelineStatus
+  ) {
+    if (!draft) return;
+    const isClosedPhase = draft.phase === "DECLINED" || draft.phase === "CLOSED";
+
+    if (nextStatus === "OPEN") {
+      if (section === "INTAKE") {
+        updateDraft({
+          ...(isClosedPhase ? { phase: "INTAKE" as PipelinePhase } : {}),
+          intakeDecision: "PENDING",
+          closedOutcome: "",
+          declineReasonNotes: ""
+        });
+        return;
+      }
+      updateDraft({
+        ...(isClosedPhase ? { phase: "VENTURE_STUDIO_NEGOTIATION" as PipelinePhase } : {}),
+        intakeDecision: "ADVANCE_TO_NEGOTIATION",
+        closedOutcome: "",
+        declineReasonNotes: ""
+      });
+      return;
+    }
+
+    if (nextStatus === "CLOSED_WON") {
+      const targetPhase = section === "INTAKE" ? "VENTURE_STUDIO_NEGOTIATION" : "SCREENING";
+      if (section === "INTAKE") {
+        updateDraft({
+          ...(shouldAdvancePhase(draft.phase, targetPhase) ? { phase: targetPhase } : {}),
+          intakeDecision: "ADVANCE_TO_NEGOTIATION",
+          closedOutcome: "",
+          declineReasonNotes: ""
+        });
+        return;
+      }
+      updateDraft({
+        ...(shouldAdvancePhase(draft.phase, targetPhase) ? { phase: targetPhase } : {}),
+        intakeDecision: "ADVANCE_TO_NEGOTIATION",
+        closedOutcome: "",
+        declineReasonNotes: ""
+      });
+      return;
+    }
+
+    if (nextStatus === "CLOSED_REVISIT") {
+      updateDraft({
+        phase: "DECLINED",
+        intakeDecision: "REVISIT_LATER",
+        closedOutcome: ""
+      });
+      return;
+    }
+
+    updateDraft({
+      phase: "DECLINED",
+      intakeDecision: "DECLINE",
+      closedOutcome: "",
+      ventureLikelihoodPercent: "0"
+    });
+  }
+
+  function updateScreeningPipelineStatus(nextStatus: ScreeningPipelineStatus) {
+    if (nextStatus === "CLOSED_LOST") {
+      updateDraft({
+        phase: "DECLINED",
+        intakeDecision: "DECLINE",
+        closedOutcome: "LOST",
+        ventureLikelihoodPercent: "0"
+      });
+      return;
+    }
+    const shouldReopenToScreening = draft?.phase === "DECLINED" || draft?.phase === "CLOSED";
+    updateDraft({
+      ...(shouldReopenToScreening ? { phase: "SCREENING" as PipelinePhase } : {}),
+      intakeDecision: "ADVANCE_TO_NEGOTIATION",
+      closedOutcome: ""
     });
   }
 
@@ -1178,175 +1323,125 @@ export function CompanyPipelineManager({
   if (loading || !draft) {
     return (
       <div className="detail-section">
-        <p className="detail-label">Pipeline Management</p>
         <p className="muted">Loading pipeline details...</p>
       </div>
     );
   }
 
+  const showIntakeVentureLifecycle =
+    showIntakePipelineLifecycle || showVentureStudioPipelineLifecycle || showClosedIntakeVentureLifecycle;
+  const showStatusControls = showScreeningPipelineLifecycle || showIntakeVentureLifecycle;
+  const isClosedLostStatus =
+    (draft.phase === "DECLINED" || draft.phase === "CLOSED") &&
+    (draft.closedOutcome === "LOST" || draft.intakeDecision === "DECLINE");
+  const isClosedRevisitStatus =
+    (draft.phase === "DECLINED" || draft.phase === "CLOSED") && draft.intakeDecision === "REVISIT_LATER";
+  const closedDateDisplay = showScreeningPipelineLifecycle
+    ? screeningPipelineStatus === "CLOSED_LOST"
+      ? draft.intakeDecisionAt || "Not set"
+      : "-"
+    : isClosedLostStatus || isClosedRevisitStatus || draft.phase === "CLOSED"
+      ? draft.intakeDecisionAt || "Not set"
+      : "-";
+  const statusDisplayLabel = isClosedRevisitStatus
+    ? "Closed/Revisit"
+    : draft.phase === "CLOSED" && draft.closedOutcome === "INVESTED"
+      ? "Closed/Won"
+      : isClosedLostStatus
+        ? "Closed/Lost"
+        : "Open";
+  const showOutcomeReason = isClosedLostStatus || isClosedRevisitStatus;
+  const statusSelectOptions = showScreeningPipelineLifecycle
+    ? [
+        { value: "OPEN", label: "Open" },
+        { value: "CLOSED_LOST", label: "Closed/Lost" }
+      ]
+    : [
+        { value: "OPEN", label: "Open" },
+        { value: "CLOSED_WON", label: "Closed/Won" },
+        { value: "CLOSED_LOST", label: "Closed/Lost" },
+        { value: "CLOSED_REVISIT", label: "Closed/Revisit" }
+      ];
+  const statusSelectValue = showScreeningPipelineLifecycle ? screeningPipelineStatus : intakeVenturePipelineStatus;
+  const closedReasonLabel = showScreeningPipelineLifecycle
+    ? "Closed/Lost Reason"
+    : isClosedRevisitStatus
+      ? "Closed/Revisit Reason"
+      : "Closed/Lost Reason";
+
   return (
-    <div className="detail-section">
-      <p className="detail-label">Pipeline Management</p>
-      <p className="muted">
-        Track intake, venture studio negotiation, screening participation, LOI conversion, fundraise, and ongoing
-        commercial pursuits.
-      </p>
-      <p className="muted">
-        Stage changed: {draft.stageChangedAt ? new Date(draft.stageChangedAt).toLocaleDateString() : "Not yet tracked"}
-      </p>
-      <p className="muted">
-        Current intake stage: <strong>{pipelineIntakeStageOptions.find((option) => option.value === draft.intakeStage)?.label || "Received"}</strong>
-        {" · "}
-        Status flag: <strong>{pipelineCategoryOptions.find((option) => option.value === draft.category)?.label || "Active"}</strong>
-        {" · "}
-        Company category: <strong>{primaryCategoryLabel(draft.primaryCategory)}</strong>
-        {" · "}
-        Raise: <strong>{currentRaiseSummary(draft.fundraises)}</strong>
-      </p>
-
-      <div className="detail-grid">
-        <div>
-          <label>Pipeline Phase</label>
-          <select value={draft.phase} onChange={(event) => updateDraft({ phase: event.target.value as PipelinePhase })}>
-            {pipelinePhaseOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label>Category</label>
-          <select value={draft.category} onChange={(event) => updateDraft({ category: event.target.value as PipelineCategory })}>
-            {pipelineCategoryOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label>Intake Stage</label>
-          <select value={draft.intakeStage} onChange={(event) => updateDraft({ intakeStage: event.target.value as PipelineIntakeStage })}>
-            {pipelineIntakeStageOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label>Primary Category</label>
-          <select value={draft.primaryCategory} onChange={(event) => updateDraft({ primaryCategory: event.target.value as PrimaryCategory })}>
-            {primaryCategoryOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label>Owner</label>
-          <input value={draft.ownerName} onChange={(event) => updateDraft({ ownerName: event.target.value })} placeholder="Owner name" />
-        </div>
-        <div>
-          <label>Next Step Due</label>
-          <DateInputField value={draft.nextStepDueAt} onChange={(nextValue) => updateDraft({ nextStepDueAt: nextValue })} />
-        </div>
-        <div>
-          <label>Last Meaningful Activity</label>
-          <DateInputField value={draft.lastMeaningfulActivityAt} onChange={(nextValue) => updateDraft({ lastMeaningfulActivityAt: nextValue })} />
-        </div>
-        <div>
-          <label>Closed Outcome</label>
-          <select value={draft.closedOutcome} onChange={(event) => updateDraft({ closedOutcome: event.target.value as ClosedOutcome | "" })}>
-            {closedOutcomeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label>Intake Decision</label>
-          <select
-            value={draft.intakeDecision}
-            onChange={(event) => updateDraft({ intakeDecision: event.target.value as IntakeDecision })}
-          >
-            {intakeDecisionOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label>Intake Decision Date</label>
-          <DateInputField
-            value={draft.intakeDecisionAt}
-            debugContext={{ scope: "company-pipeline-manager.date", companyId: companyId, field: "intakeDecisionAt" }}
-            onChange={(nextValue) => updateDraft({ intakeDecisionAt: nextValue })}
-          />
-        </div>
-        <div>
-          <label>Target LOIs</label>
-          <input
-            type="number"
-            min="1"
-            max="50"
-            value={draft.targetLoiCount}
-            onChange={(event) => updateDraft({ targetLoiCount: event.target.value })}
-          />
-        </div>
-        <div>
-          <label>VS Contract Executed</label>
-          <DateInputField
-            value={draft.ventureStudioContractExecutedAt}
-            debugContext={{ scope: "company-pipeline-manager.date", companyId, field: "ventureStudioContractExecutedAt" }}
-            onChange={(nextValue) => updateDraft({ ventureStudioContractExecutedAt: nextValue })}
-          />
-        </div>
-        <div>
-          <label>Screening Webinar Date 1</label>
-          <DateInputField
-            value={draft.screeningWebinarDate1At}
-            debugContext={{ scope: "company-pipeline-manager.date", companyId, field: "screeningWebinarDate1At" }}
-            onChange={(nextValue) => updateDraft({ screeningWebinarDate1At: nextValue })}
-          />
-        </div>
-        <div>
-          <label>Screening Webinar Date 2</label>
-          <DateInputField
-            value={draft.screeningWebinarDate2At}
-            debugContext={{ scope: "company-pipeline-manager.date", companyId, field: "screeningWebinarDate2At" }}
-            onChange={(nextValue) => updateDraft({ screeningWebinarDate2At: nextValue })}
-          />
-        </div>
-      </div>
-
-      <div className="detail-section">
-        <label>Co-Investor Engagement</label>
-        <RichTextArea
-          value={draft.coInvestorEngagement}
-          onChange={(value) => updateDraft({ coInvestorEngagement: value })}
-          placeholder="Current syndicate engagement, sentiment, and key interactions"
-          rows={5}
-        />
-        <label>Deal Flow Contribution</label>
-        <RichTextArea
-          value={draft.dealFlowContribution}
-          onChange={(value) => updateDraft({ dealFlowContribution: value })}
-          placeholder="Who sourced or materially moved this deal forward"
-          rows={5}
-        />
-        <label>Decline Reason Notes</label>
-        <RichTextArea
-          value={draft.declineReasonNotes}
-          onChange={(value) => updateDraft({ declineReasonNotes: value })}
-          placeholder="Supporting context for the primary decline reason"
-          rows={5}
-        />
-      </div>
+    <>
+      <VentureStudioOpportunityTabContent
+        ownerLabel="Venture Studio Owner"
+        ownerName={draft.ownerName}
+        createdDate={draft.createdAt}
+        activePipelineColumn={activePipelineColumn}
+        stageOptions={PIPELINE_BOARD_COLUMNS.map((column) => ({
+          value: column.key,
+          label: column.label
+        }))}
+        onCurrentStageChange={(nextValue) => updateCurrentStage(nextValue as PipelineBoardColumn)}
+        onOwnerSave={(value) => updateDraft({ ownerName: value.trim() })}
+        onCreatedDateSave={(value) => updateDraft({ createdAt: value.trim() })}
+        pipelinePhaseLabel={phaseDisplayLabel}
+        showStatusControls={showStatusControls}
+        statusValue={statusSelectValue}
+        statusOptions={statusSelectOptions}
+        onStatusSave={(nextValue) => {
+          if (showScreeningPipelineLifecycle) {
+            updateScreeningPipelineStatus(nextValue as ScreeningPipelineStatus);
+            return;
+          }
+          updateIntakeVenturePipelineStatus(
+            intakeVentureLifecycleSection,
+            nextValue as IntakeVenturePipelineStatus
+          );
+        }}
+        statusReadOnlyLabel={statusDisplayLabel}
+        showOutcomeReason={showOutcomeReason}
+        closedReasonLabel={closedReasonLabel}
+        closedReasonValue={draft.declineReasonNotes}
+        closedReasonPlaceholder={
+          showScreeningPipelineLifecycle
+            ? "Explain why this Screening opportunity did not graduate to Commercial Acceleration."
+            : "Select a reason or type Other."
+        }
+        reasonListId={`company-closed-reason-suggestions-${companyId}`}
+        reasonSuggestions={INTAKE_DECLINE_REASON_TEXT_SUGGESTIONS}
+        onClosedReasonSave={(value) => updateDraft({ declineReasonNotes: value })}
+        isClosedLostStatus={isClosedLostStatus}
+        likelihoodValue={draft.ventureLikelihoodPercent}
+        onLikelihoodSave={(value) => updateDraft({ ventureLikelihoodPercent: value })}
+        estimatedCloseDate={draft.ventureExpectedCloseDate}
+        estimatedCloseDateDebugContext={{ scope: "company-pipeline-manager.date", companyId, field: "ventureExpectedCloseDate" }}
+        onEstimatedCloseDateSave={(value) => updateDraft({ ventureExpectedCloseDate: value })}
+        closedDateDisplay={closedDateDisplay}
+        intakeDecisionDate={draft.intakeDecisionAt}
+        intakeDecisionDateDebugContext={{ scope: "company-pipeline-manager.date", companyId, field: "intakeDecisionAt" }}
+        onIntakeDecisionDateSave={(value) => updateDraft({ intakeDecisionAt: value })}
+        ventureStudioContractExecutedDate={draft.ventureStudioContractExecutedAt}
+        ventureStudioContractExecutedDateDebugContext={{
+          scope: "company-pipeline-manager.date",
+          companyId,
+          field: "ventureStudioContractExecutedAt"
+        }}
+        onVentureStudioContractExecutedDateSave={(value) => updateDraft({ ventureStudioContractExecutedAt: value })}
+        showScreeningWebinars={Boolean(activePipelineColumn && activePipelineColumn !== "INTAKE")}
+        screeningWebinarDate1={draft.screeningWebinarDate1At}
+        screeningWebinarDate1DebugContext={{
+          scope: "company-pipeline-manager.date",
+          companyId,
+          field: "screeningWebinarDate1At"
+        }}
+        onScreeningWebinarDate1Save={(value) => updateDraft({ screeningWebinarDate1At: value })}
+        screeningWebinarDate2={draft.screeningWebinarDate2At}
+        screeningWebinarDate2DebugContext={{
+          scope: "company-pipeline-manager.date",
+          companyId,
+          field: "screeningWebinarDate2At"
+        }}
+        onScreeningWebinarDate2Save={(value) => updateDraft({ screeningWebinarDate2At: value })}
+      />
 
       {showExtendedPipelineSections ? (
         <>
@@ -1535,8 +1630,8 @@ export function CompanyPipelineManager({
       </div>
 
       <div className="detail-section">
-        <p className="detail-label">Opportunities</p>
-        {draft.opportunities.length === 0 && <p className="muted">No opportunities yet.</p>}
+        <p className="detail-label">Health System Opportunities</p>
+        {draft.opportunities.length === 0 && <p className="muted">No health system opportunities yet.</p>}
         {draft.opportunities.map((opportunity, index) => (
           <div key={`opportunity-${index}`} className="detail-list-item">
             <div className="detail-grid">
@@ -1561,7 +1656,8 @@ export function CompanyPipelineManager({
                     const stage = event.target.value as OpportunityStage;
                     updateOpportunity(index, {
                       stage,
-                      likelihoodPercent: String(defaultLikelihoodForStage(stage))
+                      likelihoodPercent: String(defaultLikelihoodForStage(stage)),
+                      closedAt: isClosedOpportunityStage(stage) ? opportunity.closedAt : ""
                     });
                   }}
                 >
@@ -1579,6 +1675,14 @@ export function CompanyPipelineManager({
                   onChange={(event) => updateOpportunity(index, { title: event.target.value })}
                   placeholder="S1 term sheet"
                 />
+              </div>
+              <div>
+                <label>Venture Studio Owner</label>
+                <input type="text" value={draft.ownerName || "Unassigned"} readOnly />
+              </div>
+              <div>
+                <label>Created</label>
+                <input type="text" value={opportunity.createdAt || "Set on create"} readOnly />
               </div>
               <div>
                 <label>Health System (optional)</label>
@@ -1627,10 +1731,14 @@ export function CompanyPipelineManager({
               </div>
               <div>
                 <label>Closed Date</label>
-                <DateInputField
-                  value={opportunity.closedAt}
-                  onChange={(nextValue) => updateOpportunity(index, { closedAt: nextValue })}
-                />
+                {isClosedOpportunityStage(opportunity.stage) ? (
+                  <input type="text" value={opportunity.closedAt || "Set automatically when closed"} readOnly />
+                ) : (
+                  <DateInputField
+                    value={opportunity.closedAt}
+                    onChange={(nextValue) => updateOpportunity(index, { closedAt: nextValue })}
+                  />
+                )}
               </div>
               <div>
                 <label>Close Reason</label>
@@ -1653,7 +1761,7 @@ export function CompanyPipelineManager({
               value={opportunity.notes}
               onChange={(value) => updateOpportunity(index, { notes: value })}
               rows={6}
-              placeholder="Opportunity notes"
+              placeholder="Health system opportunity notes"
             />
             <div className="actions">
               <button
@@ -1666,7 +1774,7 @@ export function CompanyPipelineManager({
                   })
                 }
               >
-                Remove Opportunity
+                Remove Health System Opportunity
               </button>
             </div>
           </div>
@@ -1682,7 +1790,7 @@ export function CompanyPipelineManager({
               })
             }
           >
-            Add Opportunity
+            Add Health System Opportunity
           </button>
         </div>
       </div>
@@ -2169,13 +2277,13 @@ export function CompanyPipelineManager({
         </>
       ) : null}
 
-      <div className="actions">
+      <div className="actions company-pipeline-save-actions">
         <button className="primary" type="button" onClick={savePipeline} disabled={saving}>
-          {saving ? "Saving..." : "Save Pipeline"}
+          {saving ? "Saving..." : "Save"}
         </button>
       </div>
 
       {status && <p className={`status ${status.kind}`}>{status.text}</p>}
-    </div>
+    </>
   );
 }

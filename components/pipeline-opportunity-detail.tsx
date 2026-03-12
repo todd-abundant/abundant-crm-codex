@@ -8,13 +8,15 @@ import {
   mapPhaseToBoardColumn,
   phaseLabel,
   type PipelineBoardColumn,
+  type PipelineIntakeDecision,
   type PipelinePhase
 } from "@/lib/pipeline-opportunities";
 import { generateOpportunityTitle } from "@/lib/opportunity-title";
 import { EntityLookupInput } from "./entity-lookup-input";
 import { EntityDocumentsPane } from "./entity-documents-pane";
 import { ScreeningSurveySessionSelector } from "./screening-survey-session-selector";
-import { InlineSelectField, InlineTextField, InlineTextareaField } from "./inline-detail-field";
+import { InlineTextareaField } from "./inline-detail-field";
+import { VentureStudioOpportunityTabContent } from "./venture-studio-opportunity-tab-content";
 import { normalizeRichText, RichTextArea } from "./rich-text-area";
 import {
   inferGoogleDocumentTitle,
@@ -35,6 +37,7 @@ import {
 } from "@/lib/market-landscape";
 import { parseDateInput, toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
 import { createDateDebugContext, debugDateLog, dateDebugHeaders } from "@/lib/date-debug";
+import { INTAKE_DECLINE_REASON_TEXT_SUGGESTIONS } from "@/lib/intake-decline-reasons";
 
 type ScreeningStatus = "NOT_STARTED" | "PENDING" | "NEGOTIATING" | "SIGNED" | "DECLINED";
 type ScreeningAttendanceStatus = "INVITED" | "ATTENDED" | "DECLINED" | "NO_SHOW";
@@ -42,6 +45,8 @@ type ScreeningFeedbackSentiment = "POSITIVE" | "MIXED" | "NEUTRAL" | "NEGATIVE";
 type ScreeningCellField = "RELEVANT_FEEDBACK" | "STATUS_UPDATE";
 type ClosedOutcome = "INVESTED" | "PASSED" | "LOST" | "WITHDREW" | "OTHER";
 type ScreeningPipelineStatus = "OPEN" | "CLOSED_LOST";
+type IntakeVenturePipelineStatus = "OPEN" | "CLOSED_WON" | "CLOSED_LOST" | "CLOSED_REVISIT";
+type IntakeVentureLifecycleSection = "INTAKE" | "VENTURE_STUDIO";
 type CompanyDocumentType =
   | "INTAKE_REPORT"
   | "SCREENING_REPORT"
@@ -206,12 +211,15 @@ type PipelineOpportunityDetail = {
   isScreeningStage: boolean;
   closedOutcome: ClosedOutcome | null;
   declineReasonNotes: string | null;
+  intakeDecision: PipelineIntakeDecision;
   intakeDecisionAt: string | null;
   ventureStudioContractExecutedAt: string | null;
   screeningWebinarDate1At: string | null;
   screeningWebinarDate2At: string | null;
   ventureLikelihoodPercent: number | null;
   ventureExpectedCloseDate: string | null;
+  ownerName: string | null;
+  createdAt: string | null;
   updatedAt: string | null;
   opportunities: Array<{
     id: string;
@@ -291,6 +299,7 @@ type OpportunityModalState =
     };
 
 type OpportunityModalTab = "details" | "contacts" | "notes" | "documents";
+type OpportunityStatusFilter = "all" | "open" | "closed";
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "Not set";
@@ -330,6 +339,19 @@ function toDateInputValue(value: string | null | undefined) {
   return formatDateInputValue(value);
 }
 
+function deriveIntakeVenturePipelineStatus(
+  item: Pick<PipelineOpportunityDetail, "phase" | "intakeDecision"> | null | undefined
+): IntakeVenturePipelineStatus {
+  if (!item) return "OPEN";
+  if ((item.phase === "DECLINED" || item.phase === "CLOSED") && item.intakeDecision === "REVISIT_LATER") {
+    return "CLOSED_REVISIT";
+  }
+  if (item.phase === "DECLINED" || item.phase === "CLOSED") {
+    return "CLOSED_LOST";
+  }
+  return "OPEN";
+}
+
 function parseNoteAffiliations(raw: unknown): NoteAffiliation[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set<string>();
@@ -358,7 +380,22 @@ function noteAffiliationKindLabel(kind: NoteAffiliation["kind"]) {
   if (kind === "company") return "Company";
   if (kind === "healthSystem") return "Health System";
   if (kind === "contact") return "Contact";
-  return "Opportunity";
+  return "Health System Opportunity";
+}
+
+function pipelinePhaseProgressRank(phase: PipelinePhase) {
+  if (phase === "INTAKE") return 0;
+  if (phase === "VENTURE_STUDIO_NEGOTIATION") return 1;
+  if (phase === "SCREENING") return 2;
+  if (phase === "LOI_COLLECTION") return 3;
+  if (phase === "COMMERCIAL_NEGOTIATION") return 4;
+  if (phase === "PORTFOLIO_GROWTH") return 5;
+  return -1;
+}
+
+function shouldAdvancePhase(currentPhase: PipelinePhase, targetPhase: PipelinePhase) {
+  if (currentPhase === "DECLINED" || currentPhase === "CLOSED") return true;
+  return pipelinePhaseProgressRank(targetPhase) > pipelinePhaseProgressRank(currentPhase);
 }
 
 function toTextValue(value: number | string | null | undefined) {
@@ -420,38 +457,6 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#39;");
 }
 
-function richTextToPlainText(value: string | null | undefined) {
-  if (!value) return "";
-
-  const normalized = normalizeRichText(value);
-  if (!normalized) return "";
-
-  if (typeof DOMParser === "undefined") {
-    return normalized
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<\/(p|div|li|ul|ol|h[1-6])>/gi, "\n")
-      .replace(/<[^>]*>/g, "")
-      .replace(/&nbsp;/gi, " ")
-      .replace(/&amp;/gi, "&")
-      .replace(/&lt;/gi, "<")
-      .replace(/&gt;/gi, ">")
-      .replace(/&#39;/gi, "'")
-      .replace(/&quot;/gi, '"')
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-  }
-
-  const htmlWithBreaks = normalized
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|li|ul|ol|h[1-6])>/gi, "\n");
-
-  const parsed = new DOMParser().parseFromString(htmlWithBreaks, "text/html");
-  return (parsed.body.textContent || "")
-    .replace(/\u00a0/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
 function formatVentureStudioAssessmentLabel(value: VentureStudioAssessment) {
   if (value === "green") return "Green";
   if (value === "yellow") return "Yellow";
@@ -509,7 +514,7 @@ const screeningInlineInterestOptions: Array<{ value: ScreeningStatus; label: str
 const companyDocumentTypeOptions: Array<{ value: CompanyDocumentType; label: string }> = [
   { value: "INTAKE_REPORT", label: "Intake Report" },
   { value: "SCREENING_REPORT", label: "Screening Report" },
-  { value: "OPPORTUNITY_REPORT", label: "Opportunity Report" },
+  { value: "OPPORTUNITY_REPORT", label: "Health System Opportunity Report" },
   { value: "TERM_SHEET", label: "Term Sheet" },
   { value: "VENTURE_STUDIO_CONTRACT", label: "Venture Studio Contract" },
   { value: "LOI", label: "LOI" },
@@ -1122,6 +1127,13 @@ export function PipelineOpportunityDetailView({
   const [showScreeningClosedLostReasonModal, setShowScreeningClosedLostReasonModal] = React.useState(false);
   const [screeningClosedLostReasonModalDraft, setScreeningClosedLostReasonModalDraft] = React.useState("");
   const [savingScreeningCloseModal, setSavingScreeningCloseModal] = React.useState(false);
+  const [showIntakeVentureCloseReasonModal, setShowIntakeVentureCloseReasonModal] = React.useState(false);
+  const [intakeVentureCloseReasonModalDraft, setIntakeVentureCloseReasonModalDraft] = React.useState("");
+  const [savingIntakeVentureCloseModal, setSavingIntakeVentureCloseModal] = React.useState(false);
+  const [pendingIntakeVentureCloseSelection, setPendingIntakeVentureCloseSelection] = React.useState<{
+    section: IntakeVentureLifecycleSection;
+    status: "CLOSED_LOST" | "CLOSED_REVISIT";
+  } | null>(null);
   const [activeIntakeDetailTab, setActiveIntakeDetailTab] = React.useState<IntakeDetailTab>(initialIntakeDetailTab);
   const [activeIntakeMaterialsTab, setActiveIntakeMaterialsTab] =
     React.useState<IntakeMaterialsSubTab>("at-a-glance");
@@ -1238,46 +1250,108 @@ export function PipelineOpportunityDetailView({
   const [showAddDocumentModal, setShowAddDocumentModal] = React.useState(false);
   const [opportunityModal, setOpportunityModal] = React.useState<OpportunityModalState | null>(null);
   const [opportunityModalTab, setOpportunityModalTab] = React.useState<OpportunityModalTab>("details");
+  const [opportunityStatusFilter, setOpportunityStatusFilter] = React.useState<OpportunityStatusFilter>("all");
   const initialOpportunityIdRef = React.useRef<string | null>(initialOpportunityId);
   const pipelineCardUpdateSequenceRef = React.useRef(0);
-  const descriptionPlainText = React.useMemo(() => richTextToPlainText(item?.description), [item?.description]);
   const activePipelineColumn = item ? item.column || mapPhaseToBoardColumn(item.phase) : null;
   const isScreeningClosedLost =
     (item?.phase === "DECLINED" || item?.phase === "CLOSED") && item.closedOutcome === "LOST";
   const persistedScreeningPipelineStatus: ScreeningPipelineStatus = isScreeningClosedLost ? "CLOSED_LOST" : "OPEN";
+  const persistedIntakeVenturePipelineStatus = deriveIntakeVenturePipelineStatus(item);
+  const intakeVenturePipelineStatus = pendingIntakeVentureCloseSelection?.status || persistedIntakeVenturePipelineStatus;
   const screeningPipelineStatus = pendingScreeningPipelineStatus || persistedScreeningPipelineStatus;
   const showScreeningPipelineLifecycle = Boolean(
     item &&
     (activePipelineColumn === "SCREENING" || ((item.phase === "DECLINED" || item.phase === "CLOSED") && item.closedOutcome === "LOST"))
   );
+  const showIntakePipelineLifecycle = Boolean(item && activePipelineColumn === "INTAKE");
+  const showVentureStudioPipelineLifecycle = Boolean(
+    item && activePipelineColumn === "VENTURE_STUDIO_CONTRACT_EVALUATION"
+  );
+  const showClosedIntakeVentureLifecycle = Boolean(
+    item &&
+      (item.phase === "DECLINED" || item.phase === "CLOSED") &&
+      item.closedOutcome !== "LOST" &&
+      !showIntakePipelineLifecycle &&
+      !showVentureStudioPipelineLifecycle
+  );
+  const showIntakeVentureLifecycle =
+    showIntakePipelineLifecycle || showVentureStudioPipelineLifecycle || showClosedIntakeVentureLifecycle;
+  const showStatusControls = showScreeningPipelineLifecycle || showIntakeVentureLifecycle;
+  const intakeVentureLifecycleSection: IntakeVentureLifecycleSection = (() => {
+    if (activePipelineColumn === "INTAKE") return "INTAKE";
+    if (activePipelineColumn === "VENTURE_STUDIO_CONTRACT_EVALUATION") return "VENTURE_STUDIO";
+    if (!item) return "INTAKE";
+    return item.intakeDecision === "PENDING" ? "INTAKE" : "VENTURE_STUDIO";
+  })();
+  const isClosedLostStatus =
+    (item?.phase === "DECLINED" || item?.phase === "CLOSED") &&
+    (item?.closedOutcome === "LOST" || item?.intakeDecision === "DECLINE");
+  const isClosedRevisitStatus =
+    (item?.phase === "DECLINED" || item?.phase === "CLOSED") && item?.intakeDecision === "REVISIT_LATER";
+  const statusDisplayLabel = isClosedRevisitStatus
+    ? "Closed/Revisit"
+    : item?.phase === "CLOSED" && item?.closedOutcome === "INVESTED"
+      ? "Closed/Won"
+      : isClosedLostStatus
+        ? "Closed/Lost"
+        : "Open";
+  const closedDateDisplay = showScreeningPipelineLifecycle
+    ? screeningPipelineStatus === "CLOSED_LOST"
+      ? toDateInputValue(item?.intakeDecisionAt) || "Not set"
+      : "-"
+    : isClosedLostStatus || isClosedRevisitStatus || item?.phase === "CLOSED"
+      ? toDateInputValue(item?.intakeDecisionAt) || "Not set"
+      : "-";
+  const showOutcomeReason = showScreeningPipelineLifecycle
+    ? screeningPipelineStatus === "CLOSED_LOST"
+    : intakeVenturePipelineStatus === "CLOSED_LOST" || intakeVenturePipelineStatus === "CLOSED_REVISIT";
+  const statusSelectOptions = showScreeningPipelineLifecycle
+    ? [
+        { value: "OPEN", label: "Open" },
+        { value: "CLOSED_LOST", label: "Closed/Lost" }
+      ]
+    : [
+        { value: "OPEN", label: "Open" },
+        { value: "CLOSED_WON", label: "Closed/Won" },
+        { value: "CLOSED_LOST", label: "Closed/Lost" },
+        { value: "CLOSED_REVISIT", label: "Closed/Revisit" }
+      ];
+  const statusSelectValue = showScreeningPipelineLifecycle ? screeningPipelineStatus : intakeVenturePipelineStatus;
+  const closedReasonLabel = showScreeningPipelineLifecycle
+    ? "Closed/Lost Reason"
+    : intakeVenturePipelineStatus === "CLOSED_REVISIT"
+      ? "Closed/Revisit Reason"
+      : "Closed/Lost Reason";
   const showOpportunitiesTab = Boolean(
     item && (activePipelineColumn === "SCREENING" || activePipelineColumn === "COMMERCIAL_ACCELERATION")
   );
-  const opportunityLifecycleCounts = React.useMemo(() => {
-    if (!item) return { open: 0, won: 0, lost: 0 };
-    return item.opportunities.reduce(
-      (accumulator, opportunity) => {
-        if (opportunity.stage === "CLOSED_WON") {
-          accumulator.won += 1;
-          return accumulator;
+  const filteredOpportunities = React.useMemo(() => {
+    const opportunities = item?.opportunities || [];
+    if (opportunityStatusFilter === "all") return opportunities;
+    if (opportunityStatusFilter === "open") {
+      return opportunities.filter(
+        (opportunity) => opportunity.stage !== "CLOSED_WON" && opportunity.stage !== "CLOSED_LOST"
+      );
+    }
+    return opportunities.filter(
+      (opportunity) => opportunity.stage === "CLOSED_WON" || opportunity.stage === "CLOSED_LOST"
+    );
+  }, [item, opportunityStatusFilter]);
+  const opportunityTabBadgeCounts = React.useMemo(() => {
+    const opportunities = item?.opportunities || [];
+    return opportunities.reduce(
+      (counts, opportunity) => {
+        if (isClosedOpportunityStage(opportunity.stage)) {
+          counts.closed += 1;
+        } else {
+          counts.open += 1;
         }
-        if (opportunity.stage === "CLOSED_LOST") {
-          accumulator.lost += 1;
-          return accumulator;
-        }
-        accumulator.open += 1;
-        return accumulator;
+        return counts;
       },
-      { open: 0, won: 0, lost: 0 }
+      { open: 0, closed: 0 }
     );
   }, [item]);
-  const openOpportunities = React.useMemo(
-    () =>
-      (item?.opportunities || []).filter(
-        (opportunity) => opportunity.stage !== "CLOSED_WON" && opportunity.stage !== "CLOSED_LOST"
-      ),
-    [item]
-  );
   const selectedOpportunityForModal = React.useMemo(() => {
     if (!item || !opportunityModal || opportunityModal.mode !== "edit") return null;
     return item.opportunities.find((opportunity) => opportunity.id === opportunityModal.opportunityId) || null;
@@ -1392,6 +1466,12 @@ export function PipelineOpportunityDetailView({
   React.useEffect(() => {
     setPendingScreeningPipelineStatus(null);
   }, [item?.id, item?.phase, item?.closedOutcome]);
+
+  React.useEffect(() => {
+    setPendingIntakeVentureCloseSelection(null);
+    setShowIntakeVentureCloseReasonModal(false);
+    setSavingIntakeVentureCloseModal(false);
+  }, [item?.id, item?.phase, item?.intakeDecision]);
 
   React.useEffect(() => {
     if (!initialOpportunityId) return;
@@ -2840,7 +2920,10 @@ export function PipelineOpportunityDetailView({
     phase?: PipelinePhase;
     closedOutcome?: ClosedOutcome | null;
     declineReasonNotes?: string | null;
+    ownerName?: string | null;
+    intakeDecision?: PipelineIntakeDecision;
     intakeDecisionAt?: string | null;
+    createdAt?: string | null;
     ventureStudioContractExecutedAt?: string | null;
     screeningWebinarDate1At?: string | null;
     screeningWebinarDate2At?: string | null;
@@ -2856,7 +2939,10 @@ export function PipelineOpportunityDetailView({
       phase: Object.prototype.hasOwnProperty.call(input, "phase"),
       closedOutcome: Object.prototype.hasOwnProperty.call(input, "closedOutcome"),
       declineReasonNotes: Object.prototype.hasOwnProperty.call(input, "declineReasonNotes"),
+      ownerName: Object.prototype.hasOwnProperty.call(input, "ownerName"),
+      intakeDecision: Object.prototype.hasOwnProperty.call(input, "intakeDecision"),
       intakeDecisionAt: Object.prototype.hasOwnProperty.call(input, "intakeDecisionAt"),
+      createdAt: Object.prototype.hasOwnProperty.call(input, "createdAt"),
       ventureStudioContractExecutedAt: Object.prototype.hasOwnProperty.call(input, "ventureStudioContractExecutedAt"),
       screeningWebinarDate1At: Object.prototype.hasOwnProperty.call(input, "screeningWebinarDate1At"),
       screeningWebinarDate2At: Object.prototype.hasOwnProperty.call(input, "screeningWebinarDate2At"),
@@ -2892,7 +2978,10 @@ export function PipelineOpportunityDetailView({
         phase: item.phase,
         closedOutcome: item.closedOutcome,
         declineReasonNotes: item.declineReasonNotes,
+        ownerName: item.ownerName,
+        intakeDecision: item.intakeDecision,
         intakeDecisionAt: item.intakeDecisionAt,
+        createdAt: item.createdAt || "",
         ventureStudioContractExecutedAt: item.ventureStudioContractExecutedAt,
         screeningWebinarDate1At: item.screeningWebinarDate1At,
         screeningWebinarDate2At: item.screeningWebinarDate2At,
@@ -2926,7 +3015,10 @@ export function PipelineOpportunityDetailView({
         phase: returnedItem?.phase ?? item.phase,
         closedOutcome: returnedItem?.closedOutcome ?? item.closedOutcome,
         declineReasonNotes: returnedItem?.declineReasonNotes ?? item.declineReasonNotes,
+        ownerName: returnedItem?.ownerName ?? item.ownerName,
+        intakeDecision: returnedItem?.intakeDecision ?? item.intakeDecision,
         intakeDecisionAt: returnedItem?.intakeDecisionAt ?? null,
+        createdAt: returnedItem?.createdAt ?? item.createdAt,
         ventureStudioContractExecutedAt: returnedItem?.ventureStudioContractExecutedAt ?? null,
         screeningWebinarDate1At: returnedItem?.screeningWebinarDate1At ?? null,
         screeningWebinarDate2At: returnedItem?.screeningWebinarDate2At ?? null,
@@ -2970,6 +3062,20 @@ export function PipelineOpportunityDetailView({
                   (responseDates.declineReasonNotes || "").trim()
               }
             : null,
+          ownerName: requestHas.ownerName
+            ? {
+                requested: (requestPayload.ownerName || "").trim(),
+                persisted: (responseDates.ownerName || "").trim(),
+                matched: (requestPayload.ownerName || "").trim() === (responseDates.ownerName || "").trim()
+              }
+            : null,
+          intakeDecision: requestHas.intakeDecision
+            ? {
+                requested: requestPayload.intakeDecision,
+                persisted: responseDates.intakeDecision,
+                matched: requestPayload.intakeDecision === responseDates.intakeDecision
+              }
+            : null,
           intakeDecisionAt: requestHas.intakeDecisionAt
             ? {
                 requested: requestPayload.intakeDecisionAt,
@@ -2977,6 +3083,13 @@ export function PipelineOpportunityDetailView({
                 matched:
                   toDateInputValue(responseDates.intakeDecisionAt) ===
                   toDateInputValue(requestPayload.intakeDecisionAt)
+              }
+            : null,
+          createdAt: requestHas.createdAt
+            ? {
+                requested: requestPayload.createdAt || "",
+                persisted: responseDates.createdAt || "",
+                matched: toDateInputValue(responseDates.createdAt) === toDateInputValue(requestPayload.createdAt || "")
               }
             : null,
           ventureStudioContractExecutedAt: requestHas.ventureStudioContractExecutedAt
@@ -3029,6 +3142,17 @@ export function PipelineOpportunityDetailView({
         typeof returnedItem?.intakeDecisionAt === "string" || returnedItem?.intakeDecisionAt === null
           ? (returnedItem?.intakeDecisionAt ?? null)
           : input.intakeDecisionAt ?? item.intakeDecisionAt;
+      const updatedIntakeDecision =
+        returnedItem?.intakeDecision === "PENDING" ||
+        returnedItem?.intakeDecision === "ADVANCE_TO_NEGOTIATION" ||
+        returnedItem?.intakeDecision === "DECLINE" ||
+        returnedItem?.intakeDecision === "REVISIT_LATER"
+          ? (returnedItem.intakeDecision as PipelineIntakeDecision)
+          : input.intakeDecision ?? item.intakeDecision;
+      const updatedCreatedAt =
+        typeof returnedItem?.createdAt === "string" || returnedItem?.createdAt === null
+          ? returnedItem.createdAt || item.createdAt
+          : input.createdAt || item.createdAt;
       const updatedVentureStudioContractExecutedAt =
         typeof returnedItem?.ventureStudioContractExecutedAt === "string" ||
         returnedItem?.ventureStudioContractExecutedAt === null
@@ -3073,6 +3197,12 @@ export function PipelineOpportunityDetailView({
           : requestHas.declineReasonNotes
             ? (input.declineReasonNotes?.trim() || null)
             : item.declineReasonNotes;
+      const updatedOwnerName =
+        typeof returnedItem?.ownerName === "string" || returnedItem?.ownerName === null
+          ? (returnedItem.ownerName ?? null)
+          : requestHas.ownerName
+            ? (input.ownerName || null)
+            : item.ownerName;
       const updatedPhaseLabel = typeof returnedItem?.phaseLabel === "string" ? returnedItem.phaseLabel : phaseLabel(updatedPhase);
       const updatedColumn = (() => {
         if (returnedItem?.column === null) return null;
@@ -3097,7 +3227,10 @@ export function PipelineOpportunityDetailView({
               isScreeningStage: mapPhaseToBoardColumn(updatedPhase) === "SCREENING",
               closedOutcome: updatedClosedOutcome,
               declineReasonNotes: updatedDeclineReasonNotes,
+              ownerName: updatedOwnerName,
+              intakeDecision: updatedIntakeDecision,
               intakeDecisionAt: updatedIntakeDecisionDate,
+              createdAt: updatedCreatedAt,
               ventureStudioContractExecutedAt: updatedVentureStudioContractExecutedAt,
               screeningWebinarDate1At: updatedScreeningWebinarDate1At,
               screeningWebinarDate2At: updatedScreeningWebinarDate2At,
@@ -3180,13 +3313,31 @@ export function PipelineOpportunityDetailView({
     await updatePipelineCardMeta({ ventureExpectedCloseDate: trimmed });
   }
 
+  async function saveVentureStudioOwner(nextValue: string) {
+    if (!item) return;
+    const normalizedOwner = nextValue.trim() || null;
+    const currentOwner = item.ownerName?.trim() || null;
+    if (currentOwner === normalizedOwner) return;
+    await updatePipelineCardMeta({ ownerName: normalizedOwner });
+  }
+
+  async function saveCreatedDate(nextValue: string) {
+    if (!item) return;
+    const trimmed = nextValue.trim();
+    if (!trimmed) {
+      return;
+    }
+    if (item.createdAt && toDateInputValue(item.createdAt) === trimmed) return;
+    await updatePipelineCardMeta({ createdAt: trimmed });
+  }
+
   async function saveScreeningPipelineStatus(nextStatus: ScreeningPipelineStatus, nextReason?: string): Promise<boolean> {
     if (!item) return false;
     const currentStatus = pendingScreeningPipelineStatus || persistedScreeningPipelineStatus;
     if (typeof nextReason === "undefined" && currentStatus === nextStatus) return false;
     const reason = typeof nextReason === "string"
       ? nextReason.trim()
-      : (screeningClosedLostReasonDraft || item.declineReasonNotes || "").trim();
+      : (item.declineReasonNotes || "").trim();
     if (nextStatus === "CLOSED_LOST" && !reason) {
       setStatus({
         kind: "error",
@@ -3205,6 +3356,7 @@ export function PipelineOpportunityDetailView({
       const saved = await updatePipelineCardMeta({
         phase: "DECLINED",
         closedOutcome: "LOST",
+        ventureLikelihoodPercent: 0,
         declineReasonNotes: reason
       });
       if (saved) {
@@ -3215,8 +3367,9 @@ export function PipelineOpportunityDetailView({
       return saved;
     }
 
+    const shouldReopenToScreening = item.phase === "DECLINED" || item.phase === "CLOSED";
     const saved = await updatePipelineCardMeta({
-      phase: "SCREENING",
+      ...(shouldReopenToScreening ? { phase: "SCREENING" as PipelinePhase } : {}),
       closedOutcome: null
     });
     return saved;
@@ -3245,15 +3398,23 @@ export function PipelineOpportunityDetailView({
 
     if (nextStatus === "CLOSED_LOST") {
       setStatus(null);
-      setScreeningClosedLostReasonModalDraft(
-        (screeningClosedLostReasonDraft || item.declineReasonNotes || "").trim()
-      );
       setPendingScreeningPipelineStatus(nextStatus);
-      setShowScreeningClosedLostReasonModal(true);
+      if (!(item.declineReasonNotes || "").trim()) {
+        setStatus({
+          kind: "error",
+          text: "Add a closed/lost reason to complete closure."
+        });
+        return;
+      }
+      const saved = await saveScreeningPipelineStatus("CLOSED_LOST", item.declineReasonNotes || "");
+      if (saved) {
+        setPendingScreeningPipelineStatus(null);
+      }
       return;
     }
 
     setShowScreeningClosedLostReasonModal(false);
+    setPendingScreeningPipelineStatus(null);
     await saveScreeningPipelineStatus(nextStatus);
   }
 
@@ -3287,6 +3448,171 @@ export function PipelineOpportunityDetailView({
     setPendingScreeningPipelineStatus(null);
     setStatus(null);
     setScreeningClosedLostReasonModalDraft(screeningClosedLostReasonDraft || item?.declineReasonNotes || "");
+  }
+
+  async function saveIntakeVenturePipelineStatus(
+    section: IntakeVentureLifecycleSection,
+    nextStatus: IntakeVenturePipelineStatus,
+    nextReason?: string
+  ): Promise<boolean> {
+    if (!item) return false;
+    const currentStatus = pendingIntakeVentureCloseSelection?.status || deriveIntakeVenturePipelineStatus(item);
+    if (typeof nextReason === "undefined" && currentStatus === nextStatus) return false;
+    const reason =
+      typeof nextReason === "string"
+        ? nextReason.trim()
+        : (item.declineReasonNotes || "").trim();
+
+    if ((nextStatus === "CLOSED_LOST" || nextStatus === "CLOSED_REVISIT") && !reason) {
+      setStatus({
+        kind: "error",
+        text: "Add a reason to complete closure."
+      });
+      return false;
+    }
+
+    const isClosedPhase = item.phase === "DECLINED" || item.phase === "CLOSED";
+
+    if (nextStatus === "OPEN") {
+      if (section === "INTAKE") {
+        return updatePipelineCardMeta({
+          ...(isClosedPhase ? { phase: "INTAKE" as PipelinePhase } : {}),
+          intakeDecision: "PENDING",
+          closedOutcome: null,
+          declineReasonNotes: null
+        });
+      }
+      return updatePipelineCardMeta({
+        ...(isClosedPhase ? { phase: "VENTURE_STUDIO_NEGOTIATION" as PipelinePhase } : {}),
+        intakeDecision: "ADVANCE_TO_NEGOTIATION",
+        closedOutcome: null,
+        declineReasonNotes: null
+      });
+    }
+
+    if (nextStatus === "CLOSED_WON") {
+      const targetPhase = section === "INTAKE" ? "VENTURE_STUDIO_NEGOTIATION" : "SCREENING";
+      if (section === "INTAKE") {
+        return updatePipelineCardMeta({
+          ...(shouldAdvancePhase(item.phase, targetPhase) ? { phase: targetPhase } : {}),
+          intakeDecision: "ADVANCE_TO_NEGOTIATION",
+          closedOutcome: null,
+          declineReasonNotes: null
+        });
+      }
+      return updatePipelineCardMeta({
+        ...(shouldAdvancePhase(item.phase, targetPhase) ? { phase: targetPhase } : {}),
+        intakeDecision: "ADVANCE_TO_NEGOTIATION",
+        closedOutcome: null,
+        declineReasonNotes: null
+      });
+    }
+
+    if (nextStatus === "CLOSED_REVISIT") {
+      return updatePipelineCardMeta({
+        phase: "DECLINED",
+        intakeDecision: "REVISIT_LATER",
+        closedOutcome: null,
+        declineReasonNotes: reason
+      });
+    }
+
+    return updatePipelineCardMeta({
+      phase: "DECLINED",
+      intakeDecision: "DECLINE",
+      closedOutcome: null,
+      ventureLikelihoodPercent: 0,
+      declineReasonNotes: reason
+    });
+  }
+
+  async function handleIntakeVenturePipelineStatusChange(
+    section: IntakeVentureLifecycleSection,
+    nextStatus: IntakeVenturePipelineStatus
+  ) {
+    if (!item) return;
+    const currentStatus = pendingIntakeVentureCloseSelection?.status || deriveIntakeVenturePipelineStatus(item);
+    if (currentStatus === nextStatus) return;
+
+    if (nextStatus === "CLOSED_LOST" || nextStatus === "CLOSED_REVISIT") {
+      setStatus(null);
+      setPendingIntakeVentureCloseSelection({ section, status: nextStatus });
+      if (!(item.declineReasonNotes || "").trim()) {
+        setStatus({
+          kind: "error",
+          text: "Add a reason to complete closure."
+        });
+        return;
+      }
+      const saved = await saveIntakeVenturePipelineStatus(section, nextStatus, item.declineReasonNotes || "");
+      if (saved) {
+        setPendingIntakeVentureCloseSelection(null);
+      }
+      return;
+    }
+
+    setShowIntakeVentureCloseReasonModal(false);
+    setPendingIntakeVentureCloseSelection(null);
+    await saveIntakeVenturePipelineStatus(section, nextStatus);
+  }
+
+  async function saveIntakeVentureClosedReason(nextValue: string) {
+    if (!item) return;
+    const trimmed = nextValue.trim();
+    const persistedReason = (item.declineReasonNotes || "").trim();
+    const pendingSelection = pendingIntakeVentureCloseSelection;
+    const shouldCompletePendingClosure = Boolean(
+      pendingSelection &&
+        (pendingSelection.status === "CLOSED_LOST" || pendingSelection.status === "CLOSED_REVISIT") &&
+        trimmed
+    );
+    if (persistedReason === trimmed && !shouldCompletePendingClosure) return;
+
+    if (shouldCompletePendingClosure && pendingSelection) {
+      const saved = await saveIntakeVenturePipelineStatus(pendingSelection.section, pendingSelection.status, trimmed);
+      if (saved) {
+        setPendingIntakeVentureCloseSelection(null);
+      }
+      return;
+    }
+
+    await updatePipelineCardMeta({ declineReasonNotes: trimmed || null });
+  }
+
+  async function saveIntakeVentureCloseReasonFromModal() {
+    if (!item || !pendingIntakeVentureCloseSelection) return;
+    const reason = intakeVentureCloseReasonModalDraft.trim();
+    if (!reason) {
+      setStatus({
+        kind: "error",
+        text: "Add a reason to complete closure."
+      });
+      return;
+    }
+
+    setSavingIntakeVentureCloseModal(true);
+    try {
+      const saved = await saveIntakeVenturePipelineStatus(
+        pendingIntakeVentureCloseSelection.section,
+        pendingIntakeVentureCloseSelection.status,
+        reason
+      );
+      if (saved) {
+        setShowIntakeVentureCloseReasonModal(false);
+        setPendingIntakeVentureCloseSelection(null);
+        setIntakeVentureCloseReasonModalDraft(reason);
+      }
+    } finally {
+      setSavingIntakeVentureCloseModal(false);
+    }
+  }
+
+  function closeIntakeVentureCloseReasonModal() {
+    setShowIntakeVentureCloseReasonModal(false);
+    setSavingIntakeVentureCloseModal(false);
+    setPendingIntakeVentureCloseSelection(null);
+    setStatus(null);
+    setIntakeVentureCloseReasonModalDraft(item?.declineReasonNotes || "");
   }
 
   async function saveIntakeDecisionDate(nextValue: string) {
@@ -3513,18 +3839,18 @@ function stripCurrencyFormatting(value: string) {
         })
       });
       const responsePayload = await res.json();
-      if (!res.ok) throw new Error(responsePayload.error || "Failed to update opportunity.");
+      if (!res.ok) throw new Error(responsePayload.error || "Failed to update health system opportunity.");
       const updated = responsePayload.opportunity as PipelineOpportunityDetail["opportunities"][number] | undefined;
-      if (!updated) throw new Error("Failed to update opportunity.");
+      if (!updated) throw new Error("Failed to update health system opportunity.");
       applyUpdatedOpportunity(updated);
       if (closeOnSuccess) {
         closeOpportunityModal();
       }
-      setStatus({ kind: "ok", text: "Opportunity updated." });
+      setStatus({ kind: "ok", text: "Health system opportunity updated." });
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to update opportunity."
+        text: error instanceof Error ? error.message : "Failed to update health system opportunity."
       });
     } finally {
       setSavingOpportunityById((current) => ({ ...current, [opportunityId]: false }));
@@ -3546,9 +3872,9 @@ function stripCurrencyFormatting(value: string) {
         body: JSON.stringify(payload)
       });
       const responsePayload = await res.json();
-      if (!res.ok) throw new Error(responsePayload.error || "Failed to create opportunity.");
+      if (!res.ok) throw new Error(responsePayload.error || "Failed to create health system opportunity.");
       const created = responsePayload.opportunity as PipelineOpportunityDetail["opportunities"][number] | undefined;
-      if (!created) throw new Error("Failed to create opportunity.");
+      if (!created) throw new Error("Failed to create health system opportunity.");
       createdOpportunity = created;
 
       applyUpdatedOpportunity(created);
@@ -3564,11 +3890,11 @@ function stripCurrencyFormatting(value: string) {
         nextSteps: "",
         notes: ""
       });
-      setStatus({ kind: "ok", text: "Opportunity created." });
+      setStatus({ kind: "ok", text: "Health system opportunity created." });
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to create opportunity."
+        text: error instanceof Error ? error.message : "Failed to create health system opportunity."
       });
     } finally {
       setAddingOpportunity(false);
@@ -3580,7 +3906,7 @@ function stripCurrencyFormatting(value: string) {
     if (!item) return false;
     const existing = item.opportunities.find((entry) => entry.id === opportunityId);
     if (!existing) return false;
-    if (!window.confirm(`Delete opportunity \"${existing.title}\"?`)) return false;
+    if (!window.confirm(`Delete health system opportunity \"${existing.title}\"?`)) return false;
 
     setDeletingOpportunityById((current) => ({ ...current, [opportunityId]: true }));
     setStatus(null);
@@ -3592,7 +3918,7 @@ function stripCurrencyFormatting(value: string) {
         body: JSON.stringify({ opportunityId })
       });
       const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Failed to delete opportunity.");
+      if (!res.ok) throw new Error(payload.error || "Failed to delete health system opportunity.");
 
       setItem((current) =>
         current
@@ -3607,12 +3933,12 @@ function stripCurrencyFormatting(value: string) {
         delete next[opportunityId];
         return next;
       });
-      setStatus({ kind: "ok", text: "Opportunity deleted." });
+      setStatus({ kind: "ok", text: "Health system opportunity deleted." });
       return true;
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to delete opportunity."
+        text: error instanceof Error ? error.message : "Failed to delete health system opportunity."
       });
       return false;
     } finally {
@@ -3630,7 +3956,7 @@ function stripCurrencyFormatting(value: string) {
 
     const targetOpportunity = item.opportunities.find((entry) => entry.id === opportunityId);
     if (!targetOpportunity) {
-      setStatus({ kind: "error", text: "Opportunity not found." });
+      setStatus({ kind: "error", text: "Health System Opportunity not found." });
       return;
     }
 
@@ -3692,9 +4018,9 @@ function stripCurrencyFormatting(value: string) {
         })
       });
       const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Failed to add opportunity contact.");
+      if (!res.ok) throw new Error(payload.error || "Failed to add health system opportunity contact.");
       const link = payload.link as PipelineOpportunityDetail["opportunities"][number]["contacts"][number] | undefined;
-      if (!link) throw new Error("Failed to add opportunity contact.");
+      if (!link) throw new Error("Failed to add health system opportunity contact.");
 
       setItem((current) => {
         if (!current) return current;
@@ -3718,7 +4044,7 @@ function stripCurrencyFormatting(value: string) {
       setShowAddOpportunityContactByOpportunityId((current) => ({ ...current, [opportunityId]: false }));
       setNewOpportunityContactRoleByOpportunityId((current) => ({ ...current, [opportunityId]: "" }));
       setOpportunityContactRoleDraftByLinkId((current) => ({ ...current, [link.id]: link.role || "" }));
-      setStatus({ kind: "ok", text: "Opportunity contact added." });
+      setStatus({ kind: "ok", text: "Health system opportunity contact added." });
     } catch (error) {
       if (contactIdOverride) {
         const optimisticLinkId = `temp:${opportunityId}:${contactId}`;
@@ -3739,7 +4065,7 @@ function stripCurrencyFormatting(value: string) {
       }
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to add opportunity contact."
+        text: error instanceof Error ? error.message : "Failed to add health system opportunity contact."
       });
     } finally {
       setAddingOpportunityContactByOpportunityId((current) => ({ ...current, [opportunityId]: false }));
@@ -3763,9 +4089,9 @@ function stripCurrencyFormatting(value: string) {
         })
       });
       const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Failed to update opportunity contact role.");
+      if (!res.ok) throw new Error(payload.error || "Failed to update health system opportunity contact role.");
       const link = payload.link as PipelineOpportunityDetail["opportunities"][number]["contacts"][number] | undefined;
-      if (!link) throw new Error("Failed to update opportunity contact role.");
+      if (!link) throw new Error("Failed to update health system opportunity contact role.");
 
       setItem((current) => {
         if (!current) return current;
@@ -3778,11 +4104,11 @@ function stripCurrencyFormatting(value: string) {
         };
       });
       setOpportunityContactRoleDraftByLinkId((current) => ({ ...current, [link.id]: link.role || "" }));
-      setStatus({ kind: "ok", text: "Opportunity contact updated." });
+      setStatus({ kind: "ok", text: "Health system opportunity contact updated." });
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to update opportunity contact role."
+        text: error instanceof Error ? error.message : "Failed to update health system opportunity contact role."
       });
     } finally {
       setSavingOpportunityContactRoleByLinkId((current) => ({ ...current, [linkId]: false }));
@@ -3791,7 +4117,7 @@ function stripCurrencyFormatting(value: string) {
 
   async function deleteOpportunityContact(opportunityId: string, linkId: string) {
     if (!item) return;
-    if (!window.confirm("Remove this opportunity contact?")) return;
+    if (!window.confirm("Remove this health system opportunity contact?")) return;
 
     setDeletingOpportunityContactByLinkId((current) => ({ ...current, [linkId]: true }));
     setStatus(null);
@@ -3803,7 +4129,7 @@ function stripCurrencyFormatting(value: string) {
         body: JSON.stringify({ linkId })
       });
       const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Failed to remove opportunity contact.");
+      if (!res.ok) throw new Error(payload.error || "Failed to remove health system opportunity contact.");
 
       setItem((current) => {
         if (!current) return current;
@@ -3819,11 +4145,11 @@ function stripCurrencyFormatting(value: string) {
           )
         };
       });
-      setStatus({ kind: "ok", text: "Opportunity contact removed." });
+      setStatus({ kind: "ok", text: "Health system opportunity contact removed." });
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to remove opportunity contact."
+        text: error instanceof Error ? error.message : "Failed to remove health system opportunity contact."
       });
     } finally {
       setDeletingOpportunityContactByLinkId((current) => ({ ...current, [linkId]: false }));
@@ -4677,7 +5003,7 @@ function stripCurrencyFormatting(value: string) {
         <section className="panel">
           {showDismissControl ? (
             <div className="detail-head">
-              <h3>Opportunity not found.</h3>
+              <h3>Health System Opportunity not found.</h3>
               {closeButton}
             </div>
           ) : null}
@@ -5075,7 +5401,7 @@ function stripCurrencyFormatting(value: string) {
             aria-selected={activeIntakeDetailTab === "pipeline-status"}
             onClick={() => setActiveIntakeDetailTab("pipeline-status")}
           >
-            Pipeline Status
+            Venture Studio Opportunity
           </button>
           {showOpportunitiesTab ? (
             <button
@@ -5085,7 +5411,15 @@ function stripCurrencyFormatting(value: string) {
               aria-selected={activeIntakeDetailTab === "opportunities"}
               onClick={() => setActiveIntakeDetailTab("opportunities")}
             >
-              Opportunities
+              <span className="detail-tab-label-with-badges">
+                <span>Health System Opportunities</span>
+                {opportunityTabBadgeCounts.open > 0 ? (
+                  <span className="detail-tab-badge detail-tab-badge-open">{opportunityTabBadgeCounts.open}</span>
+                ) : null}
+                {opportunityTabBadgeCounts.closed > 0 ? (
+                  <span className="detail-tab-badge detail-tab-badge-closed">{opportunityTabBadgeCounts.closed}</span>
+                ) : null}
+              </span>
             </button>
           ) : null}
           {item.isScreeningStage ? (
@@ -5210,243 +5544,179 @@ function stripCurrencyFormatting(value: string) {
         {activeIntakeDetailTab === "pipeline-status" || (activeIntakeDetailTab === "opportunities" && showOpportunitiesTab) ? (
           <>
             {activeIntakeDetailTab === "pipeline-status" ? (
-              <>
-            <div className="row">
-              <div>
-                {activePipelineColumn ? (
-                  <InlineSelectField
-                    label="Current Stage"
-                    value={activePipelineColumn}
-                    options={PIPELINE_BOARD_COLUMNS.map((column) => ({
-                      value: column.key,
-                      label: column.label
-                    }))}
-                    onSave={(nextValue) => {
-                      const nextColumn = nextValue as PipelineBoardColumn;
-                      if (!savingPhase) {
-                        void updateColumn(nextColumn);
-                      }
-                    }}
-                  />
-                ) : (
-                  <div className="inline-edit-field pipeline-status-readonly-field">
-                    <label>Current Stage</label>
-                    <div className="pipeline-status-readonly-value">Closed / Inactive</div>
-                  </div>
-                )}
-              </div>
-              <div>
-                <div className="inline-edit-field pipeline-status-readonly-field">
-                  <label>Pipeline Phase</label>
-                  <div className="pipeline-status-readonly-value">{item.phaseLabel || "Not set"}</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="row">
-              <div>
-                <div className="inline-edit-field pipeline-status-readonly-field">
-                  <label>Website</label>
-                  <div className="pipeline-status-readonly-value">{item.website || "Not set"}</div>
-                </div>
-              </div>
-              <div>
-                <InlineTextField
-                  label="Likelihood to Close (%)"
-                  value={
-                    item.ventureLikelihoodPercent === null || item.ventureLikelihoodPercent === undefined
-                      ? ""
-                      : String(item.ventureLikelihoodPercent)
+              <VentureStudioOpportunityTabContent
+                ownerLabel="Venture Studio Owner"
+                ownerName={item.ownerName || ""}
+                createdDate={toDateInputValue(item.createdAt)}
+                activePipelineColumn={activePipelineColumn}
+                stageOptions={PIPELINE_BOARD_COLUMNS.map((column) => ({
+                  value: column.key,
+                  label: column.label
+                }))}
+                onCurrentStageChange={(nextValue) => {
+                  const nextColumn = nextValue as PipelineBoardColumn;
+                  if (!savingPhase) {
+                    void updateColumn(nextColumn);
                   }
-                  inputType="number"
-                  placeholder="0-100"
-                  onSave={(nextValue) => void saveVentureLikelihood(nextValue)}
-                />
-              </div>
-            </div>
-            <div className="row">
-              <div>
-                <InlineTextField
-                  label="Intake Decision Date"
-                  value={toDateInputValue(item.intakeDecisionAt)}
-                  inputType="date"
-                  dateDebugContext={{ scope: "pipeline-opportunity-detail.date", itemId: item.id, field: "intakeDecisionAt" }}
-                  onSave={(nextValue) => void saveIntakeDecisionDate(nextValue)}
-                />
-              </div>
-              <div>
-                <InlineTextField
-                  label="VS Contract Executed"
-                  value={toDateInputValue(item.ventureStudioContractExecutedAt)}
-                  inputType="date"
-                  dateDebugContext={{
-                    scope: "pipeline-opportunity-detail.date",
-                    itemId: item.id,
-                    field: "ventureStudioContractExecutedAt"
-                  }}
-                  onSave={(nextValue) => void saveVentureStudioContractExecutedDate(nextValue)}
-                />
-              </div>
-            </div>
-            {activePipelineColumn && activePipelineColumn !== "INTAKE" ? (
-              <div className="row">
-                <div>
-                  <InlineTextField
-                    label="Screening Webinar Date 1"
-                    value={toDateInputValue(item.screeningWebinarDate1At)}
-                    inputType="date"
-                    dateDebugContext={{
-                      scope: "pipeline-opportunity-detail.date",
-                      itemId: item.id,
-                      field: "screeningWebinarDate1At"
-                    }}
-                    onSave={(nextValue) => void saveScreeningWebinarDate1(nextValue)}
-                  />
-                </div>
-                <div>
-                  <InlineTextField
-                    label="Screening Webinar Date 2"
-                    value={toDateInputValue(item.screeningWebinarDate2At)}
-                    inputType="date"
-                    dateDebugContext={{
-                      scope: "pipeline-opportunity-detail.date",
-                      itemId: item.id,
-                      field: "screeningWebinarDate2At"
-                    }}
-                    onSave={(nextValue) => void saveScreeningWebinarDate2(nextValue)}
-                  />
-                </div>
-              </div>
-            ) : null}
-                <div className="pipeline-status-single-field">
-                  <InlineTextField
-                    label="Estimated Close Date"
-                    value={toDateInputValue(item.ventureExpectedCloseDate)}
-                    inputType="date"
-                    dateDebugContext={{
-                      scope: "pipeline-opportunity-detail.date",
-                      itemId: item.id,
-                      field: "ventureExpectedCloseDate"
-                    }}
-                    onSave={(nextValue) => void saveVentureExpectedCloseDate(nextValue)}
-                  />
-                </div>
-
-                {showScreeningPipelineLifecycle ? (
-                  <div className="detail-section">
-                    <p className="detail-label">Screening Opportunity Lifecycle</p>
-                    <div className="row">
-                      <div>
-                        <div className="inline-edit-field">
-                          <label>Status</label>
-                          <div
-                            className="opportunity-filter-options"
-                            role="radiogroup"
-                            aria-label="Screening opportunity status"
-                          >
-                            {[
-                              { value: "OPEN", label: "Open" },
-                              { value: "CLOSED_LOST", label: "Closed/Lost" }
-                            ].map((option) => {
-                              const selected = screeningPipelineStatus === option.value;
-                              return (
-                                <label
-                                  key={option.value}
-                                  className={`opportunity-filter-option ${selected ? "active" : ""}`}
-                                  htmlFor={`screening-opportunity-lifecycle-${item.id}-${option.value}`}
-                                >
-                                  <span>{option.label}</span>
-                                    <input
-                                      id={`screening-opportunity-lifecycle-${item.id}-${option.value}`}
-                                      type="radio"
-                                      name={`screening-opportunity-lifecycle-${item.id}`}
-                                      value={option.value}
-                                      checked={selected}
-                                      onChange={() => {
-                                        void handleScreeningPipelineStatusChange(option.value as ScreeningPipelineStatus);
-                                      }}
-                                    />
-                                  </label>
-                                );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <InlineTextareaField
-                          label={`Closed/Lost Reason${screeningPipelineStatus === "CLOSED_LOST" ? " (required)" : ""}`}
-                          value={item.declineReasonNotes || ""}
-                          onDraftChange={setScreeningClosedLostReasonDraft}
-                          multiline
-                          placeholder="Explain why this Screening opportunity did not graduate to Commercial Acceleration."
-                          onSave={(nextValue) => void saveScreeningClosedLostReason(nextValue)}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {activePipelineColumn === "SCREENING" || activePipelineColumn === "COMMERCIAL_ACCELERATION" ? (
-                  <div className="detail-section">
-                    <p className="detail-label">Alliance Opportunities</p>
-                    <div className="detail-grid">
-                      <div className="inline-edit-field pipeline-status-readonly-field">
-                        <label>Open</label>
-                        <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.open}</div>
-                      </div>
-                      <div className="inline-edit-field pipeline-status-readonly-field">
-                        <label>Won</label>
-                        <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.won}</div>
-                      </div>
-                      <div className="inline-edit-field pipeline-status-readonly-field">
-                        <label>Lost</label>
-                        <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.lost}</div>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {descriptionPlainText ? (
-                  <div className="pipeline-status-stacked-field">
-                    <label>Description</label>
-                    <div className="pipeline-status-description-scroll">{descriptionPlainText}</div>
-                  </div>
-                ) : null}
-              </>
+                }}
+                onOwnerSave={(nextValue) => void saveVentureStudioOwner(nextValue)}
+                onCreatedDateSave={(nextValue) => void saveCreatedDate(nextValue)}
+                pipelinePhaseLabel={item.phaseLabel}
+                showStatusControls={showStatusControls}
+                statusValue={statusSelectValue}
+                statusOptions={statusSelectOptions}
+                onStatusSave={(nextValue) => {
+                  if (showScreeningPipelineLifecycle) {
+                    void handleScreeningPipelineStatusChange(nextValue as ScreeningPipelineStatus);
+                    return;
+                  }
+                  void handleIntakeVenturePipelineStatusChange(
+                    intakeVentureLifecycleSection,
+                    nextValue as IntakeVenturePipelineStatus
+                  );
+                }}
+                statusReadOnlyLabel={statusDisplayLabel}
+                showOutcomeReason={showOutcomeReason}
+                closedReasonLabel={closedReasonLabel}
+                closedReasonValue={item.declineReasonNotes || ""}
+                closedReasonPlaceholder={
+                  showScreeningPipelineLifecycle
+                    ? "Explain why this Screening opportunity did not graduate to Commercial Acceleration."
+                    : "Select a reason or type Other."
+                }
+                reasonListId={`pipeline-status-closed-reason-suggestions-${item.id}`}
+                reasonSuggestions={INTAKE_DECLINE_REASON_TEXT_SUGGESTIONS}
+                onClosedReasonSave={(nextValue) => {
+                  if (showScreeningPipelineLifecycle) {
+                    void saveScreeningClosedLostReason(nextValue);
+                    return;
+                  }
+                  void saveIntakeVentureClosedReason(nextValue);
+                }}
+                isClosedLostStatus={isClosedLostStatus}
+                likelihoodValue={
+                  item.ventureLikelihoodPercent === null || item.ventureLikelihoodPercent === undefined
+                    ? ""
+                    : String(item.ventureLikelihoodPercent)
+                }
+                onLikelihoodSave={(nextValue) => void saveVentureLikelihood(nextValue)}
+                estimatedCloseDate={toDateInputValue(item.ventureExpectedCloseDate)}
+                estimatedCloseDateDebugContext={{
+                  scope: "pipeline-opportunity-detail.date",
+                  itemId: item.id,
+                  field: "ventureExpectedCloseDate"
+                }}
+                onEstimatedCloseDateSave={(nextValue) => void saveVentureExpectedCloseDate(nextValue)}
+                closedDateDisplay={closedDateDisplay}
+                intakeDecisionDate={toDateInputValue(item.intakeDecisionAt)}
+                intakeDecisionDateDebugContext={{
+                  scope: "pipeline-opportunity-detail.date",
+                  itemId: item.id,
+                  field: "intakeDecisionAt"
+                }}
+                onIntakeDecisionDateSave={(nextValue) => void saveIntakeDecisionDate(nextValue)}
+                ventureStudioContractExecutedDate={toDateInputValue(item.ventureStudioContractExecutedAt)}
+                ventureStudioContractExecutedDateDebugContext={{
+                  scope: "pipeline-opportunity-detail.date",
+                  itemId: item.id,
+                  field: "ventureStudioContractExecutedAt"
+                }}
+                onVentureStudioContractExecutedDateSave={(nextValue) => void saveVentureStudioContractExecutedDate(nextValue)}
+                showScreeningWebinars={Boolean(activePipelineColumn && activePipelineColumn !== "INTAKE")}
+                screeningWebinarDate1={toDateInputValue(item.screeningWebinarDate1At)}
+                screeningWebinarDate1DebugContext={{
+                  scope: "pipeline-opportunity-detail.date",
+                  itemId: item.id,
+                  field: "screeningWebinarDate1At"
+                }}
+                onScreeningWebinarDate1Save={(nextValue) => void saveScreeningWebinarDate1(nextValue)}
+                screeningWebinarDate2={toDateInputValue(item.screeningWebinarDate2At)}
+                screeningWebinarDate2DebugContext={{
+                  scope: "pipeline-opportunity-detail.date",
+                  itemId: item.id,
+                  field: "screeningWebinarDate2At"
+                }}
+                onScreeningWebinarDate2Save={(nextValue) => void saveScreeningWebinarDate2(nextValue)}
+              />
             ) : null}
 
             {activeIntakeDetailTab === "opportunities" && showOpportunitiesTab ? (
               <>
-                <div className="detail-section">
-                  <p className="detail-label">Open Opportunities</p>
-                  <p className="muted">Click an opportunity name to open details. Update Next Steps inline from this list.</p>
+                <div className="detail-section opportunities-top-row">
                   <button type="button" className="opportunity-add-link" onClick={openCreateOpportunityModal}>
-                    + Add new opportunity
+                    + Add health system opportunity
                   </button>
+                  <br />
+                  <div className="opportunity-filter-options" role="radiogroup" aria-label="Health system opportunity status">
+                    {[
+                      { value: "all", label: "All" },
+                      { value: "open", label: "Open" },
+                      { value: "closed", label: "Closed" }
+                    ].map((option) => {
+                      const selected = opportunityStatusFilter === option.value;
+                      return (
+                        <label
+                          key={option.value}
+                          className={`opportunity-filter-option ${selected ? "active" : ""}`}
+                          htmlFor={`health-system-opportunity-status-${item.id}-${option.value}`}
+                        >
+                          <span>{option.label}</span>
+                          <input
+                            id={`health-system-opportunity-status-${item.id}-${option.value}`}
+                            type="radio"
+                            name={`health-system-opportunity-status-${item.id}`}
+                            value={option.value}
+                            checked={selected}
+                            onChange={() => setOpportunityStatusFilter(option.value as OpportunityStatusFilter)}
+                          />
+                          </label>
+                        );
+                      })}
+                  </div>
 
-                  {openOpportunities.length === 0 ? <p className="muted">No open opportunities yet.</p> : null}
+                  {filteredOpportunities.length === 0 ? (
+                    <p className="muted">
+                      {opportunityStatusFilter === "all"
+                        ? "No health system opportunities yet."
+                        : opportunityStatusFilter === "open"
+                          ? "No open health system opportunities yet."
+                          : "No closed health system opportunities yet."}
+                    </p>
+                  ) : null}
 
-                  {openOpportunities.length > 0 ? (
+                  {filteredOpportunities.length > 0 ? (
                     <div className="table-wrap report-table-wrap">
                       <table className="table table-dense report-table">
                         <thead>
                           <tr>
                             <th>Company</th>
-                            <th>Opportunity</th>
+                            <th>Health System Opportunity</th>
                             <th>Health System</th>
                             <th>Stage</th>
+                            <th>Owner</th>
+                            <th>Created</th>
                             <th>Next Step</th>
                             <th>Likelihood</th>
                             <th>Contract Price</th>
-                            <th>Expected Close</th>
+                            <th>
+                              {opportunityStatusFilter === "closed"
+                                ? "Closed Date"
+                                : opportunityStatusFilter === "open"
+                                  ? "Expected Close"
+                                  : "Close / Expected"}
+                            </th>
                             <th>Contacts</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {openOpportunities.map((opportunity) => {
+                          {filteredOpportunities.map((opportunity) => {
                             const draft = opportunityDraftById[opportunity.id] || toOpportunityDraft(opportunity);
                             const healthSystemName = opportunity.healthSystem?.name || "-";
                             const likelihoodLabel = draft.likelihoodPercent ? `${draft.likelihoodPercent}%` : "—";
+                            const isClosed = isClosedOpportunityStage(opportunity.stage);
+                            const closeOrExpectedDate = isClosed
+                              ? formatReportDate(draft.closedAt || opportunity.closedAt)
+                              : formatReportDate(draft.estimatedCloseDate || opportunity.estimatedCloseDate);
 
                             return (
                               <tr key={opportunity.id}>
@@ -5462,6 +5732,8 @@ function stripCurrencyFormatting(value: string) {
                                 </td>
                                 <td>{healthSystemName}</td>
                                 <td>{opportunity.stage}</td>
+                                <td>{item?.ownerName || "Unassigned"}</td>
+                                <td>{formatReportDate(opportunity.createdAt)}</td>
                                 <td>
                                   <div className="report-next-step-cell">
                                     {editingOpportunityNextStepsId === opportunity.id ? (
@@ -5514,7 +5786,7 @@ function stripCurrencyFormatting(value: string) {
                                 </td>
                                 <td>{likelihoodLabel}</td>
                                 <td>{formatReportCurrency(opportunity.contractPriceUsd)}</td>
-                                <td>{formatReportDate(draft.estimatedCloseDate || opportunity.estimatedCloseDate)}</td>
+                                <td>{closeOrExpectedDate}</td>
                                 <td>{opportunity.contacts.length}</td>
                               </tr>
                             );
@@ -6878,18 +7150,26 @@ function stripCurrencyFormatting(value: string) {
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="pipeline-card-head">
-              <h3>{opportunityModal.mode === "create" ? "Add Opportunity" : selectedOpportunityForModal?.title || "Opportunity"}</h3>
+              <h3>
+                {opportunityModal.mode === "create"
+                  ? "Add Health System Opportunity"
+                  : selectedOpportunityForModal?.title || "Health System Opportunity"}
+              </h3>
               <button
                 className="modal-icon-close"
                 type="button"
                 onClick={closeOpportunityModal}
-                aria-label="Close opportunity dialog"
+                aria-label="Close health system opportunity dialog"
               >
                 <span aria-hidden="true">×</span>
               </button>
             </div>
 
-            <div className="detail-tabs detail-subtabs opportunity-modal-tabs" role="tablist" aria-label="Opportunity detail sections">
+            <div
+              className="detail-tabs detail-subtabs opportunity-modal-tabs"
+              role="tablist"
+              aria-label="Health system opportunity detail sections"
+            >
               <button
                 type="button"
                 role="tab"
@@ -6996,7 +7276,8 @@ function stripCurrencyFormatting(value: string) {
                         setNewOpportunityDraft((current) => ({
                           ...current,
                           stage,
-                          likelihoodPercent: String(defaultLikelihoodForStage(stage))
+                          likelihoodPercent: String(defaultLikelihoodForStage(stage)),
+                          closedAt: isClosedOpportunityStage(stage) ? current.closedAt : ""
                         }));
                       }}
                     >
@@ -7006,6 +7287,14 @@ function stripCurrencyFormatting(value: string) {
                         </option>
                       ))}
                     </select>
+                  </div>
+                  <div>
+                    <label>Owner</label>
+                    <input type="text" value={item.ownerName || "Unassigned"} readOnly />
+                  </div>
+                  <div>
+                    <label>Created</label>
+                    <input type="text" value="Set on create" readOnly />
                   </div>
                   <div>
                     <label>Health System</label>
@@ -7057,7 +7346,7 @@ function stripCurrencyFormatting(value: string) {
                     />
                   </div>
                   <div>
-                    <label>Opportunity Duration (days)</label>
+                    <label>Health System Opportunity Duration (days)</label>
                     <input
                       type="text"
                       value="Calculated from created date"
@@ -7091,16 +7380,17 @@ function stripCurrencyFormatting(value: string) {
                       />
                     </div>
                   <div>
-                    <label>Closed At</label>
+                    <label>Closed Date</label>
                     <input
-                      type="date"
-                      value={newOpportunityDraft.closedAt}
-                      onChange={(event) =>
-                        setNewOpportunityDraft((current) => ({
-                          ...current,
-                          closedAt: event.target.value
-                        }))
+                      type="text"
+                      value={
+                        isClosedOpportunityStage(newOpportunityDraft.stage)
+                          ? formatReportDate(newOpportunityDraft.closedAt) === "-"
+                            ? "Set on save"
+                            : formatReportDate(newOpportunityDraft.closedAt)
+                          : "Set automatically when closed"
                       }
+                      readOnly
                     />
                   </div>
                   <div className="detail-grid-full">
@@ -7118,13 +7408,13 @@ function stripCurrencyFormatting(value: string) {
                       }
                       placeholder={
                         isClosedOpportunityStage(newOpportunityDraft.stage)
-                          ? "Why this opportunity was won/lost"
+                          ? "Why this health system opportunity was won/lost"
                           : "Optional reason for closure outcome"
                       }
                     />
                   </div>
                   <div className="detail-grid-full opportunity-modal-notes-field">
-                    <label>Opportunity Notes</label>
+                    <label>Health System Opportunity Notes</label>
                     <RichTextArea
                       value={newOpportunityDraft.notes}
                       onChange={(nextValue) =>
@@ -7135,7 +7425,7 @@ function stripCurrencyFormatting(value: string) {
                       }
                       rows={10}
                       className="opportunity-notes-editor"
-                      placeholder="Opportunity-specific context"
+                      placeholder="Health system opportunity-specific context"
                     />
                   </div>
                 </div>
@@ -7154,7 +7444,7 @@ function stripCurrencyFormatting(value: string) {
                     }}
                     disabled={addingOpportunity}
                   >
-                    {addingOpportunity ? "Creating..." : "Create Opportunity"}
+                    {addingOpportunity ? "Creating..." : "Create Health System Opportunity"}
                   </button>
                 </div>
               </div>
@@ -7273,7 +7563,8 @@ function stripCurrencyFormatting(value: string) {
                               const stage = event.target.value as OpportunityStage;
                               updateOpportunityDraft(selectedOpportunityForModal.id, {
                                 stage,
-                                likelihoodPercent: String(defaultLikelihoodForStage(stage))
+                                likelihoodPercent: String(defaultLikelihoodForStage(stage)),
+                                closedAt: isClosedOpportunityStage(stage) ? draft.closedAt : ""
                               });
                             }}
                             onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
@@ -7284,6 +7575,14 @@ function stripCurrencyFormatting(value: string) {
                               </option>
                             ))}
                           </select>
+                        </div>
+                        <div>
+                          <label>Owner</label>
+                          <input type="text" value={item.ownerName || "Unassigned"} readOnly />
+                        </div>
+                        <div>
+                          <label>Created</label>
+                          <input type="text" value={formatDate(selectedOpportunityForModal.createdAt)} readOnly />
                         </div>
                         <div>
                           <label>Health System</label>
@@ -7343,7 +7642,7 @@ function stripCurrencyFormatting(value: string) {
                           />
                         </div>
                         <div>
-                          <label>Opportunity Duration (days)</label>
+                          <label>Health System Opportunity Duration (days)</label>
                           <input
                             type="text"
                             value={draftDurationDays ?? "—"}
@@ -7374,16 +7673,17 @@ function stripCurrencyFormatting(value: string) {
                               />
                             </div>
                         <div>
-                          <label>Closed At</label>
+                          <label>Closed Date</label>
                           <input
-                            type="date"
-                            value={draft.closedAt}
-                            onChange={(event) =>
-                              updateOpportunityDraft(selectedOpportunityForModal.id, {
-                                closedAt: event.target.value
-                              })
+                            type="text"
+                            value={
+                              closedStage
+                                ? formatReportDate(draft.closedAt || selectedOpportunityForModal.closedAt) === "-"
+                                  ? "Set on save"
+                                  : formatReportDate(draft.closedAt || selectedOpportunityForModal.closedAt)
+                                : "Set automatically when closed"
                             }
-                            onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
+                            readOnly
                           />
                         </div>
                         <div className="detail-grid-full">
@@ -7398,7 +7698,7 @@ function stripCurrencyFormatting(value: string) {
                             }
                             placeholder={
                               closedStage
-                                ? "Why this opportunity was won/lost"
+                                ? "Why this health system opportunity was won/lost"
                                 : "Optional reason for closure outcome"
                             }
                             onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
@@ -7609,13 +7909,88 @@ function stripCurrencyFormatting(value: string) {
                   {item ? (
                     <EntityDocumentsPane entityPath="companies" entityId={item.id} onStatus={setStatus} />
                   ) : (
-                    <p className="muted">Opportunity documents unavailable.</p>
+                    <p className="muted">Health system opportunity documents unavailable.</p>
                   )}
                 </div>
               )
             ) : (
-              <p className="muted">Opportunity not found.</p>
+              <p className="muted">Health System Opportunity not found.</p>
             )}
+          </div>
+        </div>
+      ) : null}
+
+      {showIntakeVentureCloseReasonModal ? (
+        <div className="pipeline-note-backdrop" onMouseDown={() => closeIntakeVentureCloseReasonModal()}>
+          <div
+            className="pipeline-note-modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="pipeline-card-head">
+              <h3>
+                {(pendingIntakeVentureCloseSelection?.section === "INTAKE"
+                  ? "Intake"
+                  : "Venture Studio Contract Execution") +
+                  " Venture Studio Opportunity " +
+                  (pendingIntakeVentureCloseSelection?.status === "CLOSED_REVISIT"
+                    ? "Closed/Revisit"
+                    : "Closed/Lost")}
+              </h3>
+              <button
+                className="modal-icon-close"
+                type="button"
+                onClick={() => closeIntakeVentureCloseReasonModal()}
+                aria-label="Close close reason dialog"
+                disabled={savingIntakeVentureCloseModal}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+            <p className="muted">
+              {`Add a reason for closing this ${
+                pendingIntakeVentureCloseSelection?.section === "INTAKE"
+                  ? "Intake"
+                  : "Venture Studio Contract Execution"
+              } venture studio opportunity as ${
+                pendingIntakeVentureCloseSelection?.status === "CLOSED_REVISIT" ? "closed/revisit" : "closed/lost"
+              }.`}
+            </p>
+            <div className="pipeline-status-single-field">
+              <label htmlFor="intake-venture-close-reason">
+                {pendingIntakeVentureCloseSelection?.status === "CLOSED_REVISIT"
+                  ? "Closed/Revisit Reason"
+                  : "Closed/Lost Reason"}
+              </label>
+              <input
+                id="intake-venture-close-reason"
+                type="text"
+                list="pipeline-closed-reason-suggestions"
+                value={intakeVentureCloseReasonModalDraft}
+                onChange={(event) => setIntakeVentureCloseReasonModalDraft(event.target.value)}
+                placeholder="Select a reason or type Other."
+                disabled={savingIntakeVentureCloseModal}
+              />
+            </div>
+            <div className="actions">
+              <button
+                type="button"
+                className="ghost small"
+                onClick={() => closeIntakeVentureCloseReasonModal()}
+                disabled={savingIntakeVentureCloseModal}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="secondary small"
+                onClick={() => void saveIntakeVentureCloseReasonFromModal()}
+                disabled={savingIntakeVentureCloseModal}
+              >
+                {savingIntakeVentureCloseModal ? "Saving..." : "Save"}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -7629,7 +8004,7 @@ function stripCurrencyFormatting(value: string) {
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="pipeline-card-head">
-              <h3>Screening Opportunity Closed/Lost</h3>
+              <h3>Screening Health System Opportunity Closed/Lost</h3>
               <button
                 className="modal-icon-close"
                 type="button"
@@ -7640,16 +8015,16 @@ function stripCurrencyFormatting(value: string) {
                 <span aria-hidden="true">×</span>
               </button>
             </div>
-            <p className="muted">Add a reason for closing this Screening Opportunity as closed/lost.</p>
+            <p className="muted">Add a reason for closing this Screening Health System Opportunity as closed/lost.</p>
             <div className="pipeline-status-single-field">
               <label htmlFor="screening-closed-lost-reason">Closed/Lost Reason</label>
-              <textarea
+              <input
                 id="screening-closed-lost-reason"
-                className="pipeline-note-textarea"
+                type="text"
+                list="pipeline-closed-reason-suggestions"
                 value={screeningClosedLostReasonModalDraft}
                 onChange={(event) => setScreeningClosedLostReasonModalDraft(event.target.value)}
-                rows={6}
-                placeholder="Explain why this Screening opportunity did not graduate to Commercial Acceleration."
+                placeholder="Select a reason or type Other."
                 disabled={savingScreeningCloseModal}
               />
             </div>
@@ -7674,6 +8049,12 @@ function stripCurrencyFormatting(value: string) {
           </div>
         </div>
       ) : null}
+
+      <datalist id="pipeline-closed-reason-suggestions">
+        {INTAKE_DECLINE_REASON_TEXT_SUGGESTIONS.map((reason) => (
+          <option key={reason} value={reason} />
+        ))}
+      </datalist>
 
       {showAddNoteModal ? (
         <div
@@ -7701,7 +8082,7 @@ function stripCurrencyFormatting(value: string) {
             <p className="muted">{item.name}</p>
             {item.opportunities.length > 0 ? (
               <div className="pipeline-status-single-field" style={{ marginTop: 10 }}>
-                <label>Tag to Opportunity (Optional)</label>
+                <label>Tag to Health System Opportunity (Optional)</label>
                 <select
                   value={newNoteOpportunityId}
                   onChange={(event) => setNewNoteOpportunityId(event.target.value)}

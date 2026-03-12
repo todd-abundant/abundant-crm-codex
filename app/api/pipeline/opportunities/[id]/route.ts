@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { marketLandscapePayloadFromRecord } from "@/lib/market-landscape";
 import {
+  inferDefaultDecisionFromCompany,
   inferDefaultPhaseFromCompany,
   isScreeningPhase,
   mapPhaseToBoardColumn,
@@ -609,12 +610,15 @@ export async function GET(
         isScreeningStage: isScreeningPhase(phase),
         closedOutcome: company.pipeline?.closedOutcome ?? null,
         declineReasonNotes: company.pipeline?.declineReasonNotes ?? null,
+        intakeDecision: company.pipeline?.intakeDecision ?? inferDefaultDecisionFromCompany(company),
         intakeDecisionAt: company.pipeline?.intakeDecisionAt ?? company.intakeScheduledAt ?? null,
         ventureStudioContractExecutedAt: company.pipeline?.ventureStudioContractExecutedAt ?? null,
         screeningWebinarDate1At: company.pipeline?.screeningWebinarDate1At ?? null,
         screeningWebinarDate2At: company.pipeline?.screeningWebinarDate2At ?? null,
         ventureLikelihoodPercent: company.pipeline?.ventureLikelihoodPercent ?? null,
         ventureExpectedCloseDate: company.pipeline?.ventureExpectedCloseDate ?? null,
+        ownerName: company.pipeline?.ownerName ?? null,
+        createdAt: company.createdAt.toISOString(),
         updatedAt: (company.pipeline?.updatedAt || company.updatedAt).toISOString(),
         opportunities: company.opportunities.map((opportunity) => ({
           id: opportunity.id,

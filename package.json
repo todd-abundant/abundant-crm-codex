@@ -20,6 +20,7 @@
     "db:migrate:dev": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:sync": "node scripts/db-sync.mjs",
+    "db:import:venture-studio-pipeline": "node scripts/import-venture-studio-pipeline.mjs",
     "db:reseed:health-systems-contacts": "node scripts/reseed-health-systems-contacts.mjs",
     "db:opportunities:normalize-titles": "node scripts/update-opportunity-titles.mjs",
     "db:contacts:set-principal-entity": "node scripts/set-contact-principal-entity.mjs",

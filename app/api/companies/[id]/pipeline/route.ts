@@ -43,7 +43,7 @@ function normalizePipelinePhase(phase: PipelinePhase) {
   return phase === "CLOSED" ? "DECLINED" : phase;
 }
 
-const intakeDecisionSchema = z.enum(["PENDING", "ADVANCE_TO_NEGOTIATION", "DECLINE"]);
+const intakeDecisionSchema = z.enum(["PENDING", "ADVANCE_TO_NEGOTIATION", "DECLINE", "REVISIT_LATER"]);
 
 const documentSchema = z.object({
   type: z
@@ -143,6 +143,7 @@ const pipelineUpdateSchema = z.object({
   intakeStage: pipelineIntakeStageSchema.default("RECEIVED"),
   primaryCategory: primaryCategorySchema.default("OTHER"),
   closedOutcome: closedOutcomeSchema.optional().nullable(),
+  createdAt: z.string().optional().nullable(),
   ownerName: z.string().optional().nullable(),
   nextStepDueAt: z.string().optional().nullable(),
   lastMeaningfulActivityAt: z.string().optional().nullable(),
@@ -155,6 +156,8 @@ const pipelineUpdateSchema = z.object({
   ventureStudioContractExecutedAt: z.string().optional().nullable(),
   screeningWebinarDate1At: z.string().optional().nullable(),
   screeningWebinarDate2At: z.string().optional().nullable(),
+  ventureLikelihoodPercent: z.number().int().min(0).max(100).optional().nullable(),
+  ventureExpectedCloseDate: z.string().optional().nullable(),
   targetLoiCount: z.number().int().min(1).max(50).default(3),
   s1Invested: z.boolean().default(false),
   s1InvestmentAt: z.string().optional().nullable(),
@@ -334,11 +337,14 @@ function buildPipelinePayload(company: CompanyPipelineView) {
       ventureStudioContractExecutedAt: null,
       screeningWebinarDate1At: null,
       screeningWebinarDate2At: null,
+      ventureLikelihoodPercent: null,
+      ventureExpectedCloseDate: null,
       targetLoiCount: 3,
       s1Invested: false,
       s1InvestmentAt: null,
       s1InvestmentAmountUsd: null,
       portfolioAddedAt: null,
+      createdAt: company.createdAt,
       updatedAt: null,
       documents: [],
       opportunities: [],
@@ -369,11 +375,14 @@ function buildPipelinePayload(company: CompanyPipelineView) {
     ventureStudioContractExecutedAt: company.pipeline.ventureStudioContractExecutedAt,
     screeningWebinarDate1At: company.pipeline.screeningWebinarDate1At,
     screeningWebinarDate2At: company.pipeline.screeningWebinarDate2At,
+    ventureLikelihoodPercent: company.pipeline.ventureLikelihoodPercent,
+    ventureExpectedCloseDate: company.pipeline.ventureExpectedCloseDate,
     targetLoiCount: company.pipeline.targetLoiCount,
     s1Invested: company.pipeline.s1Invested,
     s1InvestmentAt: company.pipeline.s1InvestmentAt,
     s1InvestmentAmountUsd: company.pipeline.s1InvestmentAmountUsd,
     portfolioAddedAt: company.pipeline.portfolioAddedAt,
+    createdAt: company.pipeline.createdAt || company.createdAt,
     updatedAt: company.pipeline.updatedAt.toISOString(),
     documents: company.documents,
     opportunities: company.opportunities.map((opportunity) => ({
@@ -421,18 +430,22 @@ export async function PATCH(
     const shouldDebug = shouldLogDateRequest(request);
     const debugContext = getDateDebugContextFromRequest(request);
     const dateFieldPresence = {
+      createdAt: hasDateField(body, "createdAt"),
       intakeDecisionAt: hasDateField(body, "intakeDecisionAt"),
       ventureStudioContractExecutedAt: hasDateField(body, "ventureStudioContractExecutedAt"),
       screeningWebinarDate1At: hasDateField(body, "screeningWebinarDate1At"),
       screeningWebinarDate2At: hasDateField(body, "screeningWebinarDate2At"),
+      ventureExpectedCloseDate: hasDateField(body, "ventureExpectedCloseDate"),
       s1InvestmentAt: hasDateField(body, "s1InvestmentAt"),
       portfolioAddedAt: hasDateField(body, "portfolioAddedAt")
     };
 
+    const createdAt = toNullableDate(input.createdAt);
     const intakeDecisionAt = toNullableDate(input.intakeDecisionAt);
     const ventureStudioContractExecutedAt = toNullableDate(input.ventureStudioContractExecutedAt);
     const screeningWebinarDate1At = toNullableDate(input.screeningWebinarDate1At);
     const screeningWebinarDate2At = toNullableDate(input.screeningWebinarDate2At);
+    const ventureExpectedCloseDate = toNullableDate(input.ventureExpectedCloseDate);
     const s1InvestmentAt = toNullableDate(input.s1InvestmentAt);
     const portfolioAddedAt = toNullableDate(input.portfolioAddedAt);
     const nextStepDueAt = toNullableDate(input.nextStepDueAt);
@@ -464,11 +477,14 @@ export async function PATCH(
       ventureStudioContractExecutedAt,
       screeningWebinarDate1At,
       screeningWebinarDate2At,
+      ventureLikelihoodPercent: input.ventureLikelihoodPercent ?? null,
+      ventureExpectedCloseDate,
       targetLoiCount: input.targetLoiCount,
       s1Invested: input.s1Invested,
       s1InvestmentAt,
       s1InvestmentAmountUsd: input.s1InvestmentAmountUsd ?? null,
-      portfolioAddedAt
+      portfolioAddedAt,
+      ...(createdAt ? { createdAt } : {})
     };
 
     const pipelineUpdatePayload = {
@@ -489,15 +505,19 @@ export async function PATCH(
       ventureStudioContractExecutedAt,
       screeningWebinarDate1At,
       screeningWebinarDate2At,
+      ventureLikelihoodPercent: input.ventureLikelihoodPercent ?? null,
+      ventureExpectedCloseDate,
       targetLoiCount: input.targetLoiCount,
       s1Invested: input.s1Invested,
       s1InvestmentAt,
       s1InvestmentAmountUsd: input.s1InvestmentAmountUsd ?? null,
-      portfolioAddedAt
+      portfolioAddedAt,
+      ...(createdAt ? { createdAt } : {})
     };
 
     if (shouldDebug) {
       const parseWarnings = {
+        createdAt: parseWarningCandidates(input.createdAt, createdAt),
         intakeDecisionAt: parseWarningCandidates(input.intakeDecisionAt, intakeDecisionAt),
         ventureStudioContractExecutedAt: parseWarningCandidates(
           input.ventureStudioContractExecutedAt,
@@ -505,6 +525,7 @@ export async function PATCH(
         ),
         screeningWebinarDate1At: parseWarningCandidates(input.screeningWebinarDate1At, screeningWebinarDate1At),
         screeningWebinarDate2At: parseWarningCandidates(input.screeningWebinarDate2At, screeningWebinarDate2At),
+        ventureExpectedCloseDate: parseWarningCandidates(input.ventureExpectedCloseDate, ventureExpectedCloseDate),
         s1InvestmentAt: parseWarningCandidates(input.s1InvestmentAt, s1InvestmentAt),
         portfolioAddedAt: parseWarningCandidates(input.portfolioAddedAt, portfolioAddedAt)
       };
@@ -516,12 +537,14 @@ export async function PATCH(
         parseWarnings,
         body,
         parsed: {
+          createdAt: dateFieldPresence.createdAt ? input.createdAt : undefined,
           intakeDecisionAt: dateFieldPresence.intakeDecisionAt ? input.intakeDecisionAt : undefined,
           ventureStudioContractExecutedAt: dateFieldPresence.ventureStudioContractExecutedAt
             ? input.ventureStudioContractExecutedAt
             : undefined,
           screeningWebinarDate1At: dateFieldPresence.screeningWebinarDate1At ? input.screeningWebinarDate1At : undefined,
           screeningWebinarDate2At: dateFieldPresence.screeningWebinarDate2At ? input.screeningWebinarDate2At : undefined,
+          ventureExpectedCloseDate: dateFieldPresence.ventureExpectedCloseDate ? input.ventureExpectedCloseDate : undefined,
           s1InvestmentAt: dateFieldPresence.s1InvestmentAt ? input.s1InvestmentAt : undefined,
           portfolioAddedAt: dateFieldPresence.portfolioAddedAt ? input.portfolioAddedAt : undefined
         }
@@ -554,6 +577,7 @@ export async function PATCH(
         clientUpdatedAtComparison: preUpdateClientState,
         existingPipeline: company.pipeline
             ? {
+              createdAt: formatDateForDebug(company.pipeline.createdAt),
               updatedAt: company.pipeline.updatedAt.toISOString(),
               intakeDecisionAt: formatDateForDebug(company.pipeline.intakeDecisionAt),
               ventureStudioContractExecutedAt: formatDateForDebug(company.pipeline.ventureStudioContractExecutedAt),
@@ -604,6 +628,7 @@ export async function PATCH(
       }
 
       await tx.companyOpportunity.deleteMany({ where: { companyId: id } });
+      await tx.healthSystemOpportunity.deleteMany({ where: { companyId: id } });
       if (input.opportunities.length > 0) {
         const healthSystemIds = Array.from(
           new Set(
@@ -655,9 +680,27 @@ export async function PATCH(
           });
 
         if (opportunitiesToCreate.length > 0) {
-          await tx.companyOpportunity.createMany({
-            data: opportunitiesToCreate
-          });
+          for (const opportunityData of opportunitiesToCreate) {
+            const legacyOpportunity = await tx.companyOpportunity.create({
+              data: opportunityData,
+              select: {
+                id: true
+              }
+            });
+
+            await tx.healthSystemOpportunity.upsert({
+              where: { id: legacyOpportunity.id },
+              update: {
+                legacyCompanyOpportunityId: legacyOpportunity.id,
+                ...opportunityData
+              },
+              create: {
+                id: legacyOpportunity.id,
+                legacyCompanyOpportunityId: legacyOpportunity.id,
+                ...opportunityData
+              }
+            });
+          }
         }
       }
 
@@ -756,31 +799,47 @@ export async function PATCH(
         postUpdateClientState,
         requestPresence: dateFieldPresence,
         payload: {
+          createdAt: debugDateValue(createdAt),
           intakeDecisionAt: debugDateValue(intakeDecisionAt),
           ventureStudioContractExecutedAt: debugDateValue(ventureStudioContractExecutedAt),
           screeningWebinarDate1At: debugDateValue(screeningWebinarDate1At),
           screeningWebinarDate2At: debugDateValue(screeningWebinarDate2At),
+          ventureExpectedCloseDate: debugDateValue(ventureExpectedCloseDate),
+          ventureLikelihoodPercent: input.ventureLikelihoodPercent ?? null,
           s1InvestmentAt: debugDateValue(s1InvestmentAt),
           portfolioAddedAt: debugDateValue(portfolioAddedAt)
         },
         before: {
+          createdAt: formatDateForDebug(company.pipeline?.createdAt || null),
           intakeDecisionAt: formatDateForDebug(company.pipeline?.intakeDecisionAt || null),
           ventureStudioContractExecutedAt: formatDateForDebug(company.pipeline?.ventureStudioContractExecutedAt || null),
           screeningWebinarDate1At: formatDateForDebug(company.pipeline?.screeningWebinarDate1At || null),
           screeningWebinarDate2At: formatDateForDebug(company.pipeline?.screeningWebinarDate2At || null),
+          ventureExpectedCloseDate: formatDateForDebug(company.pipeline?.ventureExpectedCloseDate || null),
+          ventureLikelihoodPercent: company.pipeline?.ventureLikelihoodPercent ?? null,
           s1InvestmentAt: formatDateForDebug(company.pipeline?.s1InvestmentAt || null),
           portfolioAddedAt: formatDateForDebug(company.pipeline?.portfolioAddedAt || null)
         },
-          after: {
+        after: {
+            createdAt: formatDateForDebug(savedPipeline?.createdAt || null),
             updatedAt: savedPipeline?.updatedAt?.toISOString() ?? null,
             intakeDecisionAt: formatDateForDebug(savedPipeline?.intakeDecisionAt || null),
             ventureStudioContractExecutedAt: formatDateForDebug(savedPipeline?.ventureStudioContractExecutedAt || null),
             screeningWebinarDate1At: formatDateForDebug(savedPipeline?.screeningWebinarDate1At || null),
             screeningWebinarDate2At: formatDateForDebug(savedPipeline?.screeningWebinarDate2At || null),
+            ventureExpectedCloseDate: formatDateForDebug(savedPipeline?.ventureExpectedCloseDate || null),
+            ventureLikelihoodPercent: savedPipeline?.ventureLikelihoodPercent ?? null,
             s1InvestmentAt: formatDateForDebug(savedPipeline?.s1InvestmentAt || null),
             portfolioAddedAt: formatDateForDebug(savedPipeline?.portfolioAddedAt || null)
         },
         delta: {
+          createdAt: {
+            requested: dateFieldPresence.createdAt ? input.createdAt : undefined,
+            persisted: formatDateForDebug(savedPipeline?.createdAt || null),
+            matched:
+              !dateFieldPresence.createdAt ||
+              formatDateForDebug(createdAt) === formatDateForDebug(savedPipeline?.createdAt || null)
+          },
           intakeDecisionAt: {
             requested: dateFieldPresence.intakeDecisionAt ? input.intakeDecisionAt : undefined,
             persisted: formatDateForDebug(savedPipeline?.intakeDecisionAt || null)
@@ -808,6 +867,23 @@ export async function PATCH(
               !dateFieldPresence.screeningWebinarDate2At ||
               formatDateForDebug(toNullableDate(input.screeningWebinarDate2At)) ===
                 formatDateForDebug(savedPipeline?.screeningWebinarDate2At || null)
+          },
+          ventureExpectedCloseDate: {
+            requested: dateFieldPresence.ventureExpectedCloseDate ? input.ventureExpectedCloseDate : undefined,
+            persisted: formatDateForDebug(savedPipeline?.ventureExpectedCloseDate || null),
+            matched:
+              !dateFieldPresence.ventureExpectedCloseDate ||
+              formatDateForDebug(toNullableDate(input.ventureExpectedCloseDate)) ===
+                formatDateForDebug(savedPipeline?.ventureExpectedCloseDate || null)
+          },
+          ventureLikelihoodPercent: {
+            requested: Object.prototype.hasOwnProperty.call(body, "ventureLikelihoodPercent")
+              ? input.ventureLikelihoodPercent ?? null
+              : undefined,
+            persisted: savedPipeline?.ventureLikelihoodPercent ?? null,
+            matched: Object.prototype.hasOwnProperty.call(body, "ventureLikelihoodPercent")
+              ? savedPipeline?.ventureLikelihoodPercent === (input.ventureLikelihoodPercent ?? null)
+              : null
           },
           s1InvestmentAt: {
             requested: dateFieldPresence.s1InvestmentAt ? input.s1InvestmentAt : undefined,

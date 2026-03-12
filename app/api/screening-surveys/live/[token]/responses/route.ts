@@ -358,6 +358,45 @@ export async function POST(
                 notes: appendTimestampedNote(openScreeningOpportunity.notes, note)
               }
             });
+
+            await tx.healthSystemOpportunity.upsert({
+              where: { id: updated.id },
+              update: {
+                legacyCompanyOpportunityId: updated.id,
+                companyId: updated.companyId,
+                healthSystemId: updated.healthSystemId,
+                type: updated.type,
+                title: updated.title,
+                stage: updated.stage,
+                likelihoodPercent: updated.likelihoodPercent,
+                contractPriceUsd: updated.contractPriceUsd,
+                durationDays: updated.durationDays,
+                notes: updated.notes,
+                nextSteps: updated.nextSteps,
+                closeReason: updated.closeReason,
+                estimatedCloseDate: updated.estimatedCloseDate,
+                closedAt: updated.closedAt
+              },
+              create: {
+                id: updated.id,
+                legacyCompanyOpportunityId: updated.id,
+                companyId: updated.companyId,
+                healthSystemId: updated.healthSystemId,
+                type: updated.type,
+                title: updated.title,
+                stage: updated.stage,
+                likelihoodPercent: updated.likelihoodPercent,
+                contractPriceUsd: updated.contractPriceUsd,
+                durationDays: updated.durationDays,
+                notes: updated.notes,
+                nextSteps: updated.nextSteps,
+                closeReason: updated.closeReason,
+                estimatedCloseDate: updated.estimatedCloseDate,
+                closedAt: updated.closedAt,
+                createdAt: updated.createdAt,
+                updatedAt: updated.updatedAt
+              }
+            });
             screeningOpportunityId = updated.id;
           } else {
             const created = await tx.companyOpportunity.create({
@@ -375,6 +414,45 @@ export async function POST(
                 notes: appendTimestampedNote(null, note)
               }
             });
+
+            await tx.healthSystemOpportunity.upsert({
+              where: { id: created.id },
+              update: {
+                legacyCompanyOpportunityId: created.id,
+                companyId: created.companyId,
+                healthSystemId: created.healthSystemId,
+                type: created.type,
+                title: created.title,
+                stage: created.stage,
+                likelihoodPercent: created.likelihoodPercent,
+                contractPriceUsd: created.contractPriceUsd,
+                durationDays: created.durationDays,
+                notes: created.notes,
+                nextSteps: created.nextSteps,
+                closeReason: created.closeReason,
+                estimatedCloseDate: created.estimatedCloseDate,
+                closedAt: created.closedAt
+              },
+              create: {
+                id: created.id,
+                legacyCompanyOpportunityId: created.id,
+                companyId: created.companyId,
+                healthSystemId: created.healthSystemId,
+                type: created.type,
+                title: created.title,
+                stage: created.stage,
+                likelihoodPercent: created.likelihoodPercent,
+                contractPriceUsd: created.contractPriceUsd,
+                durationDays: created.durationDays,
+                notes: created.notes,
+                nextSteps: created.nextSteps,
+                closeReason: created.closeReason,
+                estimatedCloseDate: created.estimatedCloseDate,
+                closedAt: created.closedAt,
+                createdAt: created.createdAt,
+                updatedAt: created.updatedAt
+              }
+            });
             screeningOpportunityId = created.id;
           }
 
@@ -390,6 +468,23 @@ export async function POST(
               }
             },
             update: {},
+            create: {
+              opportunityId: screeningOpportunityId,
+              contactId,
+              role: "CONTRACTING_CONTACT"
+            }
+          });
+
+          await tx.healthSystemOpportunityContact.upsert({
+            where: {
+              opportunityId_contactId: {
+                opportunityId: screeningOpportunityId,
+                contactId
+              }
+            },
+            update: {
+              role: "CONTRACTING_CONTACT"
+            },
             create: {
               opportunityId: screeningOpportunityId,
               contactId,

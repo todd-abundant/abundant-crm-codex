@@ -24,6 +24,7 @@ type ReportRow = {
   type: string;
   stage: string;
   company: { id: string; name: string };
+  ownerName: string | null;
   healthSystem: { id: string; name: string } | null;
   declineReason:
     | "PRODUCT"
@@ -217,6 +218,10 @@ function formatDeclinedReason(row: ReportRow) {
   }
 
   return "-";
+}
+
+function isClosedOpportunityStage(stage: string) {
+  return stage === "CLOSED_WON" || stage === "CLOSED_LOST";
 }
 
 function makeCustomReportKey() {
@@ -771,7 +776,6 @@ export default function ReportsPage() {
   }
 
   const showDeclinedReasonColumn = statusFilter === "closed";
-  const isClosedReportView = statusFilter === "closed";
 
   return (
     <main>
@@ -872,13 +876,15 @@ export default function ReportsPage() {
                 <thead>
                   <tr>
                     <th>Company</th>
-                    <th>Opportunity</th>
+                    <th>Health System Opportunity</th>
                     <th>Health System</th>
                     <th>Stage</th>
+                    <th>Owner</th>
+                    <th>Created</th>
                     <th>Next Step</th>
                     <th>Likelihood</th>
                     <th>Contract Price</th>
-                    <th>{isClosedReportView ? "Close Date" : "Expected Close"}</th>
+                    <th>{statusFilter === "closed" ? "Close Date" : "Expected / Closed"}</th>
                     {showDeclinedReasonColumn ? <th>Declined Reason</th> : null}
                     <th>Contacts</th>
                   </tr>
@@ -910,6 +916,8 @@ export default function ReportsPage() {
                       </td>
                       <td>{row.healthSystem?.name || "-"}</td>
                       <td>{row.stage}</td>
+                      <td>{row.ownerName || "Unassigned"}</td>
+                      <td>{formatDate(row.createdAt)}</td>
                       <td>
                         <div className="report-next-step-cell">
                           {row.sourceKind !== "OPPORTUNITY" ? (
@@ -960,7 +968,11 @@ export default function ReportsPage() {
                       </td>
                       <td>{row.likelihoodPercent === null ? "-" : `${row.likelihoodPercent}%`}</td>
                       <td>{formatCurrency(row.contractPriceUsd)}</td>
-                      <td>{formatDate(isClosedReportView ? row.closedAt : row.estimatedCloseDate)}</td>
+                      <td>
+                        {formatDate(
+                          isClosedOpportunityStage(row.stage) ? row.closedAt : row.estimatedCloseDate
+                        )}
+                      </td>
                       {showDeclinedReasonColumn ? <td>{formatDeclinedReason(row)}</td> : null}
                       <td>{row.contactCount}</td>
                     </tr>
@@ -988,9 +1000,9 @@ export default function ReportsPage() {
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label="Edit opportunity"
+            aria-label="Edit health system opportunity"
           >
-            <h2>Edit Opportunity</h2>
+            <h2>Edit Health System Opportunity</h2>
             <div className="detail-grid">
               <div>
                 <label>Type</label>
@@ -1135,7 +1147,7 @@ export default function ReportsPage() {
                 onClick={() => void saveOpportunityModal()}
                 disabled={savingOpportunityModal}
               >
-                {savingOpportunityModal ? "Saving..." : "Save Opportunity"}
+                {savingOpportunityModal ? "Saving..." : "Save Health System Opportunity"}
               </button>
             </div>
           </section>
@@ -1153,7 +1165,7 @@ export default function ReportsPage() {
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label="Opportunity report filters"
+            aria-label="Health system opportunity report filters"
           >
             <h2>Report Filters</h2>
             {isCreatingCustomReport ? (
@@ -1192,7 +1204,7 @@ export default function ReportsPage() {
                 </select>
               </div>
               <div>
-                <label>Opportunity Type</label>
+                <label>Health System Opportunity Type</label>
                 <select value={draftTypeFilter} onChange={(event) => setDraftTypeFilter(event.target.value)}>
                   <option value="">All Types</option>
                   {opportunityTypeOptions.map((option) => (

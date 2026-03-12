@@ -45,7 +45,11 @@ export type PipelinePhase =
   | "CLOSED";
 
 export type PipelineIntakeStatus = "NOT_SCHEDULED" | "SCHEDULED" | "COMPLETED" | "SCREENING_EVALUATION";
-export type PipelineIntakeDecision = "PENDING" | "ADVANCE_TO_NEGOTIATION" | "DECLINE";
+export type PipelineIntakeDecision =
+  | "PENDING"
+  | "ADVANCE_TO_NEGOTIATION"
+  | "DECLINE"
+  | "REVISIT_LATER";
 
 export type PipelineBoardColumn = "INTAKE" | "VENTURE_STUDIO_CONTRACT_EVALUATION" | "SCREENING" | "COMMERCIAL_ACCELERATION";
 
