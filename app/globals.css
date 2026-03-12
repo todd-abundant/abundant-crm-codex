@@ -5377,6 +5377,32 @@ select {
   text-overflow: clip;
 }
 
+.venture-studio-opportunity-tab-content .inline-edit-field > input,
+.venture-studio-opportunity-tab-content .inline-edit-field > select,
+.venture-studio-opportunity-tab-content .inline-edit-field > textarea,
+.venture-studio-opportunity-tab-content .inline-date-edit .react-datepicker__input-container input,
+.venture-studio-opportunity-tab-content .inline-edit-display {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 6px;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.venture-studio-opportunity-tab-content .inline-edit-field > input:not([type="checkbox"]):not([type="radio"]):hover,
+.venture-studio-opportunity-tab-content .inline-edit-field > input:not([type="checkbox"]):not([type="radio"]):focus,
+.venture-studio-opportunity-tab-content .inline-date-edit .react-datepicker__input-container input:hover,
+.venture-studio-opportunity-tab-content .inline-date-edit .react-datepicker__input-container input:focus,
+.venture-studio-opportunity-tab-content .inline-edit-display:hover,
+.venture-studio-opportunity-tab-content .inline-edit-display:focus-visible {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
 .entity-detail-panel .venture-studio-opportunity-tab-content {
   padding-left: 12px;
   padding-bottom: 10px;

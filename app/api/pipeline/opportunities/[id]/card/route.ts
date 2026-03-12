@@ -41,7 +41,9 @@ const cardUpdateSchema = z.object({
   closedOutcome: closedOutcomeSchema.optional().nullable(),
   declineReasonNotes: z.string().optional().nullable(),
   nextStep: z.string().optional().nullable(),
+  ownerName: z.string().optional().nullable(),
   intakeDecision: intakeDecisionSchema.optional(),
+  createdAt: z.string().optional().nullable(),
   intakeDecisionAt: z.string().optional().nullable(),
   ventureStudioContractExecutedAt: z.string().optional().nullable(),
   screeningWebinarDate1At: z.string().optional().nullable(),
@@ -278,6 +280,7 @@ export async function PATCH(
     const debugContext = getDateDebugContextFromRequest(request);
     const dateFieldPresence = {
       nextStep: hasDateField(body, "nextStep"),
+      createdAt: hasDateField(body, "createdAt"),
       intakeDecisionAt: hasDateField(body, "intakeDecisionAt"),
       ventureStudioContractExecutedAt: hasDateField(body, "ventureStudioContractExecutedAt"),
       screeningWebinarDate1At: hasDateField(body, "screeningWebinarDate1At"),
@@ -291,7 +294,9 @@ export async function PATCH(
       closedOutcome?: "INVESTED" | "PASSED" | "LOST" | "WITHDREW" | "OTHER" | null;
       declineReasonNotes?: string | null;
       nextStep?: string | null;
+      ownerName?: string | null;
       intakeDecision?: "PENDING" | "ADVANCE_TO_NEGOTIATION" | "DECLINE" | "REVISIT_LATER";
+      createdAt?: Date;
       intakeDecisionAt?: Date | null;
       ventureStudioContractExecutedAt?: Date | null;
       screeningWebinarDate1At?: Date | null;
@@ -311,6 +316,9 @@ export async function PATCH(
     if (Object.prototype.hasOwnProperty.call(body, "nextStep")) {
       updatePayload.nextStep = toNullableString(input.nextStep);
     }
+    if (Object.prototype.hasOwnProperty.call(body, "ownerName")) {
+      updatePayload.ownerName = toNullableString(input.ownerName);
+    }
     if (Object.prototype.hasOwnProperty.call(body, "closedOutcome")) {
       updatePayload.closedOutcome = input.closedOutcome ?? null;
     }
@@ -319,6 +327,12 @@ export async function PATCH(
     }
     if (Object.prototype.hasOwnProperty.call(body, "intakeDecision")) {
       updatePayload.intakeDecision = input.intakeDecision;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "createdAt")) {
+      const parsedCreatedAt = toNullableDate(input.createdAt);
+      if (parsedCreatedAt) {
+        updatePayload.createdAt = parsedCreatedAt;
+      }
     }
     if (Object.prototype.hasOwnProperty.call(body, "intakeDecisionAt")) {
       updatePayload.intakeDecisionAt = toNullableDate(input.intakeDecisionAt);
@@ -364,6 +378,7 @@ export async function PATCH(
     }
     if (shouldDebug) {
       const parseWarnings = {
+        createdAt: parseWarningCandidates(input.createdAt, updatePayload.createdAt || null),
         intakeDecisionAt: parseWarningCandidates(input.intakeDecisionAt, updatePayload.intakeDecisionAt),
         ventureStudioContractExecutedAt: parseWarningCandidates(
           input.ventureStudioContractExecutedAt,
@@ -390,6 +405,7 @@ export async function PATCH(
         body,
         parsed: {
           nextStep: input.nextStep,
+          createdAt: dateFieldPresence.createdAt ? input.createdAt : undefined,
           intakeDecisionAt: dateFieldPresence.intakeDecisionAt ? input.intakeDecisionAt : undefined,
           ventureStudioContractExecutedAt: input.ventureStudioContractExecutedAt,
           screeningWebinarDate1At: input.screeningWebinarDate1At,
@@ -418,6 +434,7 @@ export async function PATCH(
         id,
         parsed: {
           nextStep: updatePayload.nextStep,
+          createdAt: debugDateValue(updatePayload.createdAt || null),
           intakeDecisionAt: debugDateValue(updatePayload.intakeDecisionAt),
           ventureStudioContractExecutedAt: debugDateValue(updatePayload.ventureStudioContractExecutedAt),
           screeningWebinarDate1At: debugDateValue(updatePayload.screeningWebinarDate1At),
@@ -494,6 +511,7 @@ export async function PATCH(
             intakeDecisionAt: company.pipeline.intakeDecisionAt
               ? formatDateForDebug(company.pipeline.intakeDecisionAt)
               : null,
+            createdAt: company.pipeline.createdAt ? formatDateForDebug(company.pipeline.createdAt) : null,
             updatedAt: company.pipeline.updatedAt.toISOString(),
             ventureStudioContractExecutedAt: company.pipeline.ventureStudioContractExecutedAt
               ? formatDateForDebug(company.pipeline.ventureStudioContractExecutedAt)
@@ -582,10 +600,18 @@ export async function PATCH(
         payloadHas: Object.keys(updatePayload),
         postUpdateClientState,
         delta: {
-          nextStep: {
+        nextStep: {
             requested: dateFieldPresence.nextStep ? input.nextStep : undefined,
             previous: beforePipeline?.nextStep || null,
             persisted: pipeline.nextStep || null
+          },
+          ownerName: {
+            requested: Object.prototype.hasOwnProperty.call(body, "ownerName") ? toNullableString(input.ownerName) : null,
+            previous: beforePipeline?.ownerName || null,
+            persisted: pipeline.ownerName || null,
+            matched: Object.prototype.hasOwnProperty.call(body, "ownerName")
+              ? pipeline.ownerName === toNullableString(input.ownerName)
+              : null
           },
           intakeDecision: {
             requested: hasExplicitIntakeDecision ? input.intakeDecision : null,
@@ -593,6 +619,11 @@ export async function PATCH(
             persisted: pipeline.intakeDecision,
             matched: hasExplicitIntakeDecision ? pipeline.intakeDecision === input.intakeDecision : null
           },
+          createdAt: debugDatePayloadField(
+            dateFieldPresence.createdAt ? updatePayload.createdAt || null : null,
+            pipeline.createdAt || null,
+            dateFieldPresence.createdAt
+          ),
           intakeDecisionAt: debugDatePayloadField(
             dateFieldPresence.intakeDecisionAt ? updatePayload.intakeDecisionAt : null,
             pipeline.intakeDecisionAt || null,
@@ -632,6 +663,7 @@ export async function PATCH(
           updatedAt: pipeline.updatedAt.toISOString(),
           nextStep: pipeline.nextStep,
           intakeDecision: pipeline.intakeDecision,
+          createdAt: pipeline.createdAt ? formatDateForDebug(pipeline.createdAt) : null,
           intakeDecisionAt: formatDateForDebug(pipeline.intakeDecisionAt),
           ventureStudioContractExecutedAt: pipeline.ventureStudioContractExecutedAt
             ? formatDateForDebug(pipeline.ventureStudioContractExecutedAt)
@@ -654,7 +686,9 @@ export async function PATCH(
       item: {
         id,
         nextStep: pipeline.nextStep || "",
+        ownerName: pipeline.ownerName,
         intakeDecision: pipeline.intakeDecision,
+        createdAt: pipeline.createdAt,
         intakeDecisionAt: pipeline.intakeDecisionAt,
         ventureStudioContractExecutedAt: pipeline.ventureStudioContractExecutedAt,
         screeningWebinarDate1At: pipeline.screeningWebinarDate1At,

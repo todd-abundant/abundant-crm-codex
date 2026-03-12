@@ -2920,8 +2920,10 @@ export function PipelineOpportunityDetailView({
     phase?: PipelinePhase;
     closedOutcome?: ClosedOutcome | null;
     declineReasonNotes?: string | null;
+    ownerName?: string | null;
     intakeDecision?: PipelineIntakeDecision;
     intakeDecisionAt?: string | null;
+    createdAt?: string | null;
     ventureStudioContractExecutedAt?: string | null;
     screeningWebinarDate1At?: string | null;
     screeningWebinarDate2At?: string | null;
@@ -2937,8 +2939,10 @@ export function PipelineOpportunityDetailView({
       phase: Object.prototype.hasOwnProperty.call(input, "phase"),
       closedOutcome: Object.prototype.hasOwnProperty.call(input, "closedOutcome"),
       declineReasonNotes: Object.prototype.hasOwnProperty.call(input, "declineReasonNotes"),
+      ownerName: Object.prototype.hasOwnProperty.call(input, "ownerName"),
       intakeDecision: Object.prototype.hasOwnProperty.call(input, "intakeDecision"),
       intakeDecisionAt: Object.prototype.hasOwnProperty.call(input, "intakeDecisionAt"),
+      createdAt: Object.prototype.hasOwnProperty.call(input, "createdAt"),
       ventureStudioContractExecutedAt: Object.prototype.hasOwnProperty.call(input, "ventureStudioContractExecutedAt"),
       screeningWebinarDate1At: Object.prototype.hasOwnProperty.call(input, "screeningWebinarDate1At"),
       screeningWebinarDate2At: Object.prototype.hasOwnProperty.call(input, "screeningWebinarDate2At"),
@@ -2974,8 +2978,10 @@ export function PipelineOpportunityDetailView({
         phase: item.phase,
         closedOutcome: item.closedOutcome,
         declineReasonNotes: item.declineReasonNotes,
+        ownerName: item.ownerName,
         intakeDecision: item.intakeDecision,
         intakeDecisionAt: item.intakeDecisionAt,
+        createdAt: item.createdAt || "",
         ventureStudioContractExecutedAt: item.ventureStudioContractExecutedAt,
         screeningWebinarDate1At: item.screeningWebinarDate1At,
         screeningWebinarDate2At: item.screeningWebinarDate2At,
@@ -3009,8 +3015,10 @@ export function PipelineOpportunityDetailView({
         phase: returnedItem?.phase ?? item.phase,
         closedOutcome: returnedItem?.closedOutcome ?? item.closedOutcome,
         declineReasonNotes: returnedItem?.declineReasonNotes ?? item.declineReasonNotes,
+        ownerName: returnedItem?.ownerName ?? item.ownerName,
         intakeDecision: returnedItem?.intakeDecision ?? item.intakeDecision,
         intakeDecisionAt: returnedItem?.intakeDecisionAt ?? null,
+        createdAt: returnedItem?.createdAt ?? item.createdAt,
         ventureStudioContractExecutedAt: returnedItem?.ventureStudioContractExecutedAt ?? null,
         screeningWebinarDate1At: returnedItem?.screeningWebinarDate1At ?? null,
         screeningWebinarDate2At: returnedItem?.screeningWebinarDate2At ?? null,
@@ -3054,6 +3062,13 @@ export function PipelineOpportunityDetailView({
                   (responseDates.declineReasonNotes || "").trim()
               }
             : null,
+          ownerName: requestHas.ownerName
+            ? {
+                requested: (requestPayload.ownerName || "").trim(),
+                persisted: (responseDates.ownerName || "").trim(),
+                matched: (requestPayload.ownerName || "").trim() === (responseDates.ownerName || "").trim()
+              }
+            : null,
           intakeDecision: requestHas.intakeDecision
             ? {
                 requested: requestPayload.intakeDecision,
@@ -3068,6 +3083,13 @@ export function PipelineOpportunityDetailView({
                 matched:
                   toDateInputValue(responseDates.intakeDecisionAt) ===
                   toDateInputValue(requestPayload.intakeDecisionAt)
+              }
+            : null,
+          createdAt: requestHas.createdAt
+            ? {
+                requested: requestPayload.createdAt || "",
+                persisted: responseDates.createdAt || "",
+                matched: toDateInputValue(responseDates.createdAt) === toDateInputValue(requestPayload.createdAt || "")
               }
             : null,
           ventureStudioContractExecutedAt: requestHas.ventureStudioContractExecutedAt
@@ -3127,6 +3149,10 @@ export function PipelineOpportunityDetailView({
         returnedItem?.intakeDecision === "REVISIT_LATER"
           ? (returnedItem.intakeDecision as PipelineIntakeDecision)
           : input.intakeDecision ?? item.intakeDecision;
+      const updatedCreatedAt =
+        typeof returnedItem?.createdAt === "string" || returnedItem?.createdAt === null
+          ? returnedItem.createdAt || item.createdAt
+          : input.createdAt || item.createdAt;
       const updatedVentureStudioContractExecutedAt =
         typeof returnedItem?.ventureStudioContractExecutedAt === "string" ||
         returnedItem?.ventureStudioContractExecutedAt === null
@@ -3171,6 +3197,12 @@ export function PipelineOpportunityDetailView({
           : requestHas.declineReasonNotes
             ? (input.declineReasonNotes?.trim() || null)
             : item.declineReasonNotes;
+      const updatedOwnerName =
+        typeof returnedItem?.ownerName === "string" || returnedItem?.ownerName === null
+          ? (returnedItem.ownerName ?? null)
+          : requestHas.ownerName
+            ? (input.ownerName || null)
+            : item.ownerName;
       const updatedPhaseLabel = typeof returnedItem?.phaseLabel === "string" ? returnedItem.phaseLabel : phaseLabel(updatedPhase);
       const updatedColumn = (() => {
         if (returnedItem?.column === null) return null;
@@ -3195,8 +3227,10 @@ export function PipelineOpportunityDetailView({
               isScreeningStage: mapPhaseToBoardColumn(updatedPhase) === "SCREENING",
               closedOutcome: updatedClosedOutcome,
               declineReasonNotes: updatedDeclineReasonNotes,
+              ownerName: updatedOwnerName,
               intakeDecision: updatedIntakeDecision,
               intakeDecisionAt: updatedIntakeDecisionDate,
+              createdAt: updatedCreatedAt,
               ventureStudioContractExecutedAt: updatedVentureStudioContractExecutedAt,
               screeningWebinarDate1At: updatedScreeningWebinarDate1At,
               screeningWebinarDate2At: updatedScreeningWebinarDate2At,
@@ -3277,6 +3311,24 @@ export function PipelineOpportunityDetailView({
     }
     if (item.ventureExpectedCloseDate && toDateInputValue(item.ventureExpectedCloseDate) === trimmed) return;
     await updatePipelineCardMeta({ ventureExpectedCloseDate: trimmed });
+  }
+
+  async function saveVentureStudioOwner(nextValue: string) {
+    if (!item) return;
+    const normalizedOwner = nextValue.trim() || null;
+    const currentOwner = item.ownerName?.trim() || null;
+    if (currentOwner === normalizedOwner) return;
+    await updatePipelineCardMeta({ ownerName: normalizedOwner });
+  }
+
+  async function saveCreatedDate(nextValue: string) {
+    if (!item) return;
+    const trimmed = nextValue.trim();
+    if (!trimmed) {
+      return;
+    }
+    if (item.createdAt && toDateInputValue(item.createdAt) === trimmed) return;
+    await updatePipelineCardMeta({ createdAt: trimmed });
   }
 
   async function saveScreeningPipelineStatus(nextStatus: ScreeningPipelineStatus, nextReason?: string): Promise<boolean> {
@@ -5507,6 +5559,8 @@ function stripCurrencyFormatting(value: string) {
                     void updateColumn(nextColumn);
                   }
                 }}
+                onOwnerSave={(nextValue) => void saveVentureStudioOwner(nextValue)}
+                onCreatedDateSave={(nextValue) => void saveCreatedDate(nextValue)}
                 pipelinePhaseLabel={item.phaseLabel}
                 showStatusControls={showStatusControls}
                 statusValue={statusSelectValue}

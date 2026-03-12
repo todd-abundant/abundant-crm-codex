@@ -606,6 +606,7 @@ function serializePipelineDraft(draft: PipelineDraft) {
     s1InvestmentAt: draft.s1InvestmentAt || null,
     s1InvestmentAmountUsd: parseNullableNumber(draft.s1InvestmentAmountUsd),
     portfolioAddedAt: draft.portfolioAddedAt || null,
+    createdAt: draft.createdAt || null,
     documents: draft.documents
       .map((document) => ({
         type: document.type,
@@ -1340,6 +1341,8 @@ export function CompanyPipelineManager({
           label: column.label
         }))}
         onCurrentStageChange={(nextValue) => updateCurrentStage(nextValue as PipelineBoardColumn)}
+        onOwnerSave={(value) => updateDraft({ ownerName: value.trim() })}
+        onCreatedDateSave={(value) => updateDraft({ createdAt: value.trim() })}
         pipelinePhaseLabel={phaseDisplayLabel}
         showStatusControls={showStatusControls}
         statusValue={statusSelectValue}

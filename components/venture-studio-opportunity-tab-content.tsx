@@ -18,7 +18,9 @@ type DateDebugContext = string | Record<string, unknown>;
 type VentureStudioOpportunityTabContentProps = {
   ownerLabel: string;
   ownerName: string;
+  onOwnerSave: (value: string) => void;
   createdDate: string;
+  onCreatedDateSave: (value: string) => void;
   activePipelineColumn: string | null;
   stageOptions: StageOption[];
   onCurrentStageChange: (value: string) => void;
@@ -60,7 +62,9 @@ type VentureStudioOpportunityTabContentProps = {
 export function VentureStudioOpportunityTabContent({
   ownerLabel,
   ownerName,
+  onOwnerSave,
   createdDate,
+  onCreatedDateSave,
   activePipelineColumn,
   stageOptions,
   onCurrentStageChange,
@@ -101,15 +105,21 @@ export function VentureStudioOpportunityTabContent({
   return (
     <div className="venture-studio-opportunity-tab-content">
       <div className="detail-section company-pipeline-main-section">
-        <div className="detail-grid">
-          <div className="inline-edit-field pipeline-status-readonly-field">
-            <label>{ownerLabel}</label>
-            <div className="pipeline-status-readonly-value">{ownerName || "Unassigned"}</div>
-          </div>
-          <div className="inline-edit-field pipeline-status-readonly-field">
-            <label>Created Date</label>
-            <div className="pipeline-status-readonly-value">{createdDate || "Not set"}</div>
-          </div>
+      <div className="detail-grid">
+          <InlineTextField
+            label={ownerLabel}
+            value={ownerName}
+            emptyText="Unassigned"
+            onSave={onOwnerSave}
+            inputType="text"
+          />
+          <InlineTextField
+            inputType="date"
+            label="Created Date"
+            value={createdDate}
+            emptyText="Not set"
+            onSave={onCreatedDateSave}
+          />
 
           {activePipelineColumn ? (
             <InlineSelectField
