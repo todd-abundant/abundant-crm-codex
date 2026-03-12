@@ -593,28 +593,6 @@ function hydratePipelineDraft(input: unknown): PipelineDraft {
   };
 }
 
-function primaryCategoryLabel(value: PrimaryCategory) {
-  return primaryCategoryOptions.find((option) => option.value === value)?.label || "Other";
-}
-
-function currentRaiseSummary(fundraises: FundraiseDraft[]) {
-  const prioritized =
-    fundraises.find((fundraise) => fundraise.status === "OPEN") ||
-    fundraises.find((fundraise) => fundraise.status === "PLANNED") ||
-    fundraises[0] ||
-    null;
-
-  if (!prioritized || !prioritized.roundLabel.trim()) return "Not set";
-  if (!prioritized.totalAmountUsd.trim()) return prioritized.roundLabel.trim();
-
-  const amount = Number(prioritized.totalAmountUsd);
-  const amountLabel = Number.isFinite(amount)
-    ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount)
-    : prioritized.totalAmountUsd.trim();
-
-  return prioritized.roundLabel.trim() + " - " + amountLabel;
-}
-
 function serializePipelineDraft(draft: PipelineDraft) {
   const isClosedLostStatus =
     (draft.phase === "DECLINED" || draft.phase === "CLOSED") &&
@@ -1381,8 +1359,6 @@ export function CompanyPipelineManager({
           label: column.label
         }))}
         onCurrentStageChange={(nextValue) => updateCurrentStage(nextValue as PipelineBoardColumn)}
-        onOwnerSave={(value) => updateDraft({ ownerName: value.trim() })}
-        onCreatedDateSave={(value) => updateDraft({ createdAt: value.trim() })}
         pipelinePhaseLabel={phaseDisplayLabel}
         showStatusControls={showStatusControls}
         statusValue={statusSelectValue}

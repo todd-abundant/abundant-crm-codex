@@ -18,9 +18,7 @@ type DateDebugContext = string | Record<string, unknown>;
 type VentureStudioOpportunityTabContentProps = {
   ownerLabel: string;
   ownerName: string;
-  onOwnerSave: (value: string) => void;
   createdDate: string;
-  onCreatedDateSave: (value: string) => void;
   activePipelineColumn: string | null;
   stageOptions: StageOption[];
   onCurrentStageChange: (value: string) => void;
@@ -62,9 +60,7 @@ type VentureStudioOpportunityTabContentProps = {
 export function VentureStudioOpportunityTabContent({
   ownerLabel,
   ownerName,
-  onOwnerSave,
   createdDate,
-  onCreatedDateSave,
   activePipelineColumn,
   stageOptions,
   onCurrentStageChange,
@@ -102,24 +98,23 @@ export function VentureStudioOpportunityTabContent({
   screeningWebinarDate2DebugContext,
   onScreeningWebinarDate2Save,
 }: VentureStudioOpportunityTabContentProps) {
+  const statusRadioGroupId = React.useId();
+  const isClosedStatusValue = statusValue === "CLOSED_LOST" || statusValue === "CLOSED_REVISIT";
+  const shouldShowStatusControls = showStatusControls || isClosedStatusValue;
+  const showClosedReasonField = Boolean(closedReasonValue.trim());
+
   return (
     <div className="venture-studio-opportunity-tab-content">
       <div className="detail-section company-pipeline-main-section">
-      <div className="detail-grid">
-          <InlineTextField
-            label={ownerLabel}
-            value={ownerName}
-            emptyText="Unassigned"
-            onSave={onOwnerSave}
-            inputType="text"
-          />
-          <InlineTextField
-            inputType="date"
-            label="Created Date"
-            value={createdDate}
-            emptyText="Not set"
-            onSave={onCreatedDateSave}
-          />
+        <div className="detail-grid">
+          <div className="inline-edit-field pipeline-status-readonly-field">
+            <label>{ownerLabel}</label>
+            <div className="pipeline-status-readonly-value">{ownerName || "Unassigned"}</div>
+          </div>
+          <div className="inline-edit-field pipeline-status-readonly-field">
+            <label>Created Date</label>
+            <div className="pipeline-status-readonly-value">{createdDate || "Not set"}</div>
+          </div>
 
           {activePipelineColumn ? (
             <InlineSelectField
@@ -141,24 +136,45 @@ export function VentureStudioOpportunityTabContent({
             <div className="pipeline-status-readonly-value">{pipelinePhaseLabel || "Not set"}</div>
           </div>
 
-          {showStatusControls ? (
+          {shouldShowStatusControls ? (
             <>
-              <InlineSelectField
-                label="Status"
-                value={statusValue}
-                options={statusOptions}
-                blurOnChange
-                onSave={onStatusSave}
+              <div className="inline-edit-field">
+                <label>Status</label>
+                <div className="opportunity-filter-options" role="radiogroup" aria-label="Status">
+                  {statusOptions.map((statusOption) => {
+                    const selected = statusOption.value === statusValue;
+                    const optionId = `${statusRadioGroupId}-${statusOption.value}`;
+                    return (
+                      <label
+                        key={statusOption.value}
+                        className={`opportunity-filter-option ${selected ? "active" : ""}`}
+                        htmlFor={optionId}
+                      >
+                        <span>{statusOption.label}</span>
+                        <input
+                          id={optionId}
+                          type="radio"
+                          name={statusRadioGroupId}
+                          value={statusOption.value}
+                          checked={selected}
+                          onChange={(event) => {
+                            if (event.target.checked) {
+                              onStatusSave(statusOption.value);
+                            }
+                          }}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+              <InlineTextField
+                label={closedReasonLabel}
+                value={closedReasonValue}
+                placeholder={closedReasonPlaceholder}
+                listId={reasonListId}
+                onSave={onClosedReasonSave}
               />
-              {showOutcomeReason ? (
-                <InlineTextField
-                  label={closedReasonLabel}
-                  value={closedReasonValue}
-                  placeholder={closedReasonPlaceholder}
-                  listId={reasonListId}
-                  onSave={onClosedReasonSave}
-                />
-              ) : null}
             </>
           ) : (
             <div className="inline-edit-field pipeline-status-readonly-field">
@@ -166,6 +182,15 @@ export function VentureStudioOpportunityTabContent({
               <div className="pipeline-status-readonly-value">{statusReadOnlyLabel}</div>
             </div>
           )}
+
+          {!shouldShowStatusControls ? (
+            <div className="inline-edit-field pipeline-status-readonly-field">
+              <label>{closedReasonLabel}</label>
+              <div className="pipeline-status-readonly-value">
+                {showClosedReasonField ? closedReasonValue : "Not set"}
+              </div>
+            </div>
+          ) : null}
 
           {isClosedLostStatus ? (
             <div className="inline-edit-field pipeline-status-readonly-field">

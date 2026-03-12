@@ -3313,24 +3313,6 @@ export function PipelineOpportunityDetailView({
     await updatePipelineCardMeta({ ventureExpectedCloseDate: trimmed });
   }
 
-  async function saveVentureStudioOwner(nextValue: string) {
-    if (!item) return;
-    const normalizedOwner = nextValue.trim() || null;
-    const currentOwner = item.ownerName?.trim() || null;
-    if (currentOwner === normalizedOwner) return;
-    await updatePipelineCardMeta({ ownerName: normalizedOwner });
-  }
-
-  async function saveCreatedDate(nextValue: string) {
-    if (!item) return;
-    const trimmed = nextValue.trim();
-    if (!trimmed) {
-      return;
-    }
-    if (item.createdAt && toDateInputValue(item.createdAt) === trimmed) return;
-    await updatePipelineCardMeta({ createdAt: trimmed });
-  }
-
   async function saveScreeningPipelineStatus(nextStatus: ScreeningPipelineStatus, nextReason?: string): Promise<boolean> {
     if (!item) return false;
     const currentStatus = pendingScreeningPipelineStatus || persistedScreeningPipelineStatus;
@@ -5559,8 +5541,6 @@ function stripCurrencyFormatting(value: string) {
                     void updateColumn(nextColumn);
                   }
                 }}
-                onOwnerSave={(nextValue) => void saveVentureStudioOwner(nextValue)}
-                onCreatedDateSave={(nextValue) => void saveCreatedDate(nextValue)}
                 pipelinePhaseLabel={item.phaseLabel}
                 showStatusControls={showStatusControls}
                 statusValue={statusSelectValue}
