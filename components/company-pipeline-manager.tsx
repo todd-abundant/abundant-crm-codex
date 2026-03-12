@@ -28,6 +28,21 @@ type PipelinePhase =
 type IntakeDecision = "PENDING" | "ADVANCE_TO_NEGOTIATION" | "DECLINE";
 type PipelineCategory = "ACTIVE" | "CLOSED" | "RE_ENGAGE_LATER";
 type PipelineIntakeStage = "RECEIVED" | "INTRO_CALLS" | "ACTIVE_INTAKE" | "MANAGEMENT_PRESENTATION";
+type PrimaryCategory =
+  | "PATIENT_ACCESS_AND_GROWTH"
+  | "CARE_DELIVERY_TECH_ENABLED_SERVICES"
+  | "CLINICAL_WORKFLOW_AND_PRODUCTIVITY"
+  | "REVENUE_CYCLE_AND_FINANCIAL_OPERATIONS"
+  | "VALUE_BASED_CARE_AND_POPULATION_HEALTH_ENABLEMENT"
+  | "AI_ENABLED_AUTOMATION_AND_DECISION_SUPPORT"
+  | "DATA_PLATFORM_INTEROPERABILITY_AND_INTEGRATION"
+  | "REMOTE_PATIENT_MONITORING_AND_CONNECTED_DEVICES"
+  | "DIAGNOSTICS_IMAGING_AND_TESTING_ENABLEMENT"
+  | "PHARMACY_AND_MEDICATION_ENABLEMENT"
+  | "SUPPLY_CHAIN_PROCUREMENT_AND_ASSET_OPERATIONS"
+  | "SECURITY_PRIVACY_AND_COMPLIANCE_INFRASTRUCTURE"
+  | "PROVIDER_EXPERIENCE_AND_DEVELOPMENT"
+  | "OTHER";
 type ClosedOutcome = "INVESTED" | "PASSED" | "LOST" | "WITHDREW" | "OTHER";
 type DocumentType =
   | "INTAKE_REPORT"
@@ -144,6 +159,7 @@ type PipelineDraft = {
   stageChangedAt: string;
   category: PipelineCategory;
   intakeStage: PipelineIntakeStage;
+  primaryCategory: PrimaryCategory;
   closedOutcome: ClosedOutcome | "";
   ownerName: string;
   nextStepDueAt: string;
@@ -204,6 +220,23 @@ const pipelineIntakeStageOptions: Array<{ value: PipelineIntakeStage; label: str
   { value: "INTRO_CALLS", label: "Intro calls" },
   { value: "ACTIVE_INTAKE", label: "Active intake" },
   { value: "MANAGEMENT_PRESENTATION", label: "Management presentation" }
+];
+
+const primaryCategoryOptions: Array<{ value: PrimaryCategory; label: string }> = [
+  { value: "PATIENT_ACCESS_AND_GROWTH", label: "Patient Access & Growth" },
+  { value: "CARE_DELIVERY_TECH_ENABLED_SERVICES", label: "Care Delivery (Tech-Enabled Services)" },
+  { value: "CLINICAL_WORKFLOW_AND_PRODUCTIVITY", label: "Clinical Workflow & Productivity" },
+  { value: "REVENUE_CYCLE_AND_FINANCIAL_OPERATIONS", label: "Revenue Cycle & Financial Operations" },
+  { value: "VALUE_BASED_CARE_AND_POPULATION_HEALTH_ENABLEMENT", label: "Value-Based Care & Population Health Enablement" },
+  { value: "AI_ENABLED_AUTOMATION_AND_DECISION_SUPPORT", label: "AI-Enabled Automation & Decision Support" },
+  { value: "DATA_PLATFORM_INTEROPERABILITY_AND_INTEGRATION", label: "Data Platform, Interoperability & Integration" },
+  { value: "REMOTE_PATIENT_MONITORING_AND_CONNECTED_DEVICES", label: "Remote Patient Monitoring & Connected Devices" },
+  { value: "DIAGNOSTICS_IMAGING_AND_TESTING_ENABLEMENT", label: "Diagnostics, Imaging & Testing Enablement" },
+  { value: "PHARMACY_AND_MEDICATION_ENABLEMENT", label: "Pharmacy & Medication Enablement" },
+  { value: "SUPPLY_CHAIN_PROCUREMENT_AND_ASSET_OPERATIONS", label: "Supply Chain, Procurement & Asset Operations" },
+  { value: "SECURITY_PRIVACY_AND_COMPLIANCE_INFRASTRUCTURE", label: "Security, Privacy & Compliance Infrastructure" },
+  { value: "PROVIDER_EXPERIENCE_AND_DEVELOPMENT", label: "Provider Experience & Development" },
+  { value: "OTHER", label: "Other" }
 ];
 
 const closedOutcomeOptions: Array<{ value: ClosedOutcome | ""; label: string }> = [
@@ -441,6 +474,7 @@ function hydratePipelineDraft(input: unknown): PipelineDraft {
     stageChangedAt: toDateInputValue(payload.stageChangedAt),
     category: (payload.category as PipelineCategory) || "ACTIVE",
     intakeStage: (payload.intakeStage as PipelineIntakeStage) || "RECEIVED",
+    primaryCategory: (payload.primaryCategory as PrimaryCategory) || "OTHER",
     closedOutcome: (payload.closedOutcome as ClosedOutcome) || "",
     ownerName: toText(payload.ownerName),
     nextStepDueAt: toDateInputValue(payload.nextStepDueAt),
@@ -542,11 +576,34 @@ function hydratePipelineDraft(input: unknown): PipelineDraft {
   };
 }
 
+function primaryCategoryLabel(value: PrimaryCategory) {
+  return primaryCategoryOptions.find((option) => option.value === value)?.label || "Other";
+}
+
+function currentRaiseSummary(fundraises: FundraiseDraft[]) {
+  const prioritized =
+    fundraises.find((fundraise) => fundraise.status === "OPEN") ||
+    fundraises.find((fundraise) => fundraise.status === "PLANNED") ||
+    fundraises[0] ||
+    null;
+
+  if (!prioritized || !prioritized.roundLabel.trim()) return "Not set";
+  if (!prioritized.totalAmountUsd.trim()) return prioritized.roundLabel.trim();
+
+  const amount = Number(prioritized.totalAmountUsd);
+  const amountLabel = Number.isFinite(amount)
+    ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount)
+    : prioritized.totalAmountUsd.trim();
+
+  return prioritized.roundLabel.trim() + " - " + amountLabel;
+}
+
 function serializePipelineDraft(draft: PipelineDraft) {
   return {
     phase: draft.phase,
     category: draft.category,
     intakeStage: draft.intakeStage,
+    primaryCategory: draft.primaryCategory,
     closedOutcome: draft.closedOutcome || null,
     ownerName: draft.ownerName.trim() || null,
     nextStepDueAt: draft.nextStepDueAt || null,
@@ -1137,6 +1194,15 @@ export function CompanyPipelineManager({
       <p className="muted">
         Stage changed: {draft.stageChangedAt ? new Date(draft.stageChangedAt).toLocaleDateString() : "Not yet tracked"}
       </p>
+      <p className="muted">
+        Current intake stage: <strong>{pipelineIntakeStageOptions.find((option) => option.value === draft.intakeStage)?.label || "Received"}</strong>
+        {" · "}
+        Status flag: <strong>{pipelineCategoryOptions.find((option) => option.value === draft.category)?.label || "Active"}</strong>
+        {" · "}
+        Company category: <strong>{primaryCategoryLabel(draft.primaryCategory)}</strong>
+        {" · "}
+        Raise: <strong>{currentRaiseSummary(draft.fundraises)}</strong>
+      </p>
 
       <div className="detail-grid">
         <div>
@@ -1163,6 +1229,16 @@ export function CompanyPipelineManager({
           <label>Intake Stage</label>
           <select value={draft.intakeStage} onChange={(event) => updateDraft({ intakeStage: event.target.value as PipelineIntakeStage })}>
             {pipelineIntakeStageOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label>Primary Category</label>
+          <select value={draft.primaryCategory} onChange={(event) => updateDraft({ primaryCategory: event.target.value as PrimaryCategory })}>
+            {primaryCategoryOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>

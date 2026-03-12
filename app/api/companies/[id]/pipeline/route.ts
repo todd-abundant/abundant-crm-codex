@@ -22,6 +22,22 @@ const pipelinePhaseSchema = z.enum([
 const pipelineCategorySchema = z.enum(["ACTIVE", "CLOSED", "RE_ENGAGE_LATER"]);
 const pipelineIntakeStageSchema = z.enum(["RECEIVED", "INTRO_CALLS", "ACTIVE_INTAKE", "MANAGEMENT_PRESENTATION"]);
 const closedOutcomeSchema = z.enum(["INVESTED", "PASSED", "LOST", "WITHDREW", "OTHER"]);
+const primaryCategorySchema = z.enum([
+  "PATIENT_ACCESS_AND_GROWTH",
+  "CARE_DELIVERY_TECH_ENABLED_SERVICES",
+  "CLINICAL_WORKFLOW_AND_PRODUCTIVITY",
+  "REVENUE_CYCLE_AND_FINANCIAL_OPERATIONS",
+  "VALUE_BASED_CARE_AND_POPULATION_HEALTH_ENABLEMENT",
+  "AI_ENABLED_AUTOMATION_AND_DECISION_SUPPORT",
+  "DATA_PLATFORM_INTEROPERABILITY_AND_INTEGRATION",
+  "REMOTE_PATIENT_MONITORING_AND_CONNECTED_DEVICES",
+  "DIAGNOSTICS_IMAGING_AND_TESTING_ENABLEMENT",
+  "PHARMACY_AND_MEDICATION_ENABLEMENT",
+  "SUPPLY_CHAIN_PROCUREMENT_AND_ASSET_OPERATIONS",
+  "SECURITY_PRIVACY_AND_COMPLIANCE_INFRASTRUCTURE",
+  "PROVIDER_EXPERIENCE_AND_DEVELOPMENT",
+  "OTHER"
+]);
 
 function normalizePipelinePhase(phase: PipelinePhase) {
   return phase === "CLOSED" ? "DECLINED" : phase;
@@ -125,6 +141,7 @@ const pipelineUpdateSchema = z.object({
   phase: pipelinePhaseSchema.default("INTAKE"),
   category: pipelineCategorySchema.default("ACTIVE"),
   intakeStage: pipelineIntakeStageSchema.default("RECEIVED"),
+  primaryCategory: primaryCategorySchema.default("OTHER"),
   closedOutcome: closedOutcomeSchema.optional().nullable(),
   ownerName: z.string().optional().nullable(),
   nextStepDueAt: z.string().optional().nullable(),
@@ -303,6 +320,7 @@ function buildPipelinePayload(company: CompanyPipelineView) {
       stageChangedAt: company.createdAt,
       category: "ACTIVE",
       intakeStage: "RECEIVED",
+      primaryCategory: company.primaryCategory,
       closedOutcome: null,
       ownerName: null,
       nextStepDueAt: null,
@@ -337,6 +355,7 @@ function buildPipelinePayload(company: CompanyPipelineView) {
     stageChangedAt: company.pipeline.stageChangedAt,
     category: company.pipeline.category,
     intakeStage: company.pipeline.intakeStage,
+    primaryCategory: company.primaryCategory,
     closedOutcome: company.pipeline.closedOutcome,
     ownerName: company.pipeline.ownerName,
     nextStepDueAt: company.pipeline.nextStepDueAt,
@@ -548,6 +567,13 @@ export async function PATCH(
     }
 
     const pipeline = await prisma.$transaction(async (tx) => {
+      await tx.company.update({
+        where: { id },
+        data: {
+          primaryCategory: input.primaryCategory
+        }
+      });
+
       await tx.companyPipeline.upsert({
         where: { companyId: id },
         create: { companyId: id, ...pipelineCreatePayload },

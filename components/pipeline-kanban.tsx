@@ -68,10 +68,13 @@ type PipelineBoardItem = {
   ownerName: string;
   companyCategory: "ACTIVE" | "CLOSED" | "RE_ENGAGE_LATER";
   intakeStage: "RECEIVED" | "INTRO_CALLS" | "ACTIVE_INTAKE" | "MANAGEMENT_PRESENTATION";
+  primaryCategory: string;
   closedOutcome: "INVESTED" | "PASSED" | "LOST" | "WITHDREW" | "OTHER" | null;
   stageChangedAt: string;
   timeInStageDays: number | null;
   staleLevel: "warning" | "critical" | null;
+  raiseRoundLabel: string | null;
+  raiseAmountUsd: number | null;
   lastMeaningfulActivityAt: string | null;
   ventureStudioContractExecutedAt: string | null;
   screeningWebinarDate1At: string | null;
@@ -263,9 +266,36 @@ function intakeStageLabel(value: PipelineBoardItem["intakeStage"]) {
   return value.toLowerCase().split("_").map((word) => word[0]?.toUpperCase() + word.slice(1)).join(" ");
 }
 
+function intakeStageFlagLabel(value: PipelineBoardItem["intakeStage"]) {
+  return "Intake: " + intakeStageLabel(value);
+}
+
 function companyCategoryLabel(value: PipelineBoardItem["companyCategory"]) {
   if (value === "RE_ENGAGE_LATER") return "Re-engage later";
   return value === "CLOSED" ? "Closed" : "Active";
+}
+
+function companyStatusFlagLabel(value: PipelineBoardItem["companyCategory"]) {
+  return "Status: " + companyCategoryLabel(value);
+}
+
+function primaryCategoryLabel(value: PipelineBoardItem["primaryCategory"]) {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((word) => word[0]?.toUpperCase() + word.slice(1))
+    .join(" ")
+    .replace("And", "&");
+}
+
+function raiseSummaryLabel(item: Pick<PipelineBoardItem, "raiseRoundLabel" | "raiseAmountUsd">) {
+  if (item.raiseAmountUsd === null) return item.raiseRoundLabel ? `Raise: ${item.raiseRoundLabel}` : null;
+  const amountLabel = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0
+  }).format(item.raiseAmountUsd);
+  return item.raiseRoundLabel ? `${item.raiseRoundLabel}: ${amountLabel}` : `Raise: ${amountLabel}`;
 }
 
 function closedOutcomeLabel(value: PipelineBoardItem["closedOutcome"]) {
@@ -313,6 +343,23 @@ function toNullableNumber(value: string) {
   return rounded;
 }
 
+type IntakeStageFilter = "ALL" | PipelineBoardItem["intakeStage"];
+type InactiveStatusFilter = "ALL" | Exclude<PipelineBoardItem["companyCategory"], "ACTIVE">;
+
+const INTAKE_STAGE_FILTER_OPTIONS: Array<{ value: IntakeStageFilter; label: string }> = [
+  { value: "ALL", label: "All intake" },
+  { value: "RECEIVED", label: "Received" },
+  { value: "INTRO_CALLS", label: "Intro calls" },
+  { value: "ACTIVE_INTAKE", label: "Active intake" },
+  { value: "MANAGEMENT_PRESENTATION", label: "Management presentation" }
+];
+
+const INACTIVE_STATUS_FILTER_OPTIONS: Array<{ value: InactiveStatusFilter; label: string }> = [
+  { value: "ALL", label: "All" },
+  { value: "CLOSED", label: "Closed" },
+  { value: "RE_ENGAGE_LATER", label: "Re-engage later" }
+];
+
 type PipelineKanbanProps = {
   companyType: PipelineCompanyType;
 };
@@ -343,6 +390,8 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
   const [highlightedItemId, setHighlightedItemId] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [inactiveQueueExpanded, setInactiveQueueExpanded] = React.useState(false);
+  const [intakeStageFilter, setIntakeStageFilter] = React.useState<IntakeStageFilter>("ALL");
+  const [inactiveStatusFilter, setInactiveStatusFilter] = React.useState<InactiveStatusFilter>("ALL");
   const undoTimeoutRef = React.useRef<number | null>(null);
   const highlightTimeoutRef = React.useRef<number | null>(null);
   const suppressLeadSourceBlurRef = React.useRef(false);
@@ -469,7 +518,11 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
   const groupedItems = React.useMemo(() => {
     return PIPELINE_BOARD_COLUMNS.reduce<Record<PipelineBoardColumn, PipelineBoardItem[]>>(
       (accumulator, column) => {
-        accumulator[column.key] = items.filter((item) => item.column === column.key);
+        const columnItems = items.filter((item) => item.column === column.key);
+        accumulator[column.key] =
+          column.key === "INTAKE" && intakeStageFilter !== "ALL"
+            ? columnItems.filter((item) => item.intakeStage === intakeStageFilter)
+            : columnItems;
         return accumulator;
       },
       {
@@ -479,7 +532,32 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
         COMMERCIAL_ACCELERATION: []
       }
     );
+  }, [intakeStageFilter, items]);
+
+  const intakeFilterCounts = React.useMemo(() => {
+    return INTAKE_STAGE_FILTER_OPTIONS.reduce<Record<IntakeStageFilter, number>>((accumulator, option) => {
+      accumulator[option.value] =
+        option.value === "ALL"
+          ? items.filter((item) => item.column === "INTAKE").length
+          : items.filter((item) => item.column === "INTAKE" && item.intakeStage === option.value).length;
+      return accumulator;
+    }, { ALL: 0, RECEIVED: 0, INTRO_CALLS: 0, ACTIVE_INTAKE: 0, MANAGEMENT_PRESENTATION: 0 });
   }, [items]);
+
+  const filteredInactiveItems = React.useMemo(() => {
+    if (inactiveStatusFilter === "ALL") return inactiveItems;
+    return inactiveItems.filter((item) => item.companyCategory === inactiveStatusFilter);
+  }, [inactiveItems, inactiveStatusFilter]);
+
+  const inactiveFilterCounts = React.useMemo(() => {
+    return INACTIVE_STATUS_FILTER_OPTIONS.reduce<Record<InactiveStatusFilter, number>>((accumulator, option) => {
+      accumulator[option.value] =
+        option.value === "ALL"
+          ? inactiveItems.length
+          : inactiveItems.filter((item) => item.companyCategory === option.value).length;
+      return accumulator;
+    }, { ALL: 0, CLOSED: 0, RE_ENGAGE_LATER: 0 });
+  }, [inactiveItems]);
 
   const commitIntakeDraft = React.useCallback(
     async (itemId: string, nextDraft: IntakeDraft, previousDraft: IntakeDraft) => {
@@ -1212,7 +1290,21 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
 
               <div className="pipeline-column-body">
                 {column.key === "INTAKE" ? (
-                  <div className="pipeline-column-add-row">
+                  <>
+                    <div className="pipeline-filter-row" onClick={(event) => event.stopPropagation()}>
+                      {INTAKE_STAGE_FILTER_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className={`pipeline-filter-chip ${intakeStageFilter === option.value ? "active" : ""}`}
+                          onClick={() => setIntakeStageFilter(option.value)}
+                        >
+                          <span>{option.label}</span>
+                          <span className="pipeline-filter-chip-count">{intakeFilterCounts[option.value]}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="pipeline-column-add-row">
                     <button
                       type="button"
                       className="pipeline-column-add-button"
@@ -1232,6 +1324,7 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                       hideLookupField
                     />
                   </div>
+                  </>
                 ) : null}
                 {columnItems.length === 0 ? <p className="muted">No items in this stage.</p> : null}
 
@@ -1281,9 +1374,11 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                         <span className={`pipeline-signal-pill ${item.staleLevel ? `pipeline-signal-pill-${item.staleLevel}` : ""}`}>
                           {timeInStageLabel(item)}
                         </span>
-                        <span className="pipeline-signal-pill">{intakeStageLabel(item.intakeStage)}</span>
+                        <span className="pipeline-signal-pill">{intakeStageFlagLabel(item.intakeStage)}</span>
+                        <span className="pipeline-signal-pill">{primaryCategoryLabel(item.primaryCategory)}</span>
+                        {raiseSummaryLabel(item) ? <span className="pipeline-signal-pill">{raiseSummaryLabel(item)}</span> : null}
                         {item.companyCategory !== "ACTIVE" ? (
-                          <span className={"pipeline-signal-pill pipeline-signal-pill-category " + (item.companyCategory === "RE_ENGAGE_LATER" ? "pipeline-signal-pill-reengage" : "pipeline-signal-pill-closed")}>{companyCategoryLabel(item.companyCategory)}</span>
+                          <span className={"pipeline-signal-pill pipeline-signal-pill-category " + (item.companyCategory === "RE_ENGAGE_LATER" ? "pipeline-signal-pill-reengage" : "pipeline-signal-pill-closed")}>{companyStatusFlagLabel(item.companyCategory)}</span>
                         ) : null}
                         {item.closedOutcome ? (
                           <span className="pipeline-signal-pill">{closedOutcomeLabel(item.closedOutcome)}</span>
@@ -1839,16 +1934,33 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
             <p className="muted">Companies that fell out of the active process live here instead of as a pipeline stage.</p>
           </div>
           <div className="pipeline-inactive-queue-head-right">
-            <span className="status-pill draft">{inactiveItems.length}</span>
+            <span className="status-pill draft">{filteredInactiveItems.length}</span>
             <span className="pipeline-collapse-indicator">{inactiveQueueExpanded ? "Hide" : "Show"}</span>
           </div>
         </button>
         {inactiveQueueExpanded ? (
-          inactiveItems.length === 0 ? (
+          filteredInactiveItems.length === 0 && inactiveItems.length === 0 ? (
             <p className="muted">No closed or revisit-later companies right now.</p>
           ) : (
-            <div className="pipeline-inactive-grid">
-              {inactiveItems.map((item) => (
+            <>
+              <div className="pipeline-filter-row" onClick={(event) => event.stopPropagation()}>
+                {INACTIVE_STATUS_FILTER_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`pipeline-filter-chip ${inactiveStatusFilter === option.value ? "active" : ""}`}
+                    onClick={() => setInactiveStatusFilter(option.value)}
+                  >
+                    <span>{option.label}</span>
+                    <span className="pipeline-filter-chip-count">{inactiveFilterCounts[option.value]}</span>
+                  </button>
+                ))}
+              </div>
+              {filteredInactiveItems.length === 0 ? (
+                <p className="muted">No companies match this inactive filter.</p>
+              ) : (
+                <div className="pipeline-inactive-grid">
+                  {filteredInactiveItems.map((item) => (
                 <button
                   key={`inactive-${item.id}`}
                   type="button"
@@ -1863,8 +1975,12 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                   </div>
                   <p className="muted">{item.location || "Location unavailable"}</p>
                   <div className="pipeline-card-signals pipeline-card-signals-inactive">
+                    <span className={"pipeline-signal-pill pipeline-signal-pill-category " + (item.companyCategory === "RE_ENGAGE_LATER" ? "pipeline-signal-pill-reengage" : "pipeline-signal-pill-closed")}>{companyStatusFlagLabel(item.companyCategory)}</span>
                     <span className="pipeline-signal-pill">{item.phaseLabel}</span>
                     <span className="pipeline-signal-pill">{timeInStageLabel(item)}</span>
+                    <span className="pipeline-signal-pill">{intakeStageFlagLabel(item.intakeStage)}</span>
+                    <span className="pipeline-signal-pill">{primaryCategoryLabel(item.primaryCategory)}</span>
+                    {raiseSummaryLabel(item) ? <span className="pipeline-signal-pill">{raiseSummaryLabel(item)}</span> : null}
                     {item.closedOutcome ? <span className="pipeline-signal-pill">{closedOutcomeLabel(item.closedOutcome)}</span> : null}
                     {item.declineReason ? <span className="pipeline-signal-pill">{declineReasonLabel(item.declineReason)}</span> : null}
                   </div>
@@ -1874,8 +1990,10 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                     <span><strong>Last activity:</strong> {formatTimestamp(item.lastMeaningfulActivityAt)}</span>
                   </div>
                 </button>
-              ))}
-            </div>
+                  ))}
+                </div>
+              )}
+            </>
           )
         ) : null}
       </section>

@@ -18,6 +18,25 @@ function formatLocation(company: {
     .join(", ");
 }
 
+function summarizeFundraise(
+  fundraises: Array<{
+    roundLabel: string;
+    status: "PLANNED" | "OPEN" | "CLOSED" | "CANCELLED";
+    totalAmountUsd: { toNumber(): number } | null;
+  }>
+) {
+  const prioritized =
+    fundraises.find((fundraise) => fundraise.status === "OPEN") ||
+    fundraises.find((fundraise) => fundraise.status === "PLANNED") ||
+    fundraises[0] ||
+    null;
+
+  return {
+    raiseRoundLabel: prioritized?.roundLabel || null,
+    raiseAmountUsd: prioritized?.totalAmountUsd ? prioritized.totalAmountUsd.toNumber() : null
+  };
+}
+
 
 const staleThresholdDaysByPhase: Partial<Record<PipelinePhase, number>> = {
   INTAKE: 7,
@@ -56,6 +75,14 @@ export async function GET(request: Request) {
               id: true,
               name: true
             }
+          },
+          fundraises: {
+            select: {
+              roundLabel: true,
+              status: true,
+              totalAmountUsd: true
+            },
+            orderBy: [{ announcedAt: "desc" }, { createdAt: "desc" }]
           },
           pipeline: true,
           opportunities: {
@@ -128,6 +155,7 @@ export async function GET(request: Request) {
         const stageChangedAt = company.pipeline?.stageChangedAt || company.createdAt;
         const timeInStageDays = daysSince(stageChangedAt);
         const staleLevel = staleLevelForPhase(phase, timeInStageDays);
+        const fundraiseSummary = summarizeFundraise(company.fundraises);
 
         return {
           id: company.id,
@@ -135,6 +163,7 @@ export async function GET(request: Request) {
           website: company.website,
           description: company.description,
           location: formatLocation(company),
+          primaryCategory: company.primaryCategory,
           phase,
           phaseLabel: phaseLabel(phase),
           column,
@@ -160,6 +189,8 @@ export async function GET(request: Request) {
           stageChangedAt,
           timeInStageDays,
           staleLevel,
+          raiseRoundLabel: fundraiseSummary.raiseRoundLabel,
+          raiseAmountUsd: fundraiseSummary.raiseAmountUsd,
           lastMeaningfulActivityAt: company.pipeline?.lastMeaningfulActivityAt ?? null,
           ventureStudioContractExecutedAt: company.pipeline?.ventureStudioContractExecutedAt ?? null,
           screeningWebinarDate1At: company.pipeline?.screeningWebinarDate1At ?? null,

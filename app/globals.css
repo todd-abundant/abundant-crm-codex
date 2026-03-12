@@ -4570,6 +4570,55 @@ select {
   min-height: 24px;
 }
 
+.pipeline-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.pipeline-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--colorBorder);
+  border-radius: 999px;
+  background: #f4f7fb;
+  color: var(--colorTextSecondary);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.pipeline-filter-chip:hover,
+.pipeline-filter-chip:focus-visible {
+  border-color: #8cb4de;
+  color: var(--colorTextPrimary);
+  outline: none;
+}
+
+.pipeline-filter-chip.active {
+  background: #dcecff;
+  border-color: #7ea8d8;
+  color: #0a3d73;
+}
+
+.pipeline-filter-chip-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(10, 61, 115, 0.1);
+  color: inherit;
+  font-size: 0.74rem;
+}
+
 .pipeline-column-add-button {
   border: 0;
   background: transparent;
