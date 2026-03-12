@@ -555,6 +555,21 @@ export function HealthSystemWorkbench() {
       ),
     [opportunities, opportunityStatusFilter]
   );
+  const opportunityTabBadgeCounts = useMemo(
+    () =>
+      opportunities.reduce(
+        (counts, opportunity) => {
+          if (isClosedOpportunityStage(opportunity.stage)) {
+            counts.closed += 1;
+          } else {
+            counts.open += 1;
+          }
+          return counts;
+        },
+        { open: 0, closed: 0 }
+      ),
+    [opportunities]
+  );
 
   const shouldOfferCreate = false;
   const selectedCandidate =
@@ -1820,7 +1835,15 @@ export function HealthSystemWorkbench() {
                   aria-selected={activeDetailTab === "opportunities"}
                   onClick={() => setActiveDetailTab("opportunities")}
                 >
-                  Health System Opportunities
+                  <span className="detail-tab-label-with-badges">
+                    <span>Health System Opportunities</span>
+                    {opportunityTabBadgeCounts.open > 0 ? (
+                      <span className="detail-tab-badge detail-tab-badge-open">{opportunityTabBadgeCounts.open}</span>
+                    ) : null}
+                    {opportunityTabBadgeCounts.closed > 0 ? (
+                      <span className="detail-tab-badge detail-tab-badge-closed">{opportunityTabBadgeCounts.closed}</span>
+                    ) : null}
+                  </span>
                 </button>
                 <button
                   type="button"

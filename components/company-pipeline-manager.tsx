@@ -3,7 +3,7 @@
 import * as React from "react";
 import { DateInputField } from "./date-input-field";
 import { EntityLookupInput } from "./entity-lookup-input";
-import { InlineSelectField, InlineTextField } from "./inline-detail-field";
+import { VentureStudioOpportunityTabContent } from "./venture-studio-opportunity-tab-content";
 import { RichTextArea } from "./rich-text-area";
 import {
   inferGoogleDocumentTitle,
@@ -680,13 +680,11 @@ function serializePipelineDraft(draft: PipelineDraft) {
 
 export function CompanyPipelineManager({
   companyId,
-  description,
   healthSystems,
   coInvestors,
   contacts
 }: {
   companyId: string;
-  description?: string | null;
   healthSystems: HealthSystemOption[];
   coInvestors: CoInvestorOption[];
   contacts: CompanyContactOption[];
@@ -813,24 +811,6 @@ export function CompanyPipelineManager({
     if (!draft) return "INTAKE";
     return draft.intakeDecision === "PENDING" ? "INTAKE" : "VENTURE_STUDIO";
   })();
-  const opportunityLifecycleCounts = React.useMemo(() => {
-    if (!draft) return { open: 0, won: 0, lost: 0 };
-    return draft.opportunities.reduce(
-      (accumulator, opportunity) => {
-        if (opportunity.stage === "CLOSED_WON") {
-          accumulator.won += 1;
-          return accumulator;
-        }
-        if (opportunity.stage === "CLOSED_LOST") {
-          accumulator.lost += 1;
-          return accumulator;
-        }
-        accumulator.open += 1;
-        return accumulator;
-      },
-      { open: 0, won: 0, lost: 0 }
-    );
-  }, [draft]);
 
   function updateDraft(patch: Partial<PipelineDraft>) {
     setDraft((current) => {
@@ -1330,8 +1310,6 @@ export function CompanyPipelineManager({
         ? "Closed/Lost"
         : "Open";
   const showOutcomeReason = isClosedLostStatus || isClosedRevisitStatus;
-  const showSupportingSection =
-    activePipelineColumn === "SCREENING" || activePipelineColumn === "COMMERCIAL_ACCELERATION" || Boolean((description || "").trim());
   const statusSelectOptions = showScreeningPipelineLifecycle
     ? [
         { value: "OPEN", label: "Open" },
@@ -1351,179 +1329,76 @@ export function CompanyPipelineManager({
       : "Closed/Lost Reason";
 
   return (
-    <div className="detail-section company-pipeline-main-section">
-      <div className="detail-grid">
-        <div className="inline-edit-field pipeline-status-readonly-field">
-          <label>Venture Studio Owner</label>
-          <div className="pipeline-status-readonly-value">{draft.ownerName || "Unassigned"}</div>
-        </div>
-        <div className="inline-edit-field pipeline-status-readonly-field">
-          <label>Created Date</label>
-          <div className="pipeline-status-readonly-value">{draft.createdAt || "Not set"}</div>
-        </div>
-
-        {activePipelineColumn ? (
-          <div className="inline-edit-field">
-            <label>Current Stage</label>
-            <select value={activePipelineColumn} onChange={(event) => updateCurrentStage(event.target.value as PipelineBoardColumn)}>
-              {PIPELINE_BOARD_COLUMNS.map((column) => (
-                <option key={column.key} value={column.key}>
-                  {column.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : (
-          <div className="inline-edit-field pipeline-status-readonly-field">
-            <label>Current Stage</label>
-            <div className="pipeline-status-readonly-value">Closed / Inactive</div>
-          </div>
-        )}
-
-        <div className="inline-edit-field pipeline-status-readonly-field">
-          <label>Pipeline Phase</label>
-          <div className="pipeline-status-readonly-value">{phaseDisplayLabel}</div>
-        </div>
-
-        {showStatusControls ? (
-          <>
-            <InlineSelectField
-              label="Status"
-              value={statusSelectValue}
-              options={statusSelectOptions}
-              blurOnChange
-              onSave={(nextValue) => {
-                if (showScreeningPipelineLifecycle) {
-                  updateScreeningPipelineStatus(nextValue as ScreeningPipelineStatus);
-                  return;
-                }
-                updateIntakeVenturePipelineStatus(
-                  intakeVentureLifecycleSection,
-                  nextValue as IntakeVenturePipelineStatus
-                );
-              }}
-            />
-            {showOutcomeReason ? (
-              <InlineTextField
-                label={closedReasonLabel}
-                value={draft.declineReasonNotes}
-                placeholder={
-                  showScreeningPipelineLifecycle
-                    ? "Explain why this Screening opportunity did not graduate to Commercial Acceleration."
-                    : "Select a reason or type Other."
-                }
-                listId={`company-closed-reason-suggestions-${companyId}`}
-                onSave={(value) => updateDraft({ declineReasonNotes: value })}
-              />
-            ) : null}
-          </>
-        ) : (
-          <div className="inline-edit-field pipeline-status-readonly-field">
-            <label>Status</label>
-            <div className="pipeline-status-readonly-value">{statusDisplayLabel}</div>
-          </div>
-        )}
-
-        {isClosedLostStatus ? (
-          <div className="inline-edit-field pipeline-status-readonly-field">
-            <label>Likelihood to Close (%)</label>
-            <div className="pipeline-status-readonly-value">0</div>
-          </div>
-        ) : (
-          <InlineTextField
-            inputType="number"
-            label="Likelihood to Close (%)"
-            value={draft.ventureLikelihoodPercent}
-            emptyText="0-100"
-            onSave={(value) => updateDraft({ ventureLikelihoodPercent: value })}
-          />
-        )}
-
-        <InlineTextField
-          inputType="date"
-          label="Estimated Close Date"
-          value={draft.ventureExpectedCloseDate}
-          dateDebugContext={{ scope: "company-pipeline-manager.date", companyId, field: "ventureExpectedCloseDate" }}
-          onSave={(value) => updateDraft({ ventureExpectedCloseDate: value })}
-        />
-
-        <div className="inline-edit-field pipeline-status-readonly-field">
-          <label>Closed Date</label>
-          <div className="pipeline-status-readonly-value">{closedDateDisplay}</div>
-        </div>
-      </div>
-
-      <div className="detail-section">
-        <p className="detail-label">Milestones</p>
-        <div className="detail-grid">
-          <InlineTextField
-            inputType="date"
-            label="Intake Decision Date"
-            value={draft.intakeDecisionAt}
-            dateDebugContext={{ scope: "company-pipeline-manager.date", companyId, field: "intakeDecisionAt" }}
-            onSave={(value) => updateDraft({ intakeDecisionAt: value })}
-          />
-          <InlineTextField
-            inputType="date"
-            label="VS Contract Executed"
-            value={draft.ventureStudioContractExecutedAt}
-            dateDebugContext={{ scope: "company-pipeline-manager.date", companyId, field: "ventureStudioContractExecutedAt" }}
-            onSave={(value) => updateDraft({ ventureStudioContractExecutedAt: value })}
-          />
-          {activePipelineColumn && activePipelineColumn !== "INTAKE" ? (
-            <>
-              <InlineTextField
-                inputType="date"
-                label="Screening Webinar Date 1"
-                value={draft.screeningWebinarDate1At}
-                dateDebugContext={{ scope: "company-pipeline-manager.date", companyId, field: "screeningWebinarDate1At" }}
-                onSave={(value) => updateDraft({ screeningWebinarDate1At: value })}
-              />
-              <InlineTextField
-                inputType="date"
-                label="Screening Webinar Date 2"
-                value={draft.screeningWebinarDate2At}
-                dateDebugContext={{ scope: "company-pipeline-manager.date", companyId, field: "screeningWebinarDate2At" }}
-                onSave={(value) => updateDraft({ screeningWebinarDate2At: value })}
-              />
-            </>
-          ) : null}
-        </div>
-      </div>
-
-      <datalist id={`company-closed-reason-suggestions-${companyId}`}>
-        {INTAKE_DECLINE_REASON_TEXT_SUGGESTIONS.map((reason) => (
-          <option key={reason} value={reason} />
-        ))}
-      </datalist>
-
-      {showSupportingSection ? (
-        <div className="detail-section">
-          <p className="detail-label">Supporting</p>
-          {activePipelineColumn === "SCREENING" || activePipelineColumn === "COMMERCIAL_ACCELERATION" ? (
-            <div className="detail-grid">
-              <div className="inline-edit-field pipeline-status-readonly-field">
-                <label>Alliance Health System Opportunities Open</label>
-                <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.open}</div>
-              </div>
-              <div className="inline-edit-field pipeline-status-readonly-field">
-                <label>Alliance Health System Opportunities Won</label>
-                <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.won}</div>
-              </div>
-              <div className="inline-edit-field pipeline-status-readonly-field">
-                <label>Alliance Health System Opportunities Lost</label>
-                <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.lost}</div>
-              </div>
-            </div>
-          ) : null}
-          {(description || "").trim() ? (
-            <div className="pipeline-status-stacked-field">
-              <label>Description</label>
-              <div className="pipeline-status-description-scroll">{(description || "").trim()}</div>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+    <>
+      <VentureStudioOpportunityTabContent
+        ownerLabel="Venture Studio Owner"
+        ownerName={draft.ownerName}
+        createdDate={draft.createdAt}
+        activePipelineColumn={activePipelineColumn}
+        stageOptions={PIPELINE_BOARD_COLUMNS.map((column) => ({
+          value: column.key,
+          label: column.label
+        }))}
+        onCurrentStageChange={(nextValue) => updateCurrentStage(nextValue as PipelineBoardColumn)}
+        pipelinePhaseLabel={phaseDisplayLabel}
+        showStatusControls={showStatusControls}
+        statusValue={statusSelectValue}
+        statusOptions={statusSelectOptions}
+        onStatusSave={(nextValue) => {
+          if (showScreeningPipelineLifecycle) {
+            updateScreeningPipelineStatus(nextValue as ScreeningPipelineStatus);
+            return;
+          }
+          updateIntakeVenturePipelineStatus(
+            intakeVentureLifecycleSection,
+            nextValue as IntakeVenturePipelineStatus
+          );
+        }}
+        statusReadOnlyLabel={statusDisplayLabel}
+        showOutcomeReason={showOutcomeReason}
+        closedReasonLabel={closedReasonLabel}
+        closedReasonValue={draft.declineReasonNotes}
+        closedReasonPlaceholder={
+          showScreeningPipelineLifecycle
+            ? "Explain why this Screening opportunity did not graduate to Commercial Acceleration."
+            : "Select a reason or type Other."
+        }
+        reasonListId={`company-closed-reason-suggestions-${companyId}`}
+        reasonSuggestions={INTAKE_DECLINE_REASON_TEXT_SUGGESTIONS}
+        onClosedReasonSave={(value) => updateDraft({ declineReasonNotes: value })}
+        isClosedLostStatus={isClosedLostStatus}
+        likelihoodValue={draft.ventureLikelihoodPercent}
+        onLikelihoodSave={(value) => updateDraft({ ventureLikelihoodPercent: value })}
+        estimatedCloseDate={draft.ventureExpectedCloseDate}
+        estimatedCloseDateDebugContext={{ scope: "company-pipeline-manager.date", companyId, field: "ventureExpectedCloseDate" }}
+        onEstimatedCloseDateSave={(value) => updateDraft({ ventureExpectedCloseDate: value })}
+        closedDateDisplay={closedDateDisplay}
+        intakeDecisionDate={draft.intakeDecisionAt}
+        intakeDecisionDateDebugContext={{ scope: "company-pipeline-manager.date", companyId, field: "intakeDecisionAt" }}
+        onIntakeDecisionDateSave={(value) => updateDraft({ intakeDecisionAt: value })}
+        ventureStudioContractExecutedDate={draft.ventureStudioContractExecutedAt}
+        ventureStudioContractExecutedDateDebugContext={{
+          scope: "company-pipeline-manager.date",
+          companyId,
+          field: "ventureStudioContractExecutedAt"
+        }}
+        onVentureStudioContractExecutedDateSave={(value) => updateDraft({ ventureStudioContractExecutedAt: value })}
+        showScreeningWebinars={Boolean(activePipelineColumn && activePipelineColumn !== "INTAKE")}
+        screeningWebinarDate1={draft.screeningWebinarDate1At}
+        screeningWebinarDate1DebugContext={{
+          scope: "company-pipeline-manager.date",
+          companyId,
+          field: "screeningWebinarDate1At"
+        }}
+        onScreeningWebinarDate1Save={(value) => updateDraft({ screeningWebinarDate1At: value })}
+        screeningWebinarDate2={draft.screeningWebinarDate2At}
+        screeningWebinarDate2DebugContext={{
+          scope: "company-pipeline-manager.date",
+          companyId,
+          field: "screeningWebinarDate2At"
+        }}
+        onScreeningWebinarDate2Save={(value) => updateDraft({ screeningWebinarDate2At: value })}
+      />
 
       {showExtendedPipelineSections ? (
         <>
@@ -2359,13 +2234,13 @@ export function CompanyPipelineManager({
         </>
       ) : null}
 
-      <div className="actions">
+      <div className="actions company-pipeline-save-actions">
         <button className="primary" type="button" onClick={savePipeline} disabled={saving}>
-          {saving ? "Saving..." : "Save Pipeline"}
+          {saving ? "Saving..." : "Save"}
         </button>
       </div>
 
       {status && <p className={`status ${status.kind}`}>{status.text}</p>}
-    </div>
+    </>
   );
 }

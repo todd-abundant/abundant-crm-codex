@@ -15,7 +15,8 @@ import { generateOpportunityTitle } from "@/lib/opportunity-title";
 import { EntityLookupInput } from "./entity-lookup-input";
 import { EntityDocumentsPane } from "./entity-documents-pane";
 import { ScreeningSurveySessionSelector } from "./screening-survey-session-selector";
-import { InlineSelectField, InlineTextField, InlineTextareaField } from "./inline-detail-field";
+import { InlineTextareaField } from "./inline-detail-field";
+import { VentureStudioOpportunityTabContent } from "./venture-studio-opportunity-tab-content";
 import { normalizeRichText, RichTextArea } from "./rich-text-area";
 import {
   inferGoogleDocumentTitle,
@@ -218,6 +219,7 @@ type PipelineOpportunityDetail = {
   ventureLikelihoodPercent: number | null;
   ventureExpectedCloseDate: string | null;
   ownerName: string | null;
+  createdAt: string | null;
   updatedAt: string | null;
   opportunities: Array<{
     id: string;
@@ -453,38 +455,6 @@ function escapeHtml(value: string) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-function richTextToPlainText(value: string | null | undefined) {
-  if (!value) return "";
-
-  const normalized = normalizeRichText(value);
-  if (!normalized) return "";
-
-  if (typeof DOMParser === "undefined") {
-    return normalized
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<\/(p|div|li|ul|ol|h[1-6])>/gi, "\n")
-      .replace(/<[^>]*>/g, "")
-      .replace(/&nbsp;/gi, " ")
-      .replace(/&amp;/gi, "&")
-      .replace(/&lt;/gi, "<")
-      .replace(/&gt;/gi, ">")
-      .replace(/&#39;/gi, "'")
-      .replace(/&quot;/gi, '"')
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-  }
-
-  const htmlWithBreaks = normalized
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|li|ul|ol|h[1-6])>/gi, "\n");
-
-  const parsed = new DOMParser().parseFromString(htmlWithBreaks, "text/html");
-  return (parsed.body.textContent || "")
-    .replace(/\u00a0/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 function formatVentureStudioAssessmentLabel(value: VentureStudioAssessment) {
@@ -1283,7 +1253,6 @@ export function PipelineOpportunityDetailView({
   const [opportunityStatusFilter, setOpportunityStatusFilter] = React.useState<OpportunityStatusFilter>("all");
   const initialOpportunityIdRef = React.useRef<string | null>(initialOpportunityId);
   const pipelineCardUpdateSequenceRef = React.useRef(0);
-  const descriptionPlainText = React.useMemo(() => richTextToPlainText(item?.description), [item?.description]);
   const activePipelineColumn = item ? item.column || mapPhaseToBoardColumn(item.phase) : null;
   const isScreeningClosedLost =
     (item?.phase === "DECLINED" || item?.phase === "CLOSED") && item.closedOutcome === "LOST";
@@ -1299,27 +1268,64 @@ export function PipelineOpportunityDetailView({
   const showVentureStudioPipelineLifecycle = Boolean(
     item && activePipelineColumn === "VENTURE_STUDIO_CONTRACT_EVALUATION"
   );
+  const showClosedIntakeVentureLifecycle = Boolean(
+    item &&
+      (item.phase === "DECLINED" || item.phase === "CLOSED") &&
+      item.closedOutcome !== "LOST" &&
+      !showIntakePipelineLifecycle &&
+      !showVentureStudioPipelineLifecycle
+  );
+  const showIntakeVentureLifecycle =
+    showIntakePipelineLifecycle || showVentureStudioPipelineLifecycle || showClosedIntakeVentureLifecycle;
+  const showStatusControls = showScreeningPipelineLifecycle || showIntakeVentureLifecycle;
+  const intakeVentureLifecycleSection: IntakeVentureLifecycleSection = (() => {
+    if (activePipelineColumn === "INTAKE") return "INTAKE";
+    if (activePipelineColumn === "VENTURE_STUDIO_CONTRACT_EVALUATION") return "VENTURE_STUDIO";
+    if (!item) return "INTAKE";
+    return item.intakeDecision === "PENDING" ? "INTAKE" : "VENTURE_STUDIO";
+  })();
+  const isClosedLostStatus =
+    (item?.phase === "DECLINED" || item?.phase === "CLOSED") &&
+    (item?.closedOutcome === "LOST" || item?.intakeDecision === "DECLINE");
+  const isClosedRevisitStatus =
+    (item?.phase === "DECLINED" || item?.phase === "CLOSED") && item?.intakeDecision === "REVISIT_LATER";
+  const statusDisplayLabel = isClosedRevisitStatus
+    ? "Closed/Revisit"
+    : item?.phase === "CLOSED" && item?.closedOutcome === "INVESTED"
+      ? "Closed/Won"
+      : isClosedLostStatus
+        ? "Closed/Lost"
+        : "Open";
+  const closedDateDisplay = showScreeningPipelineLifecycle
+    ? screeningPipelineStatus === "CLOSED_LOST"
+      ? toDateInputValue(item?.intakeDecisionAt) || "Not set"
+      : "-"
+    : isClosedLostStatus || isClosedRevisitStatus || item?.phase === "CLOSED"
+      ? toDateInputValue(item?.intakeDecisionAt) || "Not set"
+      : "-";
+  const showOutcomeReason = showScreeningPipelineLifecycle
+    ? screeningPipelineStatus === "CLOSED_LOST"
+    : intakeVenturePipelineStatus === "CLOSED_LOST" || intakeVenturePipelineStatus === "CLOSED_REVISIT";
+  const statusSelectOptions = showScreeningPipelineLifecycle
+    ? [
+        { value: "OPEN", label: "Open" },
+        { value: "CLOSED_LOST", label: "Closed/Lost" }
+      ]
+    : [
+        { value: "OPEN", label: "Open" },
+        { value: "CLOSED_WON", label: "Closed/Won" },
+        { value: "CLOSED_LOST", label: "Closed/Lost" },
+        { value: "CLOSED_REVISIT", label: "Closed/Revisit" }
+      ];
+  const statusSelectValue = showScreeningPipelineLifecycle ? screeningPipelineStatus : intakeVenturePipelineStatus;
+  const closedReasonLabel = showScreeningPipelineLifecycle
+    ? "Closed/Lost Reason"
+    : intakeVenturePipelineStatus === "CLOSED_REVISIT"
+      ? "Closed/Revisit Reason"
+      : "Closed/Lost Reason";
   const showOpportunitiesTab = Boolean(
     item && (activePipelineColumn === "SCREENING" || activePipelineColumn === "COMMERCIAL_ACCELERATION")
   );
-  const opportunityLifecycleCounts = React.useMemo(() => {
-    if (!item) return { open: 0, won: 0, lost: 0 };
-    return item.opportunities.reduce(
-      (accumulator, opportunity) => {
-        if (opportunity.stage === "CLOSED_WON") {
-          accumulator.won += 1;
-          return accumulator;
-        }
-        if (opportunity.stage === "CLOSED_LOST") {
-          accumulator.lost += 1;
-          return accumulator;
-        }
-        accumulator.open += 1;
-        return accumulator;
-      },
-      { open: 0, won: 0, lost: 0 }
-    );
-  }, [item]);
   const filteredOpportunities = React.useMemo(() => {
     const opportunities = item?.opportunities || [];
     if (opportunityStatusFilter === "all") return opportunities;
@@ -1332,6 +1338,20 @@ export function PipelineOpportunityDetailView({
       (opportunity) => opportunity.stage === "CLOSED_WON" || opportunity.stage === "CLOSED_LOST"
     );
   }, [item, opportunityStatusFilter]);
+  const opportunityTabBadgeCounts = React.useMemo(() => {
+    const opportunities = item?.opportunities || [];
+    return opportunities.reduce(
+      (counts, opportunity) => {
+        if (isClosedOpportunityStage(opportunity.stage)) {
+          counts.closed += 1;
+        } else {
+          counts.open += 1;
+        }
+        return counts;
+      },
+      { open: 0, closed: 0 }
+    );
+  }, [item]);
   const selectedOpportunityForModal = React.useMemo(() => {
     if (!item || !opportunityModal || opportunityModal.mode !== "edit") return null;
     return item.opportunities.find((opportunity) => opportunity.id === opportunityModal.opportunityId) || null;
@@ -3265,7 +3285,7 @@ export function PipelineOpportunityDetailView({
     if (typeof nextReason === "undefined" && currentStatus === nextStatus) return false;
     const reason = typeof nextReason === "string"
       ? nextReason.trim()
-      : (screeningClosedLostReasonDraft || item.declineReasonNotes || "").trim();
+      : (item.declineReasonNotes || "").trim();
     if (nextStatus === "CLOSED_LOST" && !reason) {
       setStatus({
         kind: "error",
@@ -3284,6 +3304,7 @@ export function PipelineOpportunityDetailView({
       const saved = await updatePipelineCardMeta({
         phase: "DECLINED",
         closedOutcome: "LOST",
+        ventureLikelihoodPercent: 0,
         declineReasonNotes: reason
       });
       if (saved) {
@@ -3325,15 +3346,23 @@ export function PipelineOpportunityDetailView({
 
     if (nextStatus === "CLOSED_LOST") {
       setStatus(null);
-      setScreeningClosedLostReasonModalDraft(
-        (screeningClosedLostReasonDraft || item.declineReasonNotes || "").trim()
-      );
       setPendingScreeningPipelineStatus(nextStatus);
-      setShowScreeningClosedLostReasonModal(true);
+      if (!(item.declineReasonNotes || "").trim()) {
+        setStatus({
+          kind: "error",
+          text: "Add a closed/lost reason to complete closure."
+        });
+        return;
+      }
+      const saved = await saveScreeningPipelineStatus("CLOSED_LOST", item.declineReasonNotes || "");
+      if (saved) {
+        setPendingScreeningPipelineStatus(null);
+      }
       return;
     }
 
     setShowScreeningClosedLostReasonModal(false);
+    setPendingScreeningPipelineStatus(null);
     await saveScreeningPipelineStatus(nextStatus);
   }
 
@@ -3375,12 +3404,12 @@ export function PipelineOpportunityDetailView({
     nextReason?: string
   ): Promise<boolean> {
     if (!item) return false;
-    const currentStatus = deriveIntakeVenturePipelineStatus(item);
+    const currentStatus = pendingIntakeVentureCloseSelection?.status || deriveIntakeVenturePipelineStatus(item);
     if (typeof nextReason === "undefined" && currentStatus === nextStatus) return false;
     const reason =
       typeof nextReason === "string"
         ? nextReason.trim()
-        : (intakeVentureCloseReasonModalDraft || item.declineReasonNotes || "").trim();
+        : (item.declineReasonNotes || "").trim();
 
     if ((nextStatus === "CLOSED_LOST" || nextStatus === "CLOSED_REVISIT") && !reason) {
       setStatus({
@@ -3440,6 +3469,7 @@ export function PipelineOpportunityDetailView({
       phase: "DECLINED",
       intakeDecision: "DECLINE",
       closedOutcome: null,
+      ventureLikelihoodPercent: 0,
       declineReasonNotes: reason
     });
   }
@@ -3449,20 +3479,52 @@ export function PipelineOpportunityDetailView({
     nextStatus: IntakeVenturePipelineStatus
   ) {
     if (!item) return;
-    const currentStatus = deriveIntakeVenturePipelineStatus(item);
+    const currentStatus = pendingIntakeVentureCloseSelection?.status || deriveIntakeVenturePipelineStatus(item);
     if (currentStatus === nextStatus) return;
 
     if (nextStatus === "CLOSED_LOST" || nextStatus === "CLOSED_REVISIT") {
       setStatus(null);
-      setIntakeVentureCloseReasonModalDraft((item.declineReasonNotes || "").trim());
       setPendingIntakeVentureCloseSelection({ section, status: nextStatus });
-      setShowIntakeVentureCloseReasonModal(true);
+      if (!(item.declineReasonNotes || "").trim()) {
+        setStatus({
+          kind: "error",
+          text: "Add a reason to complete closure."
+        });
+        return;
+      }
+      const saved = await saveIntakeVenturePipelineStatus(section, nextStatus, item.declineReasonNotes || "");
+      if (saved) {
+        setPendingIntakeVentureCloseSelection(null);
+      }
       return;
     }
 
     setShowIntakeVentureCloseReasonModal(false);
     setPendingIntakeVentureCloseSelection(null);
     await saveIntakeVenturePipelineStatus(section, nextStatus);
+  }
+
+  async function saveIntakeVentureClosedReason(nextValue: string) {
+    if (!item) return;
+    const trimmed = nextValue.trim();
+    const persistedReason = (item.declineReasonNotes || "").trim();
+    const pendingSelection = pendingIntakeVentureCloseSelection;
+    const shouldCompletePendingClosure = Boolean(
+      pendingSelection &&
+        (pendingSelection.status === "CLOSED_LOST" || pendingSelection.status === "CLOSED_REVISIT") &&
+        trimmed
+    );
+    if (persistedReason === trimmed && !shouldCompletePendingClosure) return;
+
+    if (shouldCompletePendingClosure && pendingSelection) {
+      const saved = await saveIntakeVenturePipelineStatus(pendingSelection.section, pendingSelection.status, trimmed);
+      if (saved) {
+        setPendingIntakeVentureCloseSelection(null);
+      }
+      return;
+    }
+
+    await updatePipelineCardMeta({ declineReasonNotes: trimmed || null });
   }
 
   async function saveIntakeVentureCloseReasonFromModal() {
@@ -5287,7 +5349,7 @@ function stripCurrencyFormatting(value: string) {
             aria-selected={activeIntakeDetailTab === "pipeline-status"}
             onClick={() => setActiveIntakeDetailTab("pipeline-status")}
           >
-            Venture Studio Pipeline Status
+            Venture Studio Opportunity
           </button>
           {showOpportunitiesTab ? (
             <button
@@ -5297,7 +5359,15 @@ function stripCurrencyFormatting(value: string) {
               aria-selected={activeIntakeDetailTab === "opportunities"}
               onClick={() => setActiveIntakeDetailTab("opportunities")}
             >
-              Health System Opportunities
+              <span className="detail-tab-label-with-badges">
+                <span>Health System Opportunities</span>
+                {opportunityTabBadgeCounts.open > 0 ? (
+                  <span className="detail-tab-badge detail-tab-badge-open">{opportunityTabBadgeCounts.open}</span>
+                ) : null}
+                {opportunityTabBadgeCounts.closed > 0 ? (
+                  <span className="detail-tab-badge detail-tab-badge-closed">{opportunityTabBadgeCounts.closed}</span>
+                ) : null}
+              </span>
             </button>
           ) : null}
           {item.isScreeningStage ? (
@@ -5422,293 +5492,98 @@ function stripCurrencyFormatting(value: string) {
         {activeIntakeDetailTab === "pipeline-status" || (activeIntakeDetailTab === "opportunities" && showOpportunitiesTab) ? (
           <>
             {activeIntakeDetailTab === "pipeline-status" ? (
-              <>
-            <div className="row">
-              <div>
-                {activePipelineColumn ? (
-                  <InlineSelectField
-                    label="Current Stage"
-                    value={activePipelineColumn}
-                    options={PIPELINE_BOARD_COLUMNS.map((column) => ({
-                      value: column.key,
-                      label: column.label
-                    }))}
-                    onSave={(nextValue) => {
-                      const nextColumn = nextValue as PipelineBoardColumn;
-                      if (!savingPhase) {
-                        void updateColumn(nextColumn);
-                      }
-                    }}
-                  />
-                ) : (
-                  <div className="inline-edit-field pipeline-status-readonly-field">
-                    <label>Current Stage</label>
-                    <div className="pipeline-status-readonly-value">Closed / Inactive</div>
-                  </div>
-                )}
-              </div>
-              <div>
-                <div className="inline-edit-field pipeline-status-readonly-field">
-                  <label>Venture Studio Pipeline Phase</label>
-                  <div className="pipeline-status-readonly-value">{item.phaseLabel || "Not set"}</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="row">
-              <div>
-                <div className="inline-edit-field pipeline-status-readonly-field">
-                  <label>Website</label>
-                  <div className="pipeline-status-readonly-value">{item.website || "Not set"}</div>
-                </div>
-              </div>
-              <div>
-                <InlineTextField
-                  label="Likelihood to Close (%)"
-                  value={
-                    item.ventureLikelihoodPercent === null || item.ventureLikelihoodPercent === undefined
-                      ? ""
-                      : String(item.ventureLikelihoodPercent)
+              <VentureStudioOpportunityTabContent
+                ownerLabel="Venture Studio Owner"
+                ownerName={item.ownerName || ""}
+                createdDate={toDateInputValue(item.createdAt)}
+                activePipelineColumn={activePipelineColumn}
+                stageOptions={PIPELINE_BOARD_COLUMNS.map((column) => ({
+                  value: column.key,
+                  label: column.label
+                }))}
+                onCurrentStageChange={(nextValue) => {
+                  const nextColumn = nextValue as PipelineBoardColumn;
+                  if (!savingPhase) {
+                    void updateColumn(nextColumn);
                   }
-                  inputType="number"
-                  placeholder="0-100"
-                  onSave={(nextValue) => void saveVentureLikelihood(nextValue)}
-                />
-              </div>
-            </div>
-            <div className="row">
-              <div>
-                <InlineTextField
-                  label="Intake Decision Date"
-                  value={toDateInputValue(item.intakeDecisionAt)}
-                  inputType="date"
-                  dateDebugContext={{ scope: "pipeline-opportunity-detail.date", itemId: item.id, field: "intakeDecisionAt" }}
-                  onSave={(nextValue) => void saveIntakeDecisionDate(nextValue)}
-                />
-              </div>
-              <div>
-                <InlineTextField
-                  label="VS Contract Executed"
-                  value={toDateInputValue(item.ventureStudioContractExecutedAt)}
-                  inputType="date"
-                  dateDebugContext={{
-                    scope: "pipeline-opportunity-detail.date",
-                    itemId: item.id,
-                    field: "ventureStudioContractExecutedAt"
-                  }}
-                  onSave={(nextValue) => void saveVentureStudioContractExecutedDate(nextValue)}
-                />
-              </div>
-            </div>
-            {activePipelineColumn && activePipelineColumn !== "INTAKE" ? (
-              <div className="row">
-                <div>
-                  <InlineTextField
-                    label="Screening Webinar Date 1"
-                    value={toDateInputValue(item.screeningWebinarDate1At)}
-                    inputType="date"
-                    dateDebugContext={{
-                      scope: "pipeline-opportunity-detail.date",
-                      itemId: item.id,
-                      field: "screeningWebinarDate1At"
-                    }}
-                    onSave={(nextValue) => void saveScreeningWebinarDate1(nextValue)}
-                  />
-                </div>
-                <div>
-                  <InlineTextField
-                    label="Screening Webinar Date 2"
-                    value={toDateInputValue(item.screeningWebinarDate2At)}
-                    inputType="date"
-                    dateDebugContext={{
-                      scope: "pipeline-opportunity-detail.date",
-                      itemId: item.id,
-                      field: "screeningWebinarDate2At"
-                    }}
-                    onSave={(nextValue) => void saveScreeningWebinarDate2(nextValue)}
-                  />
-                </div>
-              </div>
-            ) : null}
-                <div className="pipeline-status-single-field">
-                  <InlineTextField
-                    label="Estimated Close Date"
-                    value={toDateInputValue(item.ventureExpectedCloseDate)}
-                    inputType="date"
-                    dateDebugContext={{
-                      scope: "pipeline-opportunity-detail.date",
-                      itemId: item.id,
-                      field: "ventureExpectedCloseDate"
-                    }}
-                    onSave={(nextValue) => void saveVentureExpectedCloseDate(nextValue)}
-                  />
-                </div>
-
-                {showIntakePipelineLifecycle ? (
-                  <div className="detail-section">
-                    <p className="detail-label">Venture Studio Opportunity Status</p>
-                    <div className="inline-edit-field">
-                      <label>Status</label>
-                      <div className="opportunity-filter-options" role="radiogroup" aria-label="Intake opportunity status">
-                        {[
-                          { value: "OPEN", label: "Open" },
-                          { value: "CLOSED_WON", label: "Closed/Won" },
-                          { value: "CLOSED_LOST", label: "Closed/Lost" },
-                          { value: "CLOSED_REVISIT", label: "Closed/Revisit" }
-                        ].map((option) => {
-                          const selected = intakeVenturePipelineStatus === option.value;
-                          return (
-                            <label
-                              key={option.value}
-                              className={`opportunity-filter-option ${selected ? "active" : ""}`}
-                              htmlFor={`intake-opportunity-lifecycle-${item.id}-${option.value}`}
-                            >
-                              <span>{option.label}</span>
-                              <input
-                                id={`intake-opportunity-lifecycle-${item.id}-${option.value}`}
-                                type="radio"
-                                name={`intake-opportunity-lifecycle-${item.id}`}
-                                value={option.value}
-                                checked={selected}
-                                onChange={() =>
-                                  void handleIntakeVenturePipelineStatusChange(
-                                    "INTAKE",
-                                    option.value as IntakeVenturePipelineStatus
-                                  )
-                                }
-                              />
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {showVentureStudioPipelineLifecycle ? (
-                  <div className="detail-section">
-                    <p className="detail-label">Venture Studio Opportunity Status</p>
-                    <div className="inline-edit-field">
-                      <label>Status</label>
-                      <div
-                        className="opportunity-filter-options"
-                        role="radiogroup"
-                        aria-label="Venture studio contract execution status"
-                      >
-                        {[
-                          { value: "OPEN", label: "Open" },
-                          { value: "CLOSED_WON", label: "Closed/Won" },
-                          { value: "CLOSED_LOST", label: "Closed/Lost" },
-                          { value: "CLOSED_REVISIT", label: "Closed/Revisit" }
-                        ].map((option) => {
-                          const selected = intakeVenturePipelineStatus === option.value;
-                          return (
-                            <label
-                              key={option.value}
-                              className={`opportunity-filter-option ${selected ? "active" : ""}`}
-                              htmlFor={`venture-studio-opportunity-lifecycle-${item.id}-${option.value}`}
-                            >
-                              <span>{option.label}</span>
-                              <input
-                                id={`venture-studio-opportunity-lifecycle-${item.id}-${option.value}`}
-                                type="radio"
-                                name={`venture-studio-opportunity-lifecycle-${item.id}`}
-                                value={option.value}
-                                checked={selected}
-                                onChange={() =>
-                                  void handleIntakeVenturePipelineStatusChange(
-                                    "VENTURE_STUDIO",
-                                    option.value as IntakeVenturePipelineStatus
-                                  )
-                                }
-                              />
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {showScreeningPipelineLifecycle ? (
-                  <div className="detail-section">
-                    <p className="detail-label">Venture Studio Opportunity Status</p>
-                    <div className="row">
-                      <div>
-                        <div className="inline-edit-field">
-                          <label>Status</label>
-                          <div
-                            className="opportunity-filter-options"
-                            role="radiogroup"
-                            aria-label="Screening opportunity status"
-                          >
-                            {[
-                              { value: "OPEN", label: "Open" },
-                              { value: "CLOSED_LOST", label: "Closed/Lost" }
-                            ].map((option) => {
-                              const selected = screeningPipelineStatus === option.value;
-                              return (
-                                <label
-                                  key={option.value}
-                                  className={`opportunity-filter-option ${selected ? "active" : ""}`}
-                                  htmlFor={`screening-opportunity-lifecycle-${item.id}-${option.value}`}
-                                >
-                                  <span>{option.label}</span>
-                                    <input
-                                      id={`screening-opportunity-lifecycle-${item.id}-${option.value}`}
-                                      type="radio"
-                                      name={`screening-opportunity-lifecycle-${item.id}`}
-                                      value={option.value}
-                                      checked={selected}
-                                      onChange={() => {
-                                        void handleScreeningPipelineStatusChange(option.value as ScreeningPipelineStatus);
-                                      }}
-                                    />
-                                  </label>
-                                );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <InlineTextField
-                          label={`Closed/Lost Reason${screeningPipelineStatus === "CLOSED_LOST" ? " (required)" : ""}`}
-                          value={item.declineReasonNotes || ""}
-                          placeholder="Explain why this Screening opportunity did not graduate to Commercial Acceleration."
-                          onSave={(nextValue) => void saveScreeningClosedLostReason(nextValue)}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {activePipelineColumn === "SCREENING" || activePipelineColumn === "COMMERCIAL_ACCELERATION" ? (
-                  <div className="detail-section">
-                    <p className="detail-label">Alliance Health System Opportunities</p>
-                    <div className="detail-grid">
-                      <div className="inline-edit-field pipeline-status-readonly-field">
-                        <label>Open</label>
-                        <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.open}</div>
-                      </div>
-                      <div className="inline-edit-field pipeline-status-readonly-field">
-                        <label>Won</label>
-                        <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.won}</div>
-                      </div>
-                      <div className="inline-edit-field pipeline-status-readonly-field">
-                        <label>Lost</label>
-                        <div className="pipeline-status-readonly-value">{opportunityLifecycleCounts.lost}</div>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {descriptionPlainText ? (
-                  <div className="pipeline-status-stacked-field">
-                    <label>Description</label>
-                    <div className="pipeline-status-description-scroll">{descriptionPlainText}</div>
-                  </div>
-                ) : null}
-              </>
+                }}
+                pipelinePhaseLabel={item.phaseLabel}
+                showStatusControls={showStatusControls}
+                statusValue={statusSelectValue}
+                statusOptions={statusSelectOptions}
+                onStatusSave={(nextValue) => {
+                  if (showScreeningPipelineLifecycle) {
+                    void handleScreeningPipelineStatusChange(nextValue as ScreeningPipelineStatus);
+                    return;
+                  }
+                  void handleIntakeVenturePipelineStatusChange(
+                    intakeVentureLifecycleSection,
+                    nextValue as IntakeVenturePipelineStatus
+                  );
+                }}
+                statusReadOnlyLabel={statusDisplayLabel}
+                showOutcomeReason={showOutcomeReason}
+                closedReasonLabel={closedReasonLabel}
+                closedReasonValue={item.declineReasonNotes || ""}
+                closedReasonPlaceholder={
+                  showScreeningPipelineLifecycle
+                    ? "Explain why this Screening opportunity did not graduate to Commercial Acceleration."
+                    : "Select a reason or type Other."
+                }
+                reasonListId={`pipeline-status-closed-reason-suggestions-${item.id}`}
+                reasonSuggestions={INTAKE_DECLINE_REASON_TEXT_SUGGESTIONS}
+                onClosedReasonSave={(nextValue) => {
+                  if (showScreeningPipelineLifecycle) {
+                    void saveScreeningClosedLostReason(nextValue);
+                    return;
+                  }
+                  void saveIntakeVentureClosedReason(nextValue);
+                }}
+                isClosedLostStatus={isClosedLostStatus}
+                likelihoodValue={
+                  item.ventureLikelihoodPercent === null || item.ventureLikelihoodPercent === undefined
+                    ? ""
+                    : String(item.ventureLikelihoodPercent)
+                }
+                onLikelihoodSave={(nextValue) => void saveVentureLikelihood(nextValue)}
+                estimatedCloseDate={toDateInputValue(item.ventureExpectedCloseDate)}
+                estimatedCloseDateDebugContext={{
+                  scope: "pipeline-opportunity-detail.date",
+                  itemId: item.id,
+                  field: "ventureExpectedCloseDate"
+                }}
+                onEstimatedCloseDateSave={(nextValue) => void saveVentureExpectedCloseDate(nextValue)}
+                closedDateDisplay={closedDateDisplay}
+                intakeDecisionDate={toDateInputValue(item.intakeDecisionAt)}
+                intakeDecisionDateDebugContext={{
+                  scope: "pipeline-opportunity-detail.date",
+                  itemId: item.id,
+                  field: "intakeDecisionAt"
+                }}
+                onIntakeDecisionDateSave={(nextValue) => void saveIntakeDecisionDate(nextValue)}
+                ventureStudioContractExecutedDate={toDateInputValue(item.ventureStudioContractExecutedAt)}
+                ventureStudioContractExecutedDateDebugContext={{
+                  scope: "pipeline-opportunity-detail.date",
+                  itemId: item.id,
+                  field: "ventureStudioContractExecutedAt"
+                }}
+                onVentureStudioContractExecutedDateSave={(nextValue) => void saveVentureStudioContractExecutedDate(nextValue)}
+                showScreeningWebinars={Boolean(activePipelineColumn && activePipelineColumn !== "INTAKE")}
+                screeningWebinarDate1={toDateInputValue(item.screeningWebinarDate1At)}
+                screeningWebinarDate1DebugContext={{
+                  scope: "pipeline-opportunity-detail.date",
+                  itemId: item.id,
+                  field: "screeningWebinarDate1At"
+                }}
+                onScreeningWebinarDate1Save={(nextValue) => void saveScreeningWebinarDate1(nextValue)}
+                screeningWebinarDate2={toDateInputValue(item.screeningWebinarDate2At)}
+                screeningWebinarDate2DebugContext={{
+                  scope: "pipeline-opportunity-detail.date",
+                  itemId: item.id,
+                  field: "screeningWebinarDate2At"
+                }}
+                onScreeningWebinarDate2Save={(nextValue) => void saveScreeningWebinarDate2(nextValue)}
+              />
             ) : null}
 
             {activeIntakeDetailTab === "opportunities" && showOpportunitiesTab ? (

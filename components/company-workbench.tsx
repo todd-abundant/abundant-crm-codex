@@ -438,17 +438,18 @@ function pipelinePhaseTagForCompany(record: Pick<CompanyRecord, "declineReason" 
 }
 
 function pipelineStatusCategoryForRecord(record: Pick<CompanyRecord, "pipeline">) {
-  const category = record.pipeline?.category;
-  if (category === "ACTIVE" || category === "CLOSED" || category === "RE_ENGAGE_LATER") {
-    return category;
-  }
-
   if (!record.pipeline) return "ACTIVE";
+
+  const category = record.pipeline.category;
   if (record.pipeline.phase === "DECLINED" || record.pipeline.phase === "CLOSED") {
     if (record.pipeline.intakeDecision === "REVISIT_LATER") {
       return "RE_ENGAGE_LATER";
     }
     return "CLOSED";
+  }
+
+  if (category === "ACTIVE" || category === "CLOSED" || category === "RE_ENGAGE_LATER") {
+    return category;
   }
 
   return "ACTIVE";
@@ -464,6 +465,14 @@ function recordMatchesPipelineFilter(record: CompanyRecord, filter: CompanyStatu
 
 function isClosedOpportunityStage(stage: CompanyOpportunityStage) {
   return stage === "CLOSED_WON" || stage === "CLOSED_LOST";
+}
+
+function isDeclinedVentureStudioOpportunity(opportunity: OpportunitySummary) {
+  return opportunity.type === "VENTURE_STUDIO_SERVICES" && opportunity.stage === "ON_HOLD";
+}
+
+function isClosedOpportunity(opportunity: OpportunitySummary) {
+  return isClosedOpportunityStage(opportunity.stage) || isDeclinedVentureStudioOpportunity(opportunity);
 }
 
 function formatOpportunityDate(value: string | null | undefined) {
@@ -746,10 +755,25 @@ export function CompanyWorkbench() {
         opportunityStatusFilter === "all"
           ? true
           : opportunityStatusFilter === "open"
-            ? !isClosedOpportunityStage(opportunity.stage)
-            : isClosedOpportunityStage(opportunity.stage)
+            ? !isClosedOpportunity(opportunity)
+            : isClosedOpportunity(opportunity)
       ),
     [opportunities, opportunityStatusFilter]
+  );
+  const opportunityTabBadgeCounts = React.useMemo(
+    () =>
+      opportunities.reduce(
+        (counts, opportunity) => {
+          if (isClosedOpportunity(opportunity)) {
+            counts.closed += 1;
+          } else {
+            counts.open += 1;
+          }
+          return counts;
+        },
+        { open: 0, closed: 0 }
+      ),
+    [opportunities]
   );
 
   const leadSourceHealthSystemName = React.useMemo(() => {
@@ -1870,8 +1894,8 @@ export function CompanyWorkbench() {
                   </button>
                 ) : null}
               </div>
-              <div className="opportunity-filter-bar" role="radiogroup" aria-label="Filter companies by venture studio pipeline status">
-                <p className="opportunity-filter-label">Venture Studio Pipeline Status</p>
+              <div className="opportunity-filter-bar" role="radiogroup" aria-label="Filter companies by venture studio opportunity status">
+                <p className="opportunity-filter-label">Venture Studio Opportunity Status</p>
                 <div className="opportunity-filter-options">
                   {companyCategoryFilterOptions.map((option) => {
                     const active = companyStatusFilter === option.value;
@@ -2232,7 +2256,7 @@ export function CompanyWorkbench() {
                   aria-selected={activeDetailTab === "pipeline"}
                   onClick={() => setActiveDetailTab("pipeline")}
                 >
-                  Venture Studio Opportunities
+                  Venture Studio Opportunity
                 </button>
                 <button
                   type="button"
@@ -2241,7 +2265,15 @@ export function CompanyWorkbench() {
                   aria-selected={activeDetailTab === "opportunities"}
                   onClick={() => setActiveDetailTab("opportunities")}
                 >
-                  Health System Opportunities
+                  <span className="detail-tab-label-with-badges">
+                    <span>Health System Opportunities</span>
+                    {opportunityTabBadgeCounts.open > 0 ? (
+                      <span className="detail-tab-badge detail-tab-badge-open">{opportunityTabBadgeCounts.open}</span>
+                    ) : null}
+                    {opportunityTabBadgeCounts.closed > 0 ? (
+                      <span className="detail-tab-badge detail-tab-badge-closed">{opportunityTabBadgeCounts.closed}</span>
+                    ) : null}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -2571,7 +2603,7 @@ export function CompanyWorkbench() {
                                 <td>{formatOpportunityCurrency(opportunity.contractPriceUsd)}</td>
                                 <td>
                                   {formatOpportunityDate(
-                                    isClosedOpportunityStage(opportunity.stage)
+                                    isClosedOpportunity(opportunity)
                                       ? opportunity.closedAt
                                       : opportunity.estimatedCloseDate
                                   )}
@@ -3187,7 +3219,6 @@ export function CompanyWorkbench() {
                 <>
               <CompanyPipelineManager
                 companyId={selectedRecord.id}
-                description={selectedRecord.description}
                 healthSystems={healthSystems}
                 coInvestors={coInvestors}
                 contacts={selectedRecord.contactLinks.map((link) => ({

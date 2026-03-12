@@ -618,6 +618,7 @@ export async function GET(
         ventureLikelihoodPercent: company.pipeline?.ventureLikelihoodPercent ?? null,
         ventureExpectedCloseDate: company.pipeline?.ventureExpectedCloseDate ?? null,
         ownerName: company.pipeline?.ownerName ?? null,
+        createdAt: company.createdAt.toISOString(),
         updatedAt: (company.pipeline?.updatedAt || company.updatedAt).toISOString(),
         opportunities: company.opportunities.map((opportunity) => ({
           id: opportunity.id,
