@@ -36,6 +36,7 @@ import {
 } from "@/lib/market-landscape";
 import { parseDateInput, toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
 import { createDateDebugContext, debugDateLog, dateDebugHeaders } from "@/lib/date-debug";
+import { INTAKE_DECLINE_REASON_TEXT_SUGGESTIONS } from "@/lib/intake-decline-reasons";
 
 type ScreeningStatus = "NOT_STARTED" | "PENDING" | "NEGOTIATING" | "SIGNED" | "DECLINED";
 type ScreeningAttendanceStatus = "INVITED" | "ATTENDED" | "DECLINED" | "NO_SHOW";
@@ -43,7 +44,7 @@ type ScreeningFeedbackSentiment = "POSITIVE" | "MIXED" | "NEUTRAL" | "NEGATIVE";
 type ScreeningCellField = "RELEVANT_FEEDBACK" | "STATUS_UPDATE";
 type ClosedOutcome = "INVESTED" | "PASSED" | "LOST" | "WITHDREW" | "OTHER";
 type ScreeningPipelineStatus = "OPEN" | "CLOSED_LOST";
-type IntakeVenturePipelineStatus = "OPEN" | "CLOSED_LOST" | "CLOSED_REVISIT";
+type IntakeVenturePipelineStatus = "OPEN" | "CLOSED_WON" | "CLOSED_LOST" | "CLOSED_REVISIT";
 type IntakeVentureLifecycleSection = "INTAKE" | "VENTURE_STUDIO";
 type CompanyDocumentType =
   | "INTAKE_REPORT"
@@ -216,6 +217,7 @@ type PipelineOpportunityDetail = {
   screeningWebinarDate2At: string | null;
   ventureLikelihoodPercent: number | null;
   ventureExpectedCloseDate: string | null;
+  ownerName: string | null;
   updatedAt: string | null;
   opportunities: Array<{
     id: string;
@@ -295,6 +297,7 @@ type OpportunityModalState =
     };
 
 type OpportunityModalTab = "details" | "contacts" | "notes" | "documents";
+type OpportunityStatusFilter = "all" | "open" | "closed";
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "Not set";
@@ -375,7 +378,22 @@ function noteAffiliationKindLabel(kind: NoteAffiliation["kind"]) {
   if (kind === "company") return "Company";
   if (kind === "healthSystem") return "Health System";
   if (kind === "contact") return "Contact";
-  return "Opportunity";
+  return "Health System Opportunity";
+}
+
+function pipelinePhaseProgressRank(phase: PipelinePhase) {
+  if (phase === "INTAKE") return 0;
+  if (phase === "VENTURE_STUDIO_NEGOTIATION") return 1;
+  if (phase === "SCREENING") return 2;
+  if (phase === "LOI_COLLECTION") return 3;
+  if (phase === "COMMERCIAL_NEGOTIATION") return 4;
+  if (phase === "PORTFOLIO_GROWTH") return 5;
+  return -1;
+}
+
+function shouldAdvancePhase(currentPhase: PipelinePhase, targetPhase: PipelinePhase) {
+  if (currentPhase === "DECLINED" || currentPhase === "CLOSED") return true;
+  return pipelinePhaseProgressRank(targetPhase) > pipelinePhaseProgressRank(currentPhase);
 }
 
 function toTextValue(value: number | string | null | undefined) {
@@ -526,7 +544,7 @@ const screeningInlineInterestOptions: Array<{ value: ScreeningStatus; label: str
 const companyDocumentTypeOptions: Array<{ value: CompanyDocumentType; label: string }> = [
   { value: "INTAKE_REPORT", label: "Intake Report" },
   { value: "SCREENING_REPORT", label: "Screening Report" },
-  { value: "OPPORTUNITY_REPORT", label: "Opportunity Report" },
+  { value: "OPPORTUNITY_REPORT", label: "Health System Opportunity Report" },
   { value: "TERM_SHEET", label: "Term Sheet" },
   { value: "VENTURE_STUDIO_CONTRACT", label: "Venture Studio Contract" },
   { value: "LOI", label: "LOI" },
@@ -1139,6 +1157,13 @@ export function PipelineOpportunityDetailView({
   const [showScreeningClosedLostReasonModal, setShowScreeningClosedLostReasonModal] = React.useState(false);
   const [screeningClosedLostReasonModalDraft, setScreeningClosedLostReasonModalDraft] = React.useState("");
   const [savingScreeningCloseModal, setSavingScreeningCloseModal] = React.useState(false);
+  const [showIntakeVentureCloseReasonModal, setShowIntakeVentureCloseReasonModal] = React.useState(false);
+  const [intakeVentureCloseReasonModalDraft, setIntakeVentureCloseReasonModalDraft] = React.useState("");
+  const [savingIntakeVentureCloseModal, setSavingIntakeVentureCloseModal] = React.useState(false);
+  const [pendingIntakeVentureCloseSelection, setPendingIntakeVentureCloseSelection] = React.useState<{
+    section: IntakeVentureLifecycleSection;
+    status: "CLOSED_LOST" | "CLOSED_REVISIT";
+  } | null>(null);
   const [activeIntakeDetailTab, setActiveIntakeDetailTab] = React.useState<IntakeDetailTab>(initialIntakeDetailTab);
   const [activeIntakeMaterialsTab, setActiveIntakeMaterialsTab] =
     React.useState<IntakeMaterialsSubTab>("at-a-glance");
@@ -1255,6 +1280,7 @@ export function PipelineOpportunityDetailView({
   const [showAddDocumentModal, setShowAddDocumentModal] = React.useState(false);
   const [opportunityModal, setOpportunityModal] = React.useState<OpportunityModalState | null>(null);
   const [opportunityModalTab, setOpportunityModalTab] = React.useState<OpportunityModalTab>("details");
+  const [opportunityStatusFilter, setOpportunityStatusFilter] = React.useState<OpportunityStatusFilter>("all");
   const initialOpportunityIdRef = React.useRef<string | null>(initialOpportunityId);
   const pipelineCardUpdateSequenceRef = React.useRef(0);
   const descriptionPlainText = React.useMemo(() => richTextToPlainText(item?.description), [item?.description]);
@@ -1263,6 +1289,7 @@ export function PipelineOpportunityDetailView({
     (item?.phase === "DECLINED" || item?.phase === "CLOSED") && item.closedOutcome === "LOST";
   const persistedScreeningPipelineStatus: ScreeningPipelineStatus = isScreeningClosedLost ? "CLOSED_LOST" : "OPEN";
   const persistedIntakeVenturePipelineStatus = deriveIntakeVenturePipelineStatus(item);
+  const intakeVenturePipelineStatus = pendingIntakeVentureCloseSelection?.status || persistedIntakeVenturePipelineStatus;
   const screeningPipelineStatus = pendingScreeningPipelineStatus || persistedScreeningPipelineStatus;
   const showScreeningPipelineLifecycle = Boolean(
     item &&
@@ -1293,13 +1320,18 @@ export function PipelineOpportunityDetailView({
       { open: 0, won: 0, lost: 0 }
     );
   }, [item]);
-  const openOpportunities = React.useMemo(
-    () =>
-      (item?.opportunities || []).filter(
+  const filteredOpportunities = React.useMemo(() => {
+    const opportunities = item?.opportunities || [];
+    if (opportunityStatusFilter === "all") return opportunities;
+    if (opportunityStatusFilter === "open") {
+      return opportunities.filter(
         (opportunity) => opportunity.stage !== "CLOSED_WON" && opportunity.stage !== "CLOSED_LOST"
-      ),
-    [item]
-  );
+      );
+    }
+    return opportunities.filter(
+      (opportunity) => opportunity.stage === "CLOSED_WON" || opportunity.stage === "CLOSED_LOST"
+    );
+  }, [item, opportunityStatusFilter]);
   const selectedOpportunityForModal = React.useMemo(() => {
     if (!item || !opportunityModal || opportunityModal.mode !== "edit") return null;
     return item.opportunities.find((opportunity) => opportunity.id === opportunityModal.opportunityId) || null;
@@ -1414,6 +1446,12 @@ export function PipelineOpportunityDetailView({
   React.useEffect(() => {
     setPendingScreeningPipelineStatus(null);
   }, [item?.id, item?.phase, item?.closedOutcome]);
+
+  React.useEffect(() => {
+    setPendingIntakeVentureCloseSelection(null);
+    setShowIntakeVentureCloseReasonModal(false);
+    setSavingIntakeVentureCloseModal(false);
+  }, [item?.id, item?.phase, item?.intakeDecision]);
 
   React.useEffect(() => {
     if (!initialOpportunityId) return;
@@ -3256,8 +3294,9 @@ export function PipelineOpportunityDetailView({
       return saved;
     }
 
+    const shouldReopenToScreening = item.phase === "DECLINED" || item.phase === "CLOSED";
     const saved = await updatePipelineCardMeta({
-      phase: "SCREENING",
+      ...(shouldReopenToScreening ? { phase: "SCREENING" as PipelinePhase } : {}),
       closedOutcome: null
     });
     return saved;
@@ -3330,6 +3369,81 @@ export function PipelineOpportunityDetailView({
     setScreeningClosedLostReasonModalDraft(screeningClosedLostReasonDraft || item?.declineReasonNotes || "");
   }
 
+  async function saveIntakeVenturePipelineStatus(
+    section: IntakeVentureLifecycleSection,
+    nextStatus: IntakeVenturePipelineStatus,
+    nextReason?: string
+  ): Promise<boolean> {
+    if (!item) return false;
+    const currentStatus = deriveIntakeVenturePipelineStatus(item);
+    if (typeof nextReason === "undefined" && currentStatus === nextStatus) return false;
+    const reason =
+      typeof nextReason === "string"
+        ? nextReason.trim()
+        : (intakeVentureCloseReasonModalDraft || item.declineReasonNotes || "").trim();
+
+    if ((nextStatus === "CLOSED_LOST" || nextStatus === "CLOSED_REVISIT") && !reason) {
+      setStatus({
+        kind: "error",
+        text: "Add a reason to complete closure."
+      });
+      return false;
+    }
+
+    const isClosedPhase = item.phase === "DECLINED" || item.phase === "CLOSED";
+
+    if (nextStatus === "OPEN") {
+      if (section === "INTAKE") {
+        return updatePipelineCardMeta({
+          ...(isClosedPhase ? { phase: "INTAKE" as PipelinePhase } : {}),
+          intakeDecision: "PENDING",
+          closedOutcome: null,
+          declineReasonNotes: null
+        });
+      }
+      return updatePipelineCardMeta({
+        ...(isClosedPhase ? { phase: "VENTURE_STUDIO_NEGOTIATION" as PipelinePhase } : {}),
+        intakeDecision: "ADVANCE_TO_NEGOTIATION",
+        closedOutcome: null,
+        declineReasonNotes: null
+      });
+    }
+
+    if (nextStatus === "CLOSED_WON") {
+      const targetPhase = section === "INTAKE" ? "VENTURE_STUDIO_NEGOTIATION" : "SCREENING";
+      if (section === "INTAKE") {
+        return updatePipelineCardMeta({
+          ...(shouldAdvancePhase(item.phase, targetPhase) ? { phase: targetPhase } : {}),
+          intakeDecision: "ADVANCE_TO_NEGOTIATION",
+          closedOutcome: null,
+          declineReasonNotes: null
+        });
+      }
+      return updatePipelineCardMeta({
+        ...(shouldAdvancePhase(item.phase, targetPhase) ? { phase: targetPhase } : {}),
+        intakeDecision: "ADVANCE_TO_NEGOTIATION",
+        closedOutcome: null,
+        declineReasonNotes: null
+      });
+    }
+
+    if (nextStatus === "CLOSED_REVISIT") {
+      return updatePipelineCardMeta({
+        phase: "DECLINED",
+        intakeDecision: "REVISIT_LATER",
+        closedOutcome: null,
+        declineReasonNotes: reason
+      });
+    }
+
+    return updatePipelineCardMeta({
+      phase: "DECLINED",
+      intakeDecision: "DECLINE",
+      closedOutcome: null,
+      declineReasonNotes: reason
+    });
+  }
+
   async function handleIntakeVenturePipelineStatusChange(
     section: IntakeVentureLifecycleSection,
     nextStatus: IntakeVenturePipelineStatus
@@ -3338,40 +3452,53 @@ export function PipelineOpportunityDetailView({
     const currentStatus = deriveIntakeVenturePipelineStatus(item);
     if (currentStatus === nextStatus) return;
 
-    if (nextStatus === "OPEN") {
-      if (section === "INTAKE") {
-        await updatePipelineCardMeta({
-          phase: "INTAKE",
-          intakeDecision: "PENDING",
-          closedOutcome: null,
-          declineReasonNotes: null
-        });
-        return;
+    if (nextStatus === "CLOSED_LOST" || nextStatus === "CLOSED_REVISIT") {
+      setStatus(null);
+      setIntakeVentureCloseReasonModalDraft((item.declineReasonNotes || "").trim());
+      setPendingIntakeVentureCloseSelection({ section, status: nextStatus });
+      setShowIntakeVentureCloseReasonModal(true);
+      return;
+    }
+
+    setShowIntakeVentureCloseReasonModal(false);
+    setPendingIntakeVentureCloseSelection(null);
+    await saveIntakeVenturePipelineStatus(section, nextStatus);
+  }
+
+  async function saveIntakeVentureCloseReasonFromModal() {
+    if (!item || !pendingIntakeVentureCloseSelection) return;
+    const reason = intakeVentureCloseReasonModalDraft.trim();
+    if (!reason) {
+      setStatus({
+        kind: "error",
+        text: "Add a reason to complete closure."
+      });
+      return;
+    }
+
+    setSavingIntakeVentureCloseModal(true);
+    try {
+      const saved = await saveIntakeVenturePipelineStatus(
+        pendingIntakeVentureCloseSelection.section,
+        pendingIntakeVentureCloseSelection.status,
+        reason
+      );
+      if (saved) {
+        setShowIntakeVentureCloseReasonModal(false);
+        setPendingIntakeVentureCloseSelection(null);
+        setIntakeVentureCloseReasonModalDraft(reason);
       }
-      await updatePipelineCardMeta({
-        phase: "VENTURE_STUDIO_NEGOTIATION",
-        intakeDecision: "ADVANCE_TO_NEGOTIATION",
-        closedOutcome: null,
-        declineReasonNotes: null
-      });
-      return;
+    } finally {
+      setSavingIntakeVentureCloseModal(false);
     }
+  }
 
-    if (nextStatus === "CLOSED_REVISIT") {
-      await updatePipelineCardMeta({
-        phase: "DECLINED",
-        intakeDecision: "REVISIT_LATER",
-        closedOutcome: null,
-        declineReasonNotes: null
-      });
-      return;
-    }
-
-    await updatePipelineCardMeta({
-      phase: "DECLINED",
-      intakeDecision: "DECLINE",
-      closedOutcome: null
-    });
+  function closeIntakeVentureCloseReasonModal() {
+    setShowIntakeVentureCloseReasonModal(false);
+    setSavingIntakeVentureCloseModal(false);
+    setPendingIntakeVentureCloseSelection(null);
+    setStatus(null);
+    setIntakeVentureCloseReasonModalDraft(item?.declineReasonNotes || "");
   }
 
   async function saveIntakeDecisionDate(nextValue: string) {
@@ -3598,18 +3725,18 @@ function stripCurrencyFormatting(value: string) {
         })
       });
       const responsePayload = await res.json();
-      if (!res.ok) throw new Error(responsePayload.error || "Failed to update opportunity.");
+      if (!res.ok) throw new Error(responsePayload.error || "Failed to update health system opportunity.");
       const updated = responsePayload.opportunity as PipelineOpportunityDetail["opportunities"][number] | undefined;
-      if (!updated) throw new Error("Failed to update opportunity.");
+      if (!updated) throw new Error("Failed to update health system opportunity.");
       applyUpdatedOpportunity(updated);
       if (closeOnSuccess) {
         closeOpportunityModal();
       }
-      setStatus({ kind: "ok", text: "Opportunity updated." });
+      setStatus({ kind: "ok", text: "Health system opportunity updated." });
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to update opportunity."
+        text: error instanceof Error ? error.message : "Failed to update health system opportunity."
       });
     } finally {
       setSavingOpportunityById((current) => ({ ...current, [opportunityId]: false }));
@@ -3631,9 +3758,9 @@ function stripCurrencyFormatting(value: string) {
         body: JSON.stringify(payload)
       });
       const responsePayload = await res.json();
-      if (!res.ok) throw new Error(responsePayload.error || "Failed to create opportunity.");
+      if (!res.ok) throw new Error(responsePayload.error || "Failed to create health system opportunity.");
       const created = responsePayload.opportunity as PipelineOpportunityDetail["opportunities"][number] | undefined;
-      if (!created) throw new Error("Failed to create opportunity.");
+      if (!created) throw new Error("Failed to create health system opportunity.");
       createdOpportunity = created;
 
       applyUpdatedOpportunity(created);
@@ -3649,11 +3776,11 @@ function stripCurrencyFormatting(value: string) {
         nextSteps: "",
         notes: ""
       });
-      setStatus({ kind: "ok", text: "Opportunity created." });
+      setStatus({ kind: "ok", text: "Health system opportunity created." });
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to create opportunity."
+        text: error instanceof Error ? error.message : "Failed to create health system opportunity."
       });
     } finally {
       setAddingOpportunity(false);
@@ -3665,7 +3792,7 @@ function stripCurrencyFormatting(value: string) {
     if (!item) return false;
     const existing = item.opportunities.find((entry) => entry.id === opportunityId);
     if (!existing) return false;
-    if (!window.confirm(`Delete opportunity \"${existing.title}\"?`)) return false;
+    if (!window.confirm(`Delete health system opportunity \"${existing.title}\"?`)) return false;
 
     setDeletingOpportunityById((current) => ({ ...current, [opportunityId]: true }));
     setStatus(null);
@@ -3677,7 +3804,7 @@ function stripCurrencyFormatting(value: string) {
         body: JSON.stringify({ opportunityId })
       });
       const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Failed to delete opportunity.");
+      if (!res.ok) throw new Error(payload.error || "Failed to delete health system opportunity.");
 
       setItem((current) =>
         current
@@ -3692,12 +3819,12 @@ function stripCurrencyFormatting(value: string) {
         delete next[opportunityId];
         return next;
       });
-      setStatus({ kind: "ok", text: "Opportunity deleted." });
+      setStatus({ kind: "ok", text: "Health system opportunity deleted." });
       return true;
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to delete opportunity."
+        text: error instanceof Error ? error.message : "Failed to delete health system opportunity."
       });
       return false;
     } finally {
@@ -3715,7 +3842,7 @@ function stripCurrencyFormatting(value: string) {
 
     const targetOpportunity = item.opportunities.find((entry) => entry.id === opportunityId);
     if (!targetOpportunity) {
-      setStatus({ kind: "error", text: "Opportunity not found." });
+      setStatus({ kind: "error", text: "Health System Opportunity not found." });
       return;
     }
 
@@ -3777,9 +3904,9 @@ function stripCurrencyFormatting(value: string) {
         })
       });
       const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Failed to add opportunity contact.");
+      if (!res.ok) throw new Error(payload.error || "Failed to add health system opportunity contact.");
       const link = payload.link as PipelineOpportunityDetail["opportunities"][number]["contacts"][number] | undefined;
-      if (!link) throw new Error("Failed to add opportunity contact.");
+      if (!link) throw new Error("Failed to add health system opportunity contact.");
 
       setItem((current) => {
         if (!current) return current;
@@ -3803,7 +3930,7 @@ function stripCurrencyFormatting(value: string) {
       setShowAddOpportunityContactByOpportunityId((current) => ({ ...current, [opportunityId]: false }));
       setNewOpportunityContactRoleByOpportunityId((current) => ({ ...current, [opportunityId]: "" }));
       setOpportunityContactRoleDraftByLinkId((current) => ({ ...current, [link.id]: link.role || "" }));
-      setStatus({ kind: "ok", text: "Opportunity contact added." });
+      setStatus({ kind: "ok", text: "Health system opportunity contact added." });
     } catch (error) {
       if (contactIdOverride) {
         const optimisticLinkId = `temp:${opportunityId}:${contactId}`;
@@ -3824,7 +3951,7 @@ function stripCurrencyFormatting(value: string) {
       }
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to add opportunity contact."
+        text: error instanceof Error ? error.message : "Failed to add health system opportunity contact."
       });
     } finally {
       setAddingOpportunityContactByOpportunityId((current) => ({ ...current, [opportunityId]: false }));
@@ -3848,9 +3975,9 @@ function stripCurrencyFormatting(value: string) {
         })
       });
       const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Failed to update opportunity contact role.");
+      if (!res.ok) throw new Error(payload.error || "Failed to update health system opportunity contact role.");
       const link = payload.link as PipelineOpportunityDetail["opportunities"][number]["contacts"][number] | undefined;
-      if (!link) throw new Error("Failed to update opportunity contact role.");
+      if (!link) throw new Error("Failed to update health system opportunity contact role.");
 
       setItem((current) => {
         if (!current) return current;
@@ -3863,11 +3990,11 @@ function stripCurrencyFormatting(value: string) {
         };
       });
       setOpportunityContactRoleDraftByLinkId((current) => ({ ...current, [link.id]: link.role || "" }));
-      setStatus({ kind: "ok", text: "Opportunity contact updated." });
+      setStatus({ kind: "ok", text: "Health system opportunity contact updated." });
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to update opportunity contact role."
+        text: error instanceof Error ? error.message : "Failed to update health system opportunity contact role."
       });
     } finally {
       setSavingOpportunityContactRoleByLinkId((current) => ({ ...current, [linkId]: false }));
@@ -3876,7 +4003,7 @@ function stripCurrencyFormatting(value: string) {
 
   async function deleteOpportunityContact(opportunityId: string, linkId: string) {
     if (!item) return;
-    if (!window.confirm("Remove this opportunity contact?")) return;
+    if (!window.confirm("Remove this health system opportunity contact?")) return;
 
     setDeletingOpportunityContactByLinkId((current) => ({ ...current, [linkId]: true }));
     setStatus(null);
@@ -3888,7 +4015,7 @@ function stripCurrencyFormatting(value: string) {
         body: JSON.stringify({ linkId })
       });
       const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Failed to remove opportunity contact.");
+      if (!res.ok) throw new Error(payload.error || "Failed to remove health system opportunity contact.");
 
       setItem((current) => {
         if (!current) return current;
@@ -3904,11 +4031,11 @@ function stripCurrencyFormatting(value: string) {
           )
         };
       });
-      setStatus({ kind: "ok", text: "Opportunity contact removed." });
+      setStatus({ kind: "ok", text: "Health system opportunity contact removed." });
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to remove opportunity contact."
+        text: error instanceof Error ? error.message : "Failed to remove health system opportunity contact."
       });
     } finally {
       setDeletingOpportunityContactByLinkId((current) => ({ ...current, [linkId]: false }));
@@ -4762,7 +4889,7 @@ function stripCurrencyFormatting(value: string) {
         <section className="panel">
           {showDismissControl ? (
             <div className="detail-head">
-              <h3>Opportunity not found.</h3>
+              <h3>Health System Opportunity not found.</h3>
               {closeButton}
             </div>
           ) : null}
@@ -5160,7 +5287,7 @@ function stripCurrencyFormatting(value: string) {
             aria-selected={activeIntakeDetailTab === "pipeline-status"}
             onClick={() => setActiveIntakeDetailTab("pipeline-status")}
           >
-            Pipeline Status
+            Venture Studio Pipeline Status
           </button>
           {showOpportunitiesTab ? (
             <button
@@ -5170,7 +5297,7 @@ function stripCurrencyFormatting(value: string) {
               aria-selected={activeIntakeDetailTab === "opportunities"}
               onClick={() => setActiveIntakeDetailTab("opportunities")}
             >
-              Opportunities
+              Health System Opportunities
             </button>
           ) : null}
           {item.isScreeningStage ? (
@@ -5322,7 +5449,7 @@ function stripCurrencyFormatting(value: string) {
               </div>
               <div>
                 <div className="inline-edit-field pipeline-status-readonly-field">
-                  <label>Pipeline Phase</label>
+                  <label>Venture Studio Pipeline Phase</label>
                   <div className="pipeline-status-readonly-value">{item.phaseLabel || "Not set"}</div>
                 </div>
               </div>
@@ -5419,16 +5546,17 @@ function stripCurrencyFormatting(value: string) {
 
                 {showIntakePipelineLifecycle ? (
                   <div className="detail-section">
-                    <p className="detail-label">Opportunity Status</p>
+                    <p className="detail-label">Venture Studio Opportunity Status</p>
                     <div className="inline-edit-field">
                       <label>Status</label>
                       <div className="opportunity-filter-options" role="radiogroup" aria-label="Intake opportunity status">
                         {[
                           { value: "OPEN", label: "Open" },
+                          { value: "CLOSED_WON", label: "Closed/Won" },
                           { value: "CLOSED_LOST", label: "Closed/Lost" },
                           { value: "CLOSED_REVISIT", label: "Closed/Revisit" }
                         ].map((option) => {
-                          const selected = persistedIntakeVenturePipelineStatus === option.value;
+                          const selected = intakeVenturePipelineStatus === option.value;
                           return (
                             <label
                               key={option.value}
@@ -5459,7 +5587,7 @@ function stripCurrencyFormatting(value: string) {
 
                 {showVentureStudioPipelineLifecycle ? (
                   <div className="detail-section">
-                    <p className="detail-label">Opportunity Status</p>
+                    <p className="detail-label">Venture Studio Opportunity Status</p>
                     <div className="inline-edit-field">
                       <label>Status</label>
                       <div
@@ -5469,10 +5597,11 @@ function stripCurrencyFormatting(value: string) {
                       >
                         {[
                           { value: "OPEN", label: "Open" },
+                          { value: "CLOSED_WON", label: "Closed/Won" },
                           { value: "CLOSED_LOST", label: "Closed/Lost" },
                           { value: "CLOSED_REVISIT", label: "Closed/Revisit" }
                         ].map((option) => {
-                          const selected = persistedIntakeVenturePipelineStatus === option.value;
+                          const selected = intakeVenturePipelineStatus === option.value;
                           return (
                             <label
                               key={option.value}
@@ -5503,7 +5632,7 @@ function stripCurrencyFormatting(value: string) {
 
                 {showScreeningPipelineLifecycle ? (
                   <div className="detail-section">
-                    <p className="detail-label">Opportunity Status</p>
+                    <p className="detail-label">Venture Studio Opportunity Status</p>
                     <div className="row">
                       <div>
                         <div className="inline-edit-field">
@@ -5542,11 +5671,9 @@ function stripCurrencyFormatting(value: string) {
                         </div>
                       </div>
                       <div>
-                        <InlineTextareaField
+                        <InlineTextField
                           label={`Closed/Lost Reason${screeningPipelineStatus === "CLOSED_LOST" ? " (required)" : ""}`}
                           value={item.declineReasonNotes || ""}
-                          onDraftChange={setScreeningClosedLostReasonDraft}
-                          multiline
                           placeholder="Explain why this Screening opportunity did not graduate to Commercial Acceleration."
                           onSave={(nextValue) => void saveScreeningClosedLostReason(nextValue)}
                         />
@@ -5557,7 +5684,7 @@ function stripCurrencyFormatting(value: string) {
 
                 {activePipelineColumn === "SCREENING" || activePipelineColumn === "COMMERCIAL_ACCELERATION" ? (
                   <div className="detail-section">
-                    <p className="detail-label">Alliance Opportunities</p>
+                    <p className="detail-label">Alliance Health System Opportunities</p>
                     <div className="detail-grid">
                       <div className="inline-edit-field pipeline-status-readonly-field">
                         <label>Open</label>
@@ -5587,35 +5714,81 @@ function stripCurrencyFormatting(value: string) {
             {activeIntakeDetailTab === "opportunities" && showOpportunitiesTab ? (
               <>
                 <div className="detail-section">
-                  <p className="detail-label">Open Opportunities</p>
-                  <p className="muted">Click an opportunity name to open details. Update Next Steps inline from this list.</p>
+                  <p className="detail-label">Health System Opportunities</p>
+                  <p className="muted">Click a health system opportunity name to open details. Update Next Steps inline from this list.</p>
+                  <div className="opportunity-filter-options" role="radiogroup" aria-label="Health system opportunity status">
+                    {[
+                      { value: "all", label: "All" },
+                      { value: "open", label: "Open" },
+                      { value: "closed", label: "Closed" }
+                    ].map((option) => {
+                      const selected = opportunityStatusFilter === option.value;
+                      return (
+                        <label
+                          key={option.value}
+                          className={`opportunity-filter-option ${selected ? "active" : ""}`}
+                          htmlFor={`health-system-opportunity-status-${item.id}-${option.value}`}
+                        >
+                          <span>{option.label}</span>
+                          <input
+                            id={`health-system-opportunity-status-${item.id}-${option.value}`}
+                            type="radio"
+                            name={`health-system-opportunity-status-${item.id}`}
+                            value={option.value}
+                            checked={selected}
+                            onChange={() => setOpportunityStatusFilter(option.value as OpportunityStatusFilter)}
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
                   <button type="button" className="opportunity-add-link" onClick={openCreateOpportunityModal}>
-                    + Add new opportunity
+                    + Add health system opportunity
                   </button>
 
-                  {openOpportunities.length === 0 ? <p className="muted">No open opportunities yet.</p> : null}
+                  {filteredOpportunities.length === 0 ? (
+                    <p className="muted">
+                      {opportunityStatusFilter === "all"
+                        ? "No health system opportunities yet."
+                        : opportunityStatusFilter === "open"
+                          ? "No open health system opportunities yet."
+                          : "No closed health system opportunities yet."}
+                    </p>
+                  ) : null}
 
-                  {openOpportunities.length > 0 ? (
+                  {filteredOpportunities.length > 0 ? (
                     <div className="table-wrap report-table-wrap">
                       <table className="table table-dense report-table">
                         <thead>
                           <tr>
                             <th>Company</th>
-                            <th>Opportunity</th>
+                            <th>Health System Opportunity</th>
                             <th>Health System</th>
                             <th>Stage</th>
+                            <th>Owner</th>
+                            <th>Created</th>
                             <th>Next Step</th>
                             <th>Likelihood</th>
                             <th>Contract Price</th>
-                            <th>Expected Close</th>
+                            <th>
+                              {opportunityStatusFilter === "closed"
+                                ? "Closed Date"
+                                : opportunityStatusFilter === "open"
+                                  ? "Expected Close"
+                                  : "Close / Expected"}
+                            </th>
                             <th>Contacts</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {openOpportunities.map((opportunity) => {
+                          {filteredOpportunities.map((opportunity) => {
                             const draft = opportunityDraftById[opportunity.id] || toOpportunityDraft(opportunity);
                             const healthSystemName = opportunity.healthSystem?.name || "-";
                             const likelihoodLabel = draft.likelihoodPercent ? `${draft.likelihoodPercent}%` : "—";
+                            const isClosed = isClosedOpportunityStage(opportunity.stage);
+                            const closeOrExpectedDate = isClosed
+                              ? formatReportDate(draft.closedAt || opportunity.closedAt)
+                              : formatReportDate(draft.estimatedCloseDate || opportunity.estimatedCloseDate);
 
                             return (
                               <tr key={opportunity.id}>
@@ -5631,6 +5804,8 @@ function stripCurrencyFormatting(value: string) {
                                 </td>
                                 <td>{healthSystemName}</td>
                                 <td>{opportunity.stage}</td>
+                                <td>{item?.ownerName || "Unassigned"}</td>
+                                <td>{formatReportDate(opportunity.createdAt)}</td>
                                 <td>
                                   <div className="report-next-step-cell">
                                     {editingOpportunityNextStepsId === opportunity.id ? (
@@ -5683,7 +5858,7 @@ function stripCurrencyFormatting(value: string) {
                                 </td>
                                 <td>{likelihoodLabel}</td>
                                 <td>{formatReportCurrency(opportunity.contractPriceUsd)}</td>
-                                <td>{formatReportDate(draft.estimatedCloseDate || opportunity.estimatedCloseDate)}</td>
+                                <td>{closeOrExpectedDate}</td>
                                 <td>{opportunity.contacts.length}</td>
                               </tr>
                             );
@@ -7047,18 +7222,26 @@ function stripCurrencyFormatting(value: string) {
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="pipeline-card-head">
-              <h3>{opportunityModal.mode === "create" ? "Add Opportunity" : selectedOpportunityForModal?.title || "Opportunity"}</h3>
+              <h3>
+                {opportunityModal.mode === "create"
+                  ? "Add Health System Opportunity"
+                  : selectedOpportunityForModal?.title || "Health System Opportunity"}
+              </h3>
               <button
                 className="modal-icon-close"
                 type="button"
                 onClick={closeOpportunityModal}
-                aria-label="Close opportunity dialog"
+                aria-label="Close health system opportunity dialog"
               >
                 <span aria-hidden="true">×</span>
               </button>
             </div>
 
-            <div className="detail-tabs detail-subtabs opportunity-modal-tabs" role="tablist" aria-label="Opportunity detail sections">
+            <div
+              className="detail-tabs detail-subtabs opportunity-modal-tabs"
+              role="tablist"
+              aria-label="Health system opportunity detail sections"
+            >
               <button
                 type="button"
                 role="tab"
@@ -7165,7 +7348,8 @@ function stripCurrencyFormatting(value: string) {
                         setNewOpportunityDraft((current) => ({
                           ...current,
                           stage,
-                          likelihoodPercent: String(defaultLikelihoodForStage(stage))
+                          likelihoodPercent: String(defaultLikelihoodForStage(stage)),
+                          closedAt: isClosedOpportunityStage(stage) ? current.closedAt : ""
                         }));
                       }}
                     >
@@ -7175,6 +7359,14 @@ function stripCurrencyFormatting(value: string) {
                         </option>
                       ))}
                     </select>
+                  </div>
+                  <div>
+                    <label>Owner</label>
+                    <input type="text" value={item.ownerName || "Unassigned"} readOnly />
+                  </div>
+                  <div>
+                    <label>Created</label>
+                    <input type="text" value="Set on create" readOnly />
                   </div>
                   <div>
                     <label>Health System</label>
@@ -7226,7 +7418,7 @@ function stripCurrencyFormatting(value: string) {
                     />
                   </div>
                   <div>
-                    <label>Opportunity Duration (days)</label>
+                    <label>Health System Opportunity Duration (days)</label>
                     <input
                       type="text"
                       value="Calculated from created date"
@@ -7260,16 +7452,17 @@ function stripCurrencyFormatting(value: string) {
                       />
                     </div>
                   <div>
-                    <label>Closed At</label>
+                    <label>Closed Date</label>
                     <input
-                      type="date"
-                      value={newOpportunityDraft.closedAt}
-                      onChange={(event) =>
-                        setNewOpportunityDraft((current) => ({
-                          ...current,
-                          closedAt: event.target.value
-                        }))
+                      type="text"
+                      value={
+                        isClosedOpportunityStage(newOpportunityDraft.stage)
+                          ? formatReportDate(newOpportunityDraft.closedAt) === "-"
+                            ? "Set on save"
+                            : formatReportDate(newOpportunityDraft.closedAt)
+                          : "Set automatically when closed"
                       }
+                      readOnly
                     />
                   </div>
                   <div className="detail-grid-full">
@@ -7287,13 +7480,13 @@ function stripCurrencyFormatting(value: string) {
                       }
                       placeholder={
                         isClosedOpportunityStage(newOpportunityDraft.stage)
-                          ? "Why this opportunity was won/lost"
+                          ? "Why this health system opportunity was won/lost"
                           : "Optional reason for closure outcome"
                       }
                     />
                   </div>
                   <div className="detail-grid-full opportunity-modal-notes-field">
-                    <label>Opportunity Notes</label>
+                    <label>Health System Opportunity Notes</label>
                     <RichTextArea
                       value={newOpportunityDraft.notes}
                       onChange={(nextValue) =>
@@ -7304,7 +7497,7 @@ function stripCurrencyFormatting(value: string) {
                       }
                       rows={10}
                       className="opportunity-notes-editor"
-                      placeholder="Opportunity-specific context"
+                      placeholder="Health system opportunity-specific context"
                     />
                   </div>
                 </div>
@@ -7323,7 +7516,7 @@ function stripCurrencyFormatting(value: string) {
                     }}
                     disabled={addingOpportunity}
                   >
-                    {addingOpportunity ? "Creating..." : "Create Opportunity"}
+                    {addingOpportunity ? "Creating..." : "Create Health System Opportunity"}
                   </button>
                 </div>
               </div>
@@ -7442,7 +7635,8 @@ function stripCurrencyFormatting(value: string) {
                               const stage = event.target.value as OpportunityStage;
                               updateOpportunityDraft(selectedOpportunityForModal.id, {
                                 stage,
-                                likelihoodPercent: String(defaultLikelihoodForStage(stage))
+                                likelihoodPercent: String(defaultLikelihoodForStage(stage)),
+                                closedAt: isClosedOpportunityStage(stage) ? draft.closedAt : ""
                               });
                             }}
                             onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
@@ -7453,6 +7647,14 @@ function stripCurrencyFormatting(value: string) {
                               </option>
                             ))}
                           </select>
+                        </div>
+                        <div>
+                          <label>Owner</label>
+                          <input type="text" value={item.ownerName || "Unassigned"} readOnly />
+                        </div>
+                        <div>
+                          <label>Created</label>
+                          <input type="text" value={formatDate(selectedOpportunityForModal.createdAt)} readOnly />
                         </div>
                         <div>
                           <label>Health System</label>
@@ -7512,7 +7714,7 @@ function stripCurrencyFormatting(value: string) {
                           />
                         </div>
                         <div>
-                          <label>Opportunity Duration (days)</label>
+                          <label>Health System Opportunity Duration (days)</label>
                           <input
                             type="text"
                             value={draftDurationDays ?? "—"}
@@ -7543,16 +7745,17 @@ function stripCurrencyFormatting(value: string) {
                               />
                             </div>
                         <div>
-                          <label>Closed At</label>
+                          <label>Closed Date</label>
                           <input
-                            type="date"
-                            value={draft.closedAt}
-                            onChange={(event) =>
-                              updateOpportunityDraft(selectedOpportunityForModal.id, {
-                                closedAt: event.target.value
-                              })
+                            type="text"
+                            value={
+                              closedStage
+                                ? formatReportDate(draft.closedAt || selectedOpportunityForModal.closedAt) === "-"
+                                  ? "Set on save"
+                                  : formatReportDate(draft.closedAt || selectedOpportunityForModal.closedAt)
+                                : "Set automatically when closed"
                             }
-                            onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
+                            readOnly
                           />
                         </div>
                         <div className="detail-grid-full">
@@ -7567,7 +7770,7 @@ function stripCurrencyFormatting(value: string) {
                             }
                             placeholder={
                               closedStage
-                                ? "Why this opportunity was won/lost"
+                                ? "Why this health system opportunity was won/lost"
                                 : "Optional reason for closure outcome"
                             }
                             onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
@@ -7778,13 +7981,88 @@ function stripCurrencyFormatting(value: string) {
                   {item ? (
                     <EntityDocumentsPane entityPath="companies" entityId={item.id} onStatus={setStatus} />
                   ) : (
-                    <p className="muted">Opportunity documents unavailable.</p>
+                    <p className="muted">Health system opportunity documents unavailable.</p>
                   )}
                 </div>
               )
             ) : (
-              <p className="muted">Opportunity not found.</p>
+              <p className="muted">Health System Opportunity not found.</p>
             )}
+          </div>
+        </div>
+      ) : null}
+
+      {showIntakeVentureCloseReasonModal ? (
+        <div className="pipeline-note-backdrop" onMouseDown={() => closeIntakeVentureCloseReasonModal()}>
+          <div
+            className="pipeline-note-modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="pipeline-card-head">
+              <h3>
+                {(pendingIntakeVentureCloseSelection?.section === "INTAKE"
+                  ? "Intake"
+                  : "Venture Studio Contract Execution") +
+                  " Venture Studio Opportunity " +
+                  (pendingIntakeVentureCloseSelection?.status === "CLOSED_REVISIT"
+                    ? "Closed/Revisit"
+                    : "Closed/Lost")}
+              </h3>
+              <button
+                className="modal-icon-close"
+                type="button"
+                onClick={() => closeIntakeVentureCloseReasonModal()}
+                aria-label="Close close reason dialog"
+                disabled={savingIntakeVentureCloseModal}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+            <p className="muted">
+              {`Add a reason for closing this ${
+                pendingIntakeVentureCloseSelection?.section === "INTAKE"
+                  ? "Intake"
+                  : "Venture Studio Contract Execution"
+              } venture studio opportunity as ${
+                pendingIntakeVentureCloseSelection?.status === "CLOSED_REVISIT" ? "closed/revisit" : "closed/lost"
+              }.`}
+            </p>
+            <div className="pipeline-status-single-field">
+              <label htmlFor="intake-venture-close-reason">
+                {pendingIntakeVentureCloseSelection?.status === "CLOSED_REVISIT"
+                  ? "Closed/Revisit Reason"
+                  : "Closed/Lost Reason"}
+              </label>
+              <input
+                id="intake-venture-close-reason"
+                type="text"
+                list="pipeline-closed-reason-suggestions"
+                value={intakeVentureCloseReasonModalDraft}
+                onChange={(event) => setIntakeVentureCloseReasonModalDraft(event.target.value)}
+                placeholder="Select a reason or type Other."
+                disabled={savingIntakeVentureCloseModal}
+              />
+            </div>
+            <div className="actions">
+              <button
+                type="button"
+                className="ghost small"
+                onClick={() => closeIntakeVentureCloseReasonModal()}
+                disabled={savingIntakeVentureCloseModal}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="secondary small"
+                onClick={() => void saveIntakeVentureCloseReasonFromModal()}
+                disabled={savingIntakeVentureCloseModal}
+              >
+                {savingIntakeVentureCloseModal ? "Saving..." : "Save"}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -7798,7 +8076,7 @@ function stripCurrencyFormatting(value: string) {
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="pipeline-card-head">
-              <h3>Screening Opportunity Closed/Lost</h3>
+              <h3>Screening Health System Opportunity Closed/Lost</h3>
               <button
                 className="modal-icon-close"
                 type="button"
@@ -7809,16 +8087,16 @@ function stripCurrencyFormatting(value: string) {
                 <span aria-hidden="true">×</span>
               </button>
             </div>
-            <p className="muted">Add a reason for closing this Screening Opportunity as closed/lost.</p>
+            <p className="muted">Add a reason for closing this Screening Health System Opportunity as closed/lost.</p>
             <div className="pipeline-status-single-field">
               <label htmlFor="screening-closed-lost-reason">Closed/Lost Reason</label>
-              <textarea
+              <input
                 id="screening-closed-lost-reason"
-                className="pipeline-note-textarea"
+                type="text"
+                list="pipeline-closed-reason-suggestions"
                 value={screeningClosedLostReasonModalDraft}
                 onChange={(event) => setScreeningClosedLostReasonModalDraft(event.target.value)}
-                rows={6}
-                placeholder="Explain why this Screening opportunity did not graduate to Commercial Acceleration."
+                placeholder="Select a reason or type Other."
                 disabled={savingScreeningCloseModal}
               />
             </div>
@@ -7843,6 +8121,12 @@ function stripCurrencyFormatting(value: string) {
           </div>
         </div>
       ) : null}
+
+      <datalist id="pipeline-closed-reason-suggestions">
+        {INTAKE_DECLINE_REASON_TEXT_SUGGESTIONS.map((reason) => (
+          <option key={reason} value={reason} />
+        ))}
+      </datalist>
 
       {showAddNoteModal ? (
         <div
@@ -7870,7 +8154,7 @@ function stripCurrencyFormatting(value: string) {
             <p className="muted">{item.name}</p>
             {item.opportunities.length > 0 ? (
               <div className="pipeline-status-single-field" style={{ marginTop: 10 }}>
-                <label>Tag to Opportunity (Optional)</label>
+                <label>Tag to Health System Opportunity (Optional)</label>
                 <select
                   value={newNoteOpportunityId}
                   onChange={(event) => setNewNoteOpportunityId(event.target.value)}

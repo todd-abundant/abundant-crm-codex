@@ -255,11 +255,7 @@ export async function GET(
       }
     });
 
-    const persistedPhase = (company.pipeline?.phase || inferDefaultPhaseFromCompany(company)) as PipelinePhase;
-    const phase =
-      company.pipeline?.intakeStage === "RECEIVED" && (company.pipeline?.category || "ACTIVE") === "ACTIVE"
-        ? ("INTAKE" as const)
-        : persistedPhase;
+    const phase = (company.pipeline?.phase || inferDefaultPhaseFromCompany(company)) as PipelinePhase;
     const column = mapPhaseToBoardColumn(phase);
 
     const attendeeHealthSystemIds = Array.from(
@@ -621,6 +617,7 @@ export async function GET(
         screeningWebinarDate2At: company.pipeline?.screeningWebinarDate2At ?? null,
         ventureLikelihoodPercent: company.pipeline?.ventureLikelihoodPercent ?? null,
         ventureExpectedCloseDate: company.pipeline?.ventureExpectedCloseDate ?? null,
+        ownerName: company.pipeline?.ownerName ?? null,
         updatedAt: (company.pipeline?.updatedAt || company.updatedAt).toISOString(),
         opportunities: company.opportunities.map((opportunity) => ({
           id: opportunity.id,

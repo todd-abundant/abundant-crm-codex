@@ -41,10 +41,17 @@ export const contactRecordInclude = {
           type: true,
           stage: true,
           estimatedCloseDate: true,
+          closedAt: true,
+          createdAt: true,
           company: {
             select: {
               id: true,
-              name: true
+              name: true,
+              pipeline: {
+                select: {
+                  ownerName: true
+                }
+              }
             }
           },
           healthSystem: {
@@ -215,7 +222,13 @@ export function mapContactRecord(
         type: link.opportunity.type,
         stage: link.opportunity.stage,
         estimatedCloseDate: link.opportunity.estimatedCloseDate,
-        company: link.opportunity.company,
+        closedAt: link.opportunity.closedAt,
+        createdAt: link.opportunity.createdAt,
+        ownerName: link.opportunity.company.pipeline?.ownerName || null,
+        company: {
+          id: link.opportunity.company.id,
+          name: link.opportunity.company.name
+        },
         healthSystem: link.opportunity.healthSystem
       }
     }));

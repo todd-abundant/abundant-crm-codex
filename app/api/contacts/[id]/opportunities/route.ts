@@ -49,7 +49,7 @@ export async function POST(
         throw new Error("Opportunity not found");
       }
 
-      return tx.companyOpportunityContact.upsert({
+      const link = await tx.companyOpportunityContact.upsert({
         where: {
           opportunityId_contactId: {
             opportunityId: input.opportunityId,
@@ -72,10 +72,17 @@ export async function POST(
               type: true,
               stage: true,
               estimatedCloseDate: true,
+              closedAt: true,
+              createdAt: true,
               company: {
                 select: {
                   id: true,
-                  name: true
+                  name: true,
+                  pipeline: {
+                    select: {
+                      ownerName: true
+                    }
+                  }
                 }
               },
               healthSystem: {
@@ -88,6 +95,26 @@ export async function POST(
           }
         }
       });
+
+      await tx.healthSystemOpportunityContact.upsert({
+        where: {
+          opportunityId_contactId: {
+            opportunityId: input.opportunityId,
+            contactId
+          }
+        },
+        update: {
+          role: trimOrNull(input.role)
+        },
+        create: {
+          id: link.id,
+          opportunityId: input.opportunityId,
+          contactId,
+          role: trimOrNull(input.role)
+        }
+      });
+
+      return link;
     });
 
     return NextResponse.json({ link }, { status: 201 });
@@ -121,7 +148,7 @@ export async function PATCH(
         throw new Error("Opportunity link not found");
       }
 
-      return tx.companyOpportunityContact.update({
+      const link = await tx.companyOpportunityContact.update({
         where: { id: existing.id },
         data: {
           role: trimOrNull(input.role)
@@ -134,10 +161,17 @@ export async function PATCH(
               type: true,
               stage: true,
               estimatedCloseDate: true,
+              closedAt: true,
+              createdAt: true,
               company: {
                 select: {
                   id: true,
-                  name: true
+                  name: true,
+                  pipeline: {
+                    select: {
+                      ownerName: true
+                    }
+                  }
                 }
               },
               healthSystem: {
@@ -150,6 +184,26 @@ export async function PATCH(
           }
         }
       });
+
+      await tx.healthSystemOpportunityContact.upsert({
+        where: {
+          opportunityId_contactId: {
+            opportunityId: link.opportunityId,
+            contactId
+          }
+        },
+        update: {
+          role: trimOrNull(input.role)
+        },
+        create: {
+          id: link.id,
+          opportunityId: link.opportunityId,
+          contactId,
+          role: trimOrNull(input.role)
+        }
+      });
+
+      return link;
     });
 
     return NextResponse.json({ link });
@@ -171,6 +225,13 @@ export async function DELETE(
     const input = deleteOpportunityLinkSchema.parse(await request.json());
 
     const removed = await prisma.companyOpportunityContact.deleteMany({
+      where: {
+        id: input.linkId,
+        contactId
+      }
+    });
+
+    await prisma.healthSystemOpportunityContact.deleteMany({
       where: {
         id: input.linkId,
         contactId

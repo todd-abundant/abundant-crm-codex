@@ -13,6 +13,7 @@ type OpportunitySummary = {
   estimatedCloseDate: string | null;
   closedAt: string | null;
   contactCount: number;
+  ownerName: string | null;
   createdAt: string;
   updatedAt: string;
   company: {
@@ -33,7 +34,12 @@ const opportunityInclude = {
   company: {
     select: {
       id: true,
-      name: true
+      name: true,
+      pipeline: {
+        select: {
+          ownerName: true
+        }
+      }
     }
   },
   healthSystem: {
@@ -72,6 +78,9 @@ function toPayload(opportunity: {
   company: {
     id: string;
     name: string;
+    pipeline: {
+      ownerName: string | null;
+    } | null;
   };
   healthSystem: {
     id: string;
@@ -92,9 +101,13 @@ function toPayload(opportunity: {
     estimatedCloseDate: formatDateValue(opportunity.estimatedCloseDate),
     closedAt: formatDateValue(opportunity.closedAt),
     contactCount: opportunity._count.contacts,
+    ownerName: opportunity.company.pipeline?.ownerName ?? null,
     createdAt: formatDateValue(opportunity.createdAt) as string,
     updatedAt: formatDateValue(opportunity.updatedAt) as string,
-    company: opportunity.company,
+    company: {
+      id: opportunity.company.id,
+      name: opportunity.company.name
+    },
     healthSystem: opportunity.healthSystem
   };
 }

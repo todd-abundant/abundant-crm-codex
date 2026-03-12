@@ -9,6 +9,11 @@ import { EntityLookupInput } from "./entity-lookup-input";
 import { parseDateInput, toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
 import { createDateDebugContext, debugDateLog, dateDebugHeaders } from "@/lib/date-debug";
 import {
+  INTAKE_DECLINE_REASON_OPTIONS,
+  intakeDeclineReasonLabel,
+  type IntakeDeclineReason
+} from "@/lib/intake-decline-reasons";
+import {
   PIPELINE_BOARD_COLUMNS,
   PIPELINE_COMPANY_TYPE_OPTIONS,
   mapBoardColumnToCanonicalPhase,
@@ -17,20 +22,6 @@ import {
   type PipelineBoardColumn,
   type PipelinePhase
 } from "@/lib/pipeline-opportunities";
-
-type IntakeDeclineReason =
-  | "PRODUCT"
-  | "INSUFFICIENT_ROI"
-  | "HIGHLY_COMPETITIVE_LANDSCAPE"
-  | "OUT_OF_INVESTMENT_THESIS_SCOPE"
-  | "TOO_EARLY"
-  | "TOO_MATURE_FOR_SEED_INVESTMENT"
-  | "LACKS_PROOF_POINTS"
-  | "INSUFFICIENT_TAM"
-  | "TEAM"
-  | "HEALTH_SYSTEM_BUYING_PROCESS"
-  | "WORKFLOW_FRICTION"
-  | "OTHER";
 
 type PipelineBoardOpportunityStage =
   | "IDENTIFIED"
@@ -47,6 +38,7 @@ type PipelineBoardOpportunitySummary = {
   title: string;
   stage: PipelineBoardOpportunityStage;
   likelihoodPercent: number | null;
+  createdAt: string;
 };
 
 type PipelineBoardItem = {
@@ -170,21 +162,8 @@ function compareUpdatedAt(
   };
 }
 
-const intakeDeclineReasonOptions: Array<{ value: IntakeDeclineReason | ""; label: string }> = [
-  { value: "", label: "Not declined" },
-  { value: "PRODUCT", label: "Product" },
-  { value: "INSUFFICIENT_ROI", label: "Insufficient ROI" },
-  { value: "HIGHLY_COMPETITIVE_LANDSCAPE", label: "Highly Competitive Landscape" },
-  { value: "OUT_OF_INVESTMENT_THESIS_SCOPE", label: "Out of Investment Thesis Scope" },
-  { value: "TOO_EARLY", label: "Too Early" },
-  { value: "TOO_MATURE_FOR_SEED_INVESTMENT", label: "Too Mature for Seed Investment" },
-  { value: "LACKS_PROOF_POINTS", label: "Lacks Proof Points" },
-  { value: "INSUFFICIENT_TAM", label: "Insufficient TAM" },
-  { value: "TEAM", label: "Team" },
-  { value: "HEALTH_SYSTEM_BUYING_PROCESS", label: "Health System Buying Process" },
-  { value: "WORKFLOW_FRICTION", label: "Workflow Friction" },
-  { value: "OTHER", label: "Other" }
-];
+const intakeDeclineReasonOptions: Array<{ value: IntakeDeclineReason | ""; label: string }> =
+  INTAKE_DECLINE_REASON_OPTIONS;
 
 function toDateInputValue(value: string | null | undefined) {
   return formatDateInputValue(value);
@@ -196,17 +175,6 @@ function toDateDisplayValue(value: string | null | undefined) {
   if (!parsed || Number.isNaN(parsed.getTime())) return "Click to set";
   return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
-
-const boardOpportunityLikelihoodByStage: Record<PipelineBoardOpportunityStage, number> = {
-  IDENTIFIED: 10,
-  QUALIFICATION: 25,
-  PROPOSAL: 50,
-  NEGOTIATION: 70,
-  LEGAL: 85,
-  CLOSED_WON: 100,
-  CLOSED_LOST: 0,
-  ON_HOLD: 35
-};
 
 function normalizeBoardOpportunityStage(value: PipelineBoardOpportunityStage | string) {
   return (
@@ -225,12 +193,28 @@ function normalizeBoardOpportunityStage(value: PipelineBoardOpportunityStage | s
   );
 }
 
-function opportunityStatusTone(stage: PipelineBoardOpportunityStage, likelihoodPercent: number | null) {
-  const normalizedStage = normalizeBoardOpportunityStage(stage);
-  const normalizedLikelihood = likelihoodPercent ?? boardOpportunityLikelihoodByStage[normalizedStage];
-  if (normalizedLikelihood >= 70) return "green";
-  if (normalizedLikelihood >= 40) return "yellow";
-  return "red";
+function opportunityLikelihoodSortValue(likelihoodPercent: number | null) {
+  if (likelihoodPercent == null) return -1;
+  const rounded = Math.round(likelihoodPercent);
+  if (rounded < 0) return 0;
+  if (rounded > 100) return 100;
+  return rounded;
+}
+
+function opportunityLikelihoodSortDesc(left: PipelineBoardOpportunitySummary, right: PipelineBoardOpportunitySummary) {
+  const leftLikelihood = opportunityLikelihoodSortValue(left.likelihoodPercent);
+  const rightLikelihood = opportunityLikelihoodSortValue(right.likelihoodPercent);
+  if (leftLikelihood !== rightLikelihood) return rightLikelihood - leftLikelihood;
+  return (left.title || "").localeCompare(right.title || "", undefined, {
+    sensitivity: "base"
+  });
+}
+
+function opportunityLikelihoodDotStyle(likelihoodPercent: number | null) {
+  const likelihood = opportunityLikelihoodSortValue(likelihoodPercent);
+  const displayLikelihood = Math.max(0, likelihood);
+  const lightness = Math.round(82 - displayLikelihood * 0.46);
+  return { backgroundColor: `hsl(133, 64%, ${lightness}%)` };
 }
 
 function opportunityStageLabel(stage: PipelineBoardOpportunityStage) {
@@ -244,6 +228,13 @@ function opportunityStageLabel(stage: PipelineBoardOpportunityStage) {
 
 function opportunityLikelihoodLabel(value: number | null) {
   return value == null ? "—" : `${value}%`;
+}
+
+function opportunityCreatedAtLabel(value: string | null | undefined) {
+  if (!value) return "Date unavailable";
+  const parsed = parseDateInput(value);
+  if (!parsed || Number.isNaN(parsed.getTime())) return "Date unavailable";
+  return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -280,7 +271,7 @@ function timeInStageLabel(item: Pick<PipelineBoardItem, "timeInStageDays">) {
 
 
 function declineReasonLabel(value: IntakeDeclineReason | "") {
-  return intakeDeclineReasonOptions.find((option) => option.value === value)?.label || "Not declined";
+  return intakeDeclineReasonLabel(value);
 }
 
 function intakeDraftFromItem(item: PipelineBoardItem): IntakeDraft {
@@ -340,6 +331,7 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
     React.useState<PipelineDetailInitialTab>("pipeline-status");
   const [intakeAddLookupValue, setIntakeAddLookupValue] = React.useState("");
   const [intakeAddModalSignal, setIntakeAddModalSignal] = React.useState(0);
+  const [intakeNameFilter, setIntakeNameFilter] = React.useState("");
   const [highlightedItemId, setHighlightedItemId] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [inactiveQueueExpanded, setInactiveQueueExpanded] = React.useState(false);
@@ -469,7 +461,11 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
   const groupedItems = React.useMemo(() => {
     return PIPELINE_BOARD_COLUMNS.reduce<Record<PipelineBoardColumn, PipelineBoardItem[]>>(
       (accumulator, column) => {
-        accumulator[column.key] = items.filter((item) => item.column === column.key);
+        const columnItems = items.filter((item) => item.column === column.key);
+        if (column.key === "INTAKE") {
+          columnItems.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+        }
+        accumulator[column.key] = columnItems;
         return accumulator;
       },
       {
@@ -1182,10 +1178,18 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
       {loading ? <p className="status">Loading pipeline board...</p> : null}
 
       <div className="pipeline-board-shell">
-        <section className="pipeline-kanban" aria-label="Pipeline opportunities board">
+        <section className="pipeline-kanban" aria-label="Venture Studio pipeline board">
           {PIPELINE_BOARD_COLUMNS.map((column) => {
-            const columnItems = groupedItems[column.key];
+            const isIntakeColumn = column.key === "INTAKE";
+            const intakeFilter = intakeNameFilter.trim().toLowerCase();
+            const totalColumnItems = groupedItems[column.key];
+            const columnItems =
+              isIntakeColumn && intakeFilter
+                ? totalColumnItems.filter((item) => item.name.toLowerCase().includes(intakeFilter))
+                : totalColumnItems;
             const isOver = dragOverColumn === column.key;
+            const countLabel =
+              isIntakeColumn && intakeFilter ? `${columnItems.length}/${totalColumnItems.length}` : String(columnItems.length);
             return (
               <article
                 key={column.key}
@@ -1208,10 +1212,22 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
               >
                 <header className="pipeline-column-head">
                   <h2>{column.label}</h2>
-                  <span className="status-pill draft">{columnItems.length}</span>
+                  <span className="status-pill draft">{countLabel}</span>
                 </header>
 
                 <div className="pipeline-column-body">
+                  {isIntakeColumn ? (
+                    <div className="pipeline-column-filter-row">
+                      <input
+                        type="search"
+                        className="pipeline-column-filter-input"
+                        value={intakeNameFilter}
+                        onChange={(event) => setIntakeNameFilter(event.target.value)}
+                        placeholder="Type to filter by company name"
+                        aria-label="Filter intake companies by name"
+                      />
+                    </div>
+                  ) : null}
                   {column.key === "INTAKE" ? (
                     <div className="pipeline-column-add-row">
                       <button
@@ -1234,10 +1250,15 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                       />
                     </div>
                   ) : null}
-                  {columnItems.length === 0 ? <p className="muted">No items in this stage.</p> : null}
+                  {columnItems.length === 0 ? (
+                    <p className="muted">
+                      {isIntakeColumn && intakeFilter ? "No companies match this filter." : "No items in this stage."}
+                    </p>
+                  ) : null}
 
                   {columnItems.map((item) => {
                     const openOpportunities = item.openOpportunities || [];
+                    const sortedOpenOpportunities = [...openOpportunities].sort(opportunityLikelihoodSortDesc);
                     const intakeDraft = getIntakeDraft(item);
                     const cardMetaDraft = getCardMetaDraft(item);
                     const filteredHealthSystems = intakeDraft.leadSource.trim()
@@ -1312,27 +1333,37 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                                 }}
                               >
                                   <strong>{item.openOpportunityCount}</strong> open{" "}
-                                  {item.openOpportunityCount === 1 ? "opportunity" : "opportunities"}
+                                  {item.openOpportunityCount === 1
+                                    ? "health system opportunity"
+                                    : "health system opportunities"}
                               </span>
                               <span className="pipeline-open-opportunities-popover" role="tooltip">
-                                {openOpportunities.length === 0 ? (
-                                  <span className="pipeline-open-opportunity-empty">No open opportunities loaded.</span>
+                                {sortedOpenOpportunities.length === 0 ? (
+                                  <span className="pipeline-open-opportunity-empty">No open health system opportunities loaded.</span>
                                 ) : (
                                   <ul className="pipeline-open-opportunity-list">
-                                    {openOpportunities.map((opportunity) => {
+                                    {sortedOpenOpportunities.map((opportunity) => {
                                       const stage = normalizeBoardOpportunityStage(opportunity.stage);
-                                      const tone = opportunityStatusTone(stage, opportunity.likelihoodPercent);
                                       return (
                                         <li key={opportunity.id} className="pipeline-open-opportunity-item">
-                                          <span className={`pipeline-open-opportunity-status-dot pipeline-open-opportunity-status-${tone}`} />
+                                          <span
+                                            className="pipeline-open-opportunity-status-dot"
+                                            style={opportunityLikelihoodDotStyle(opportunity.likelihoodPercent)}
+                                          />
                                           <span className="pipeline-open-opportunity-name">
-                                            {opportunity.title || "Untitled opportunity"}
+                                            {opportunity.title || "Untitled health system opportunity"}
                                           </span>
                                           <span className="pipeline-open-opportunity-status">
                                             {opportunityStageLabel(stage)}
                                           </span>
                                           <span className="pipeline-open-opportunity-likelihood">
                                             {opportunityLikelihoodLabel(opportunity.likelihoodPercent)}
+                                          </span>
+                                          <span className="pipeline-open-opportunity-created">
+                                            {opportunityCreatedAtLabel(opportunity.createdAt)}
+                                          </span>
+                                          <span className="pipeline-open-opportunity-owner">
+                                            {item.ownerName || "Unassigned"}
                                           </span>
                                         </li>
                                       );

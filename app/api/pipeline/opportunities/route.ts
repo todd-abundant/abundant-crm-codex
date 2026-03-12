@@ -68,7 +68,8 @@ export async function GET(request: Request) {
               id: true,
               title: true,
               stage: true,
-              likelihoodPercent: true
+              likelihoodPercent: true,
+              createdAt: true
             },
             orderBy: [{ updatedAt: "desc" }]
           }
@@ -121,11 +122,7 @@ export async function GET(request: Request) {
 
     const pipelineEntries = companies
       .map((company) => {
-        const persistedPhase = (company.pipeline?.phase || inferDefaultPhaseFromCompany(company)) as PipelinePhase;
-        const phase =
-          company.pipeline?.intakeStage === "RECEIVED" && (company.pipeline?.category || "ACTIVE") === "ACTIVE"
-            ? ("INTAKE" as const)
-            : persistedPhase;
+        const phase = (company.pipeline?.phase || inferDefaultPhaseFromCompany(company)) as PipelinePhase;
         const column = mapPhaseToBoardColumn(phase);
 
         const companyNotes = notesByCompanyId.get(company.id) || [];
@@ -147,7 +144,8 @@ export async function GET(request: Request) {
             id: opportunity.id,
             title: opportunity.title,
             stage: opportunity.stage,
-            likelihoodPercent: opportunity.likelihoodPercent
+            likelihoodPercent: opportunity.likelihoodPercent,
+            createdAt: opportunity.createdAt
           })),
           intakeScheduledAt: company.pipeline?.intakeDecisionAt ?? company.intakeScheduledAt,
           declineReason: company.declineReason,

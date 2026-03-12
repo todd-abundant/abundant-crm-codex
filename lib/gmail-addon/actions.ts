@@ -605,6 +605,29 @@ export async function createOpportunityFromForm(event: GmailAddonEvent) {
     }
   });
 
+  await prisma.healthSystemOpportunity.upsert({
+    where: { id: created.id },
+    update: {
+      legacyCompanyOpportunityId: created.id,
+      companyId,
+      healthSystemId,
+      type,
+      title,
+      stage,
+      notes
+    },
+    create: {
+      id: created.id,
+      legacyCompanyOpportunityId: created.id,
+      companyId,
+      healthSystemId,
+      type,
+      title,
+      stage,
+      notes
+    }
+  });
+
   return created;
 }
 

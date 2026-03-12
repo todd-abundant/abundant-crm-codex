@@ -75,6 +75,15 @@ function ensureCloseReason(stage: z.infer<typeof opportunityStageSchema>, closeR
 }
 
 const includeOpportunity = {
+  company: {
+    select: {
+      pipeline: {
+        select: {
+          ownerName: true
+        }
+      }
+    }
+  },
   healthSystem: {
     select: {
       id: true,
@@ -110,6 +119,11 @@ function toPayload(opportunity: {
   estimatedCloseDate: Date | null;
   closedAt: Date | null;
   updatedAt: Date;
+  company: {
+    pipeline: {
+      ownerName: string | null;
+    } | null;
+  };
   healthSystem: { id: string; name: string } | null;
   contacts: Array<{
     id: string;
@@ -134,6 +148,7 @@ function toPayload(opportunity: {
     nextSteps: opportunity.nextSteps,
     notes: opportunity.notes,
     closeReason: opportunity.closeReason,
+    ownerName: opportunity.company.pipeline?.ownerName ?? null,
     createdAt: opportunity.createdAt,
     estimatedCloseDate: opportunity.estimatedCloseDate,
     closedAt: opportunity.closedAt,
@@ -216,7 +231,7 @@ export async function POST(
         type: input.type
       });
 
-      return tx.companyOpportunity.create({
+      const legacyCreated = await tx.companyOpportunity.create({
         data: {
           companyId,
           type: input.type,
@@ -233,6 +248,43 @@ export async function POST(
         },
         include: includeOpportunity
       });
+
+      await tx.healthSystemOpportunity.upsert({
+        where: { id: legacyCreated.id },
+        update: {
+          legacyCompanyOpportunityId: legacyCreated.id,
+          companyId,
+          healthSystemId,
+          type: input.type,
+          title,
+          stage: input.stage,
+          likelihoodPercent: input.likelihoodPercent ?? null,
+          contractPriceUsd: input.contractPriceUsd ?? null,
+          notes: trimOrNull(input.notes),
+          nextSteps: trimOrNull(input.nextSteps),
+          closeReason,
+          estimatedCloseDate: toNullableDate(input.estimatedCloseDate),
+          closedAt: isClosedStage(input.stage) ? toNullableDate(input.closedAt) || new Date() : null
+        },
+        create: {
+          id: legacyCreated.id,
+          legacyCompanyOpportunityId: legacyCreated.id,
+          companyId,
+          healthSystemId,
+          type: input.type,
+          title,
+          stage: input.stage,
+          likelihoodPercent: input.likelihoodPercent ?? null,
+          contractPriceUsd: input.contractPriceUsd ?? null,
+          notes: trimOrNull(input.notes),
+          nextSteps: trimOrNull(input.nextSteps),
+          closeReason,
+          estimatedCloseDate: toNullableDate(input.estimatedCloseDate),
+          closedAt: isClosedStage(input.stage) ? toNullableDate(input.closedAt) || new Date() : null
+        }
+      });
+
+      return legacyCreated;
     });
 
     return NextResponse.json({ opportunity: toPayload(created) }, { status: 201 });
@@ -379,13 +431,52 @@ export async function PATCH(
         updateData.closedAt = null;
       }
 
-      return tx.companyOpportunity.update({
+      const legacyUpdated = await tx.companyOpportunity.update({
         where: {
           id: existing.id
         },
         data: updateData,
         include: includeOpportunity
       });
+
+      await tx.healthSystemOpportunity.upsert({
+        where: { id: legacyUpdated.id },
+        update: {
+          legacyCompanyOpportunityId: legacyUpdated.id,
+          companyId,
+          healthSystemId: legacyUpdated.healthSystem?.id ?? null,
+          type: legacyUpdated.type as z.infer<typeof opportunityTypeSchema>,
+          title: legacyUpdated.title,
+          stage: legacyUpdated.stage as z.infer<typeof opportunityStageSchema>,
+          likelihoodPercent: legacyUpdated.likelihoodPercent,
+          contractPriceUsd: legacyUpdated.contractPriceUsd ? Number(legacyUpdated.contractPriceUsd.toString()) : null,
+          notes: legacyUpdated.notes,
+          nextSteps: legacyUpdated.nextSteps,
+          closeReason: legacyUpdated.closeReason,
+          estimatedCloseDate: legacyUpdated.estimatedCloseDate,
+          closedAt: legacyUpdated.closedAt
+        },
+        create: {
+          id: legacyUpdated.id,
+          legacyCompanyOpportunityId: legacyUpdated.id,
+          companyId,
+          healthSystemId: legacyUpdated.healthSystem?.id ?? null,
+          type: legacyUpdated.type as z.infer<typeof opportunityTypeSchema>,
+          title: legacyUpdated.title,
+          stage: legacyUpdated.stage as z.infer<typeof opportunityStageSchema>,
+          likelihoodPercent: legacyUpdated.likelihoodPercent,
+          contractPriceUsd: legacyUpdated.contractPriceUsd ? Number(legacyUpdated.contractPriceUsd.toString()) : null,
+          notes: legacyUpdated.notes,
+          nextSteps: legacyUpdated.nextSteps,
+          closeReason: legacyUpdated.closeReason,
+          estimatedCloseDate: legacyUpdated.estimatedCloseDate,
+          closedAt: legacyUpdated.closedAt,
+          createdAt: legacyUpdated.createdAt,
+          updatedAt: legacyUpdated.updatedAt
+        }
+      });
+
+      return legacyUpdated;
     });
 
     return NextResponse.json({ opportunity: toPayload(updated) });
@@ -407,6 +498,13 @@ export async function DELETE(
     const input = deleteSchema.parse(await request.json());
 
     const deleted = await prisma.companyOpportunity.deleteMany({
+      where: {
+        id: input.opportunityId,
+        companyId
+      }
+    });
+
+    await prisma.healthSystemOpportunity.deleteMany({
       where: {
         id: input.opportunityId,
         companyId

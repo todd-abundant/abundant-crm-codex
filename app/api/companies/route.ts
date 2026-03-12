@@ -133,7 +133,9 @@ export async function GET() {
     include: {
       pipeline: {
         select: {
-          phase: true
+          phase: true,
+          category: true,
+          intakeDecision: true
         }
       },
       leadSourceHealthSystem: { select: { id: true, name: true } },

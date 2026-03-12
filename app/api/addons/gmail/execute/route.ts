@@ -166,13 +166,13 @@ export async function POST(request: Request) {
     if (action === "submit_add_opportunity") {
       const created = await createOpportunityFromForm(event);
       const successCard = buildSuccessCard(
-        "Opportunity saved",
-        `Created opportunity: ${created.title} (Company: ${created.company.name})`,
+        "Health System Opportunity saved",
+        `Created health system opportunity: ${created.title} (Company: ${created.company.name})`,
         endpoint,
         message
       );
 
-      return NextResponse.json(updateCard(successCard, "Opportunity saved"));
+      return NextResponse.json(updateCard(successCard, "Health System Opportunity saved"));
     }
 
     return NextResponse.json(

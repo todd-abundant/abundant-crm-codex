@@ -880,6 +880,43 @@ model CompanyOpportunityContact {
   @@index([contactId])
 }
 
+model HealthSystemOpportunity {
+  id                         String                  @id
+  legacyCompanyOpportunityId String?                 @unique
+  companyId                  String
+  healthSystemId             String?
+  type                       CompanyOpportunityType
+  title                      String
+  stage                      CompanyOpportunityStage @default(IDENTIFIED)
+  likelihoodPercent          Int?
+  contractPriceUsd           Decimal?                @db.Decimal(16, 2)
+  durationDays               Int?
+  notes                      String?
+  nextSteps                  String?
+  closeReason                String?
+  estimatedCloseDate         DateTime?
+  closedAt                   DateTime?
+  createdAt                  DateTime                @default(now())
+  updatedAt                  DateTime                @updatedAt
+
+  @@index([companyId, type])
+  @@index([healthSystemId])
+  @@index([companyId, healthSystemId, type, stage])
+}
+
+model HealthSystemOpportunityContact {
+  id            String   @id @default(cuid())
+  opportunityId String
+  contactId     String
+  role          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([opportunityId, contactId])
+  @@index([contactId])
+  @@index([opportunityId])
+}
+
 model CompanyScreeningEvent {
   id          String                    @id @default(cuid())
   companyId   String

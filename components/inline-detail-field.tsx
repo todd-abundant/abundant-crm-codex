@@ -20,6 +20,7 @@ type TextFieldProps = {
   inputType?: "text" | "number" | "date";
   placeholder?: string;
   emptyText?: string;
+  listId?: string;
   multiline?: false;
   dateDebugContext?: DateFieldDebugContext;
 };
@@ -280,6 +281,7 @@ export function InlineTextField({
   inputType = "text",
   placeholder,
   emptyText = emptyDisplayDefault,
+  listId,
   dateDebugContext
 }: Omit<TextFieldProps, "kind">) {
   const [editing, setEditing] = React.useState(false);
@@ -350,6 +352,7 @@ export function InlineTextField({
           type={inputType}
           value={draft}
           placeholder={placeholder}
+          list={listId}
           onChange={(event) => setDraft(event.target.value)}
           onBlur={() => commit(draft)}
           onKeyDown={(event) => {

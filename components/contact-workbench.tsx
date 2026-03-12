@@ -10,7 +10,7 @@ import { EntityNotesPane } from "./entity-notes-pane";
 type ContactRoleType = "EXECUTIVE" | "VENTURE_PARTNER" | "INVESTOR_PARTNER" | "COMPANY_CONTACT" | "OTHER";
 type AssociationType = "HEALTH_SYSTEM" | "CO_INVESTOR" | "COMPANY";
 type DetailTab = "overview" | "relationships" | "opportunities" | "notes" | "documents";
-type OpportunityStatusFilter = "open" | "closed";
+type OpportunityStatusFilter = "all" | "open" | "closed";
 type EntityKind = "HEALTH_SYSTEM" | "CO_INVESTOR" | "COMPANY";
 type StatusMessage = { kind: "ok" | "error"; text: string };
 
@@ -74,6 +74,9 @@ type ContactRecord = {
       type: string;
       stage: string;
       estimatedCloseDate?: string | null;
+      closedAt?: string | null;
+      createdAt?: string | null;
+      ownerName?: string | null;
       company: {
         id: string;
         name: string;
@@ -96,6 +99,9 @@ type ReferenceData = {
     type: string;
     stage: string;
     estimatedCloseDate?: string | null;
+    closedAt?: string | null;
+    createdAt?: string | null;
+    ownerName?: string | null;
     company: {
       id: string;
       name: string;
@@ -382,7 +388,7 @@ export function ContactWorkbench() {
   const [opportunitySearchTerm, setOpportunitySearchTerm] = React.useState("");
   const [savingOpportunity, setSavingOpportunity] = React.useState(false);
   const [contactOpportunityStatusFilter, setContactOpportunityStatusFilter] =
-    React.useState<OpportunityStatusFilter>("open");
+    React.useState<OpportunityStatusFilter>("all");
 
   const [editingOpportunityLinkId, setEditingOpportunityLinkId] = React.useState<string | null>(null);
   const [editingOpportunityRole, setEditingOpportunityRole] = React.useState("");
@@ -420,6 +426,9 @@ export function ContactWorkbench() {
 
   const filteredOpportunityLinks = React.useMemo(() => {
     const links = selectedRecord?.opportunityLinks || [];
+    if (contactOpportunityStatusFilter === "all") {
+      return links;
+    }
     if (contactOpportunityStatusFilter === "open") {
       return links.filter((link) => !isClosedOpportunityStage(link.opportunity.stage));
     }
@@ -966,7 +975,7 @@ export function ContactWorkbench() {
   async function addOpportunityLink() {
     if (!selectedRecord) return;
     if (!newOpportunityId) {
-      setStatus({ kind: "error", text: "Select an opportunity." });
+      setStatus({ kind: "error", text: "Select a health system opportunity." });
       return;
     }
 
@@ -985,7 +994,7 @@ export function ContactWorkbench() {
       const payload = await res.json();
 
       if (!res.ok) {
-        throw new Error(payload.error || "Failed to add opportunity link");
+        throw new Error(payload.error || "Failed to add health system opportunity link");
       }
 
       setOpportunityModalOpen(false);
@@ -993,11 +1002,11 @@ export function ContactWorkbench() {
       setNewOpportunityId("");
       setNewOpportunityRole("");
       await loadRecords({ preferredRecordId: selectedRecord.id });
-      setStatus({ kind: "ok", text: "Opportunity link added." });
+      setStatus({ kind: "ok", text: "Health system opportunity link added." });
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to add opportunity link"
+        text: error instanceof Error ? error.message : "Failed to add health system opportunity link"
       });
     } finally {
       setSavingOpportunity(false);
@@ -1022,17 +1031,17 @@ export function ContactWorkbench() {
       const payload = await res.json();
 
       if (!res.ok) {
-        throw new Error(payload.error || "Failed to update opportunity link");
+        throw new Error(payload.error || "Failed to update health system opportunity link");
       }
 
       setEditingOpportunityLinkId(null);
       setEditingOpportunityRole("");
       await loadRecords({ preferredRecordId: selectedRecord.id });
-      setStatus({ kind: "ok", text: "Opportunity link updated." });
+      setStatus({ kind: "ok", text: "Health system opportunity link updated." });
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to update opportunity link"
+        text: error instanceof Error ? error.message : "Failed to update health system opportunity link"
       });
     } finally {
       setSavingEditedOpportunity(false);
@@ -1041,7 +1050,7 @@ export function ContactWorkbench() {
 
   async function deleteOpportunityLink(linkId: string) {
     if (!selectedRecord) return;
-    if (!window.confirm("Remove this opportunity link?")) return;
+    if (!window.confirm("Remove this health system opportunity link?")) return;
 
     setDeletingOpportunityLinkId(linkId);
     setStatus(null);
@@ -1055,7 +1064,7 @@ export function ContactWorkbench() {
       const payload = await res.json();
 
       if (!res.ok) {
-        throw new Error(payload.error || "Failed to remove opportunity link");
+        throw new Error(payload.error || "Failed to remove health system opportunity link");
       }
 
       if (editingOpportunityLinkId === linkId) {
@@ -1064,11 +1073,11 @@ export function ContactWorkbench() {
       }
 
       await loadRecords({ preferredRecordId: selectedRecord.id });
-      setStatus({ kind: "ok", text: "Opportunity link removed." });
+      setStatus({ kind: "ok", text: "Health system opportunity link removed." });
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to remove opportunity link"
+        text: error instanceof Error ? error.message : "Failed to remove health system opportunity link"
       });
     } finally {
       setDeletingOpportunityLinkId(null);
@@ -1285,7 +1294,7 @@ export function ContactWorkbench() {
                   aria-selected={activeDetailTab === "opportunities"}
                   onClick={() => setActiveDetailTab("opportunities")}
                 >
-                  Opportunities
+                  Health System Opportunities
                 </button>
                 <button
                   type="button"
@@ -1882,12 +1891,13 @@ export function ContactWorkbench() {
 
               {activeDetailTab === "opportunities" ? (
                 <div className="detail-section opportunity-section">
-                  <p className="detail-label">Opportunities</p>
-                  <div className="opportunity-filter-bar" role="radiogroup" aria-label="Filter opportunities by status">
+                  <p className="detail-label">Health System Opportunities</p>
+                  <div className="opportunity-filter-bar" role="radiogroup" aria-label="Filter health system opportunities by status">
                     <p className="opportunity-filter-label">Status</p>
                     <div className="opportunity-filter-options">
                       {(
                         [
+                          { value: "all", label: "All" },
                           { value: "open", label: "Open" },
                           { value: "closed", label: "Closed" }
                         ] as const
@@ -1914,10 +1924,16 @@ export function ContactWorkbench() {
                     </div>
                   </div>
 
-                  {selectedRecord.opportunityLinks.length === 0 ? <p className="muted">No opportunity links yet.</p> : null}
+                  {selectedRecord.opportunityLinks.length === 0 ? (
+                    <p className="muted">No health system opportunity links yet.</p>
+                  ) : null}
                   {selectedRecord.opportunityLinks.length > 0 && filteredOpportunityLinks.length === 0 ? (
                     <p className="muted">
-                      {contactOpportunityStatusFilter === "open" ? "No open opportunities." : "No closed opportunities."}
+                      {contactOpportunityStatusFilter === "all"
+                        ? "No health system opportunities."
+                        : contactOpportunityStatusFilter === "open"
+                          ? "No open health system opportunities."
+                          : "No closed health system opportunities."}
                     </p>
                   ) : null}
 
@@ -1927,12 +1943,20 @@ export function ContactWorkbench() {
                         <thead>
                           <tr>
                             <th>Company</th>
-                            <th>Opportunity</th>
+                            <th>Health System Opportunity</th>
                             <th>Health System</th>
                             <th>Type</th>
                             <th>Stage</th>
+                            <th>Owner</th>
+                            <th>Created</th>
                             <th>Role</th>
-                            <th>Expected Close</th>
+                            <th>
+                              {contactOpportunityStatusFilter === "closed"
+                                ? "Closed Date"
+                                : contactOpportunityStatusFilter === "open"
+                                  ? "Expected Close"
+                                  : "Close / Expected"}
+                            </th>
                             <th>Actions</th>
                           </tr>
                         </thead>
@@ -1958,8 +1982,16 @@ export function ContactWorkbench() {
                                   <td>{link.opportunity.healthSystem?.name || "-"}</td>
                                   <td>{humanize(link.opportunity.type)}</td>
                                   <td>{humanize(link.opportunity.stage)}</td>
+                                  <td>{link.opportunity.ownerName || "Unassigned"}</td>
+                                  <td>{formatOpportunityDate(link.opportunity.createdAt)}</td>
                                   <td>{link.role || "-"}</td>
-                                  <td>{formatOpportunityDate(link.opportunity.estimatedCloseDate)}</td>
+                                  <td>
+                                    {formatOpportunityDate(
+                                      isClosedOpportunityStage(link.opportunity.stage)
+                                        ? link.opportunity.closedAt
+                                        : link.opportunity.estimatedCloseDate
+                                    )}
+                                  </td>
                                   <td>
                                     <div className="actions" style={{ marginTop: 0 }}>
                                       <button
@@ -1993,7 +2025,7 @@ export function ContactWorkbench() {
                                             <input
                                               value={editingOpportunityRole}
                                               onChange={(event) => setEditingOpportunityRole(event.target.value)}
-                                              placeholder="Role in opportunity"
+                                              placeholder="Role in health system opportunity"
                                             />
                                           </div>
                                         </div>
@@ -2147,13 +2179,17 @@ export function ContactWorkbench() {
         onSubmit={() => void addOpportunityLink()}
         isSubmitting={savingOpportunity}
         submitDisabled={!newOpportunityId}
-        title="Add Opportunity Link"
-        subtitle={loadingReferenceData ? "Loading opportunity options..." : "Link this contact to a pipeline opportunity."}
+        title="Add Health System Opportunity Link"
+        subtitle={
+          loadingReferenceData
+            ? "Loading health system opportunity options..."
+            : "Link this contact to a health system opportunity."
+        }
         submitLabel="Add Link"
       >
         <div className="detail-grid">
           <div>
-            <label>Search Opportunities</label>
+            <label>Search Health System Opportunities</label>
             <input
               value={opportunitySearchTerm}
               onChange={(event) => setOpportunitySearchTerm(event.target.value)}
@@ -2169,9 +2205,9 @@ export function ContactWorkbench() {
             />
           </div>
           <div style={{ gridColumn: "1 / -1" }}>
-            <label>Opportunity</label>
+            <label>Health System Opportunity</label>
             <select value={newOpportunityId} onChange={(event) => setNewOpportunityId(event.target.value)}>
-              <option value="">Select opportunity</option>
+              <option value="">Select health system opportunity</option>
               {filteredOpportunityOptions.map((option) => (
                 <option key={option.id} value={option.id}>
                   {formatOpportunityLabel(option)}
