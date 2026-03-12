@@ -386,6 +386,7 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
   const [inactiveStatusFilter, setInactiveStatusFilter] = React.useState<InactiveStatusFilter>("ALL");
   const undoTimeoutRef = React.useRef<number | null>(null);
   const highlightTimeoutRef = React.useRef<number | null>(null);
+  const noteModalRef = React.useRef<HTMLDivElement | null>(null);
   const suppressLeadSourceBlurRef = React.useRef(false);
   const cardCommitSequenceById = React.useRef<Record<string, number>>({});
   const intakeCommitSequenceById = React.useRef<Record<string, number>>({});
@@ -460,6 +461,15 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
       }
     };
   }, []);
+
+  React.useEffect(() => {
+    if (!noteModal) return;
+    const frame = window.requestAnimationFrame(() => {
+      const editor = noteModalRef.current?.querySelector<HTMLElement>(".pipeline-kanban-note-textarea .ql-editor");
+      editor?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [noteModal]);
 
   const closeDetailModal = React.useCallback(() => {
     setSelectedDetailId(null);
@@ -1459,7 +1469,7 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                       </div>
 
                       <div className="pipeline-intake-fields" onClick={(event) => event.stopPropagation()}>
-                        <div className="pipeline-inline-field">
+                        <div className="pipeline-inline-field pipeline-inline-field--next-step">
                           <span className="pipeline-inline-label">Next Step</span>
                           {isEditing(item.id, "nextStep") ? (
                             <input
@@ -1670,7 +1680,7 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
 
                         {item.column !== "INTAKE" ? (
                           <>
-                            {item.column !== "COMMERCIAL_ACCELERATION" ? (
+                            {item.column === "SCREENING" ? (
                               <div className="pipeline-inline-field pipeline-inline-field--date">
                                 <span className="pipeline-inline-label">VS Contract Executed</span>
                                 {isEditing(item.id, "ventureStudioContractExecutedAt") ? (
@@ -1713,7 +1723,7 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                               </div>
                             ) : null}
 
-                            {item.column !== "COMMERCIAL_ACCELERATION" ? (
+                            {item.column === "SCREENING" ? (
                               <div className="pipeline-inline-field pipeline-inline-field--date">
                                 <span className="pipeline-inline-label pipeline-inline-label--nowrap">Screening Webinar 1</span>
                                 {isEditing(item.id, "screeningWebinarDate1At") ? (
@@ -1756,7 +1766,7 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                               </div>
                             ) : null}
 
-                            {item.column !== "COMMERCIAL_ACCELERATION" ? (
+                            {item.column === "SCREENING" ? (
                               <div className="pipeline-inline-field pipeline-inline-field--date">
                                 <span className="pipeline-inline-label pipeline-inline-label--nowrap">Screening Webinar 2</span>
                                 {isEditing(item.id, "screeningWebinarDate2At") ? (
@@ -2007,11 +2017,36 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
 
       {noteModal ? (
         <div className="pipeline-note-backdrop" onMouseDown={() => setNoteModal(null)}>
-            <div className="pipeline-note-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <div
+              className="pipeline-note-modal pipeline-kanban-note-modal"
+              role="dialog"
+              aria-modal="true"
+              ref={noteModalRef}
+              onMouseDown={(event) => event.stopPropagation()}
+              onKeyDownCapture={(event) => {
+                if (event.nativeEvent.isComposing) return;
+
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  if (noteModal.saving) return;
+                  setNoteModal(null);
+                  return;
+                }
+
+                if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) return;
+                if (!target.closest(".pipeline-kanban-note-textarea .ql-editor")) return;
+
+                event.preventDefault();
+                if (noteModal.saving) return;
+                void savePipelineNote();
+              }}
+            >
             <h3>Add Note</h3>
             <p className="muted">{noteModal.itemName}</p>
             <RichTextArea
-              className="pipeline-note-textarea"
+              className="pipeline-note-textarea pipeline-kanban-note-textarea"
               value={noteModal.draft}
               onChange={(nextValue) =>
                 setNoteModal((current) => (current ? { ...current, draft: nextValue } : current))
