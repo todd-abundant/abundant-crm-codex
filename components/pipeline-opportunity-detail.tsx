@@ -38,11 +38,11 @@ import {
 import { parseDateInput, toDateInputValue as formatDateInputValue } from "@/lib/date-parse";
 import { createDateDebugContext, debugDateLog, dateDebugHeaders } from "@/lib/date-debug";
 import { INTAKE_DECLINE_REASON_TEXT_SUGGESTIONS } from "@/lib/intake-decline-reasons";
+import { type ScreeningInterestStatus } from "@/lib/screening-interest";
 
-type ScreeningStatus = "NOT_STARTED" | "PENDING" | "NEGOTIATING" | "SIGNED" | "DECLINED";
 type ScreeningAttendanceStatus = "INVITED" | "ATTENDED" | "DECLINED" | "NO_SHOW";
 type ScreeningFeedbackSentiment = "POSITIVE" | "MIXED" | "NEUTRAL" | "NEGATIVE";
-type ScreeningCellField = "RELEVANT_FEEDBACK" | "STATUS_UPDATE";
+type ScreeningCellField = "MEMBER_FEEDBACK_STATUS";
 type ClosedOutcome = "INVESTED" | "PASSED" | "LOST" | "WITHDREW" | "OTHER";
 type ScreeningPipelineStatus = "OPEN" | "CLOSED_LOST";
 type IntakeVenturePipelineStatus = "OPEN" | "CLOSED_WON" | "CLOSED_LOST" | "CLOSED_REVISIT";
@@ -165,13 +165,29 @@ type NoteAffiliation = {
 type ScreeningHealthSystem = {
   healthSystemId: string;
   healthSystemName: string;
-  status: ScreeningStatus;
+  status: string;
   notes: string;
   statusUpdatedAt: string | null;
+  preliminaryInterestStatus: ScreeningInterestStatus;
+  preliminaryInterestLabel: string;
+  preliminaryInterestAverageScore: number | null;
+  currentInterestStatus: ScreeningInterestStatus;
+  currentInterestLabel: string;
+  currentInterestUpdatedAt: string | null;
+  screeningOpportunityId: string | null;
+  screeningOpportunityStage: OpportunityStage | null;
+  memberFeedbackStatus: string;
+  memberFeedbackStatusHistory: ScreeningCellChange[];
   relevantFeedback: string;
   statusUpdate: string;
   relevantFeedbackHistory: ScreeningCellChange[];
   statusUpdateHistory: ScreeningCellChange[];
+  participantRoster: Array<{
+    id: string;
+    contactId: string | null;
+    contactName: string;
+    contactTitle: string | null;
+  }>;
   participants: ScreeningParticipant[];
   documents: Array<{
     id: string;
@@ -229,6 +245,7 @@ type PipelineOpportunityDetail = {
     contractPriceUsd: number | string | null;
     durationDays: number | null;
     likelihoodPercent: number | null;
+    memberFeedbackStatus: string | null;
     nextSteps: string | null;
     notes: string | null;
     closeReason: string | null;
@@ -273,6 +290,7 @@ type OpportunityDraft = {
   estimatedCloseDate: string;
   closedAt: string;
   closeReason: string;
+  memberFeedbackStatus: string;
   nextSteps: string;
   notes: string;
 };
@@ -413,6 +431,7 @@ function toOpportunityDraft(opportunity: PipelineOpportunityDetail["opportunitie
     estimatedCloseDate: toDateInputValue(opportunity.estimatedCloseDate),
     closedAt: toDateInputValue(opportunity.closedAt),
     closeReason: opportunity.closeReason || "",
+    memberFeedbackStatus: opportunity.memberFeedbackStatus || "",
     nextSteps: opportunity.nextSteps || "",
     notes: opportunity.notes || ""
   };
@@ -475,25 +494,24 @@ function documentLinkLabel(document: { title: string; url: string }, resolvedTit
   return isEmbeddedDocumentUrl(document.url) ? "Open uploaded file" : document.url;
 }
 
-function statusMeta(status: ScreeningStatus) {
-  if (status === "DECLINED") {
-    return { label: "Interested, declined LOI", className: "screening-status-red" };
+function interestStatusMeta(status: ScreeningInterestStatus) {
+  if (status === "BLUE") {
+    return { label: "Revisit Later", className: "screening-status-blue" };
   }
-  if (status === "PENDING") {
-    return { label: "Evaluating LOI", className: "screening-status-yellow" };
+  if (status === "GREEN") {
+    return { label: "Green", className: "screening-status-green" };
   }
-  if (status === "NEGOTIATING") {
-    return { label: "Evaluating LOI (active)", className: "screening-status-green" };
+  if (status === "YELLOW") {
+    return { label: "Yellow", className: "screening-status-yellow" };
   }
-  if (status === "SIGNED") {
-    return { label: "LOI signed", className: "screening-status-green" };
+  if (status === "RED") {
+    return { label: "Red", className: "screening-status-red" };
   }
-  return { label: "Not interested", className: "screening-status-grey" };
+  return { label: "Grey", className: "screening-status-grey" };
 }
 
-function inlineInterestClassName(status: ScreeningStatus) {
-  if (status === "SIGNED") return "screening-status-green-check";
-  return statusMeta(status).className;
+function inlineInterestClassName(status: ScreeningInterestStatus) {
+  return interestStatusMeta(status).className;
 }
 
 function sentimentLabel(sentiment: ScreeningFeedbackSentiment) {
@@ -503,12 +521,11 @@ function sentimentLabel(sentiment: ScreeningFeedbackSentiment) {
   return "Neutral";
 }
 
-const screeningInlineInterestOptions: Array<{ value: ScreeningStatus; label: string }> = [
-  { value: "NOT_STARTED", label: "Grey" },
-  { value: "DECLINED", label: "Red" },
-  { value: "PENDING", label: "Yellow" },
-  { value: "NEGOTIATING", label: "Green" },
-  { value: "SIGNED", label: "LOI signed" }
+const screeningInlineInterestOptions: Array<{ value: Exclude<ScreeningInterestStatus, "GREY">; label: string }> = [
+  { value: "RED", label: "Red" },
+  { value: "YELLOW", label: "Yellow" },
+  { value: "GREEN", label: "Green" },
+  { value: "BLUE", label: "Revisit Later" }
 ];
 
 const companyDocumentTypeOptions: Array<{ value: CompanyDocumentType; label: string }> = [
@@ -847,7 +864,7 @@ function mergeQuantitativeQuestionsWithFeedback(
 
 function uniqueIndividuals(entry: ScreeningHealthSystem) {
   const byKey = new Map<string, { key: string; label: string }>();
-  for (const participant of entry.participants) {
+  for (const participant of entry.participantRoster) {
     const key = participant.contactId || participant.id;
     if (byKey.has(key)) continue;
     const label = participant.contactTitle
@@ -1091,7 +1108,7 @@ type MarketLandscapeOption1InfoResponse =
     };
 
 function screeningCellFieldLabel(field: ScreeningCellField) {
-  return field === "RELEVANT_FEEDBACK" ? "Relevant Feedback + Next Steps" : "Status Update";
+  return field === "MEMBER_FEEDBACK_STATUS" ? "Member Feedback/Status" : "Screening Field";
 }
 
 function emptyQualitativeFeedbackDraft(healthSystemId: string): QualitativeFeedbackDraft {
@@ -1141,11 +1158,9 @@ export function PipelineOpportunityDetailView({
   const [savingStatusByHealthSystemId, setSavingStatusByHealthSystemId] = React.useState<Record<string, boolean>>({});
   const [savingFeedbackByHealthSystemId, setSavingFeedbackByHealthSystemId] = React.useState<Record<string, boolean>>({});
   const [savingScreeningCellByKey, setSavingScreeningCellByKey] = React.useState<Record<string, boolean>>({});
+  const [refreshingScreeningOpportunities, setRefreshingScreeningOpportunities] = React.useState(false);
   const [addingAttendeeByHealthSystemId, setAddingAttendeeByHealthSystemId] = React.useState<Record<string, boolean>>({});
-  const [relevantFeedbackDraftByHealthSystemId, setRelevantFeedbackDraftByHealthSystemId] = React.useState<
-    Record<string, string>
-  >({});
-  const [statusUpdateDraftByHealthSystemId, setStatusUpdateDraftByHealthSystemId] = React.useState<
+  const [memberFeedbackStatusDraftByHealthSystemId, setMemberFeedbackStatusDraftByHealthSystemId] = React.useState<
     Record<string, string>
   >({});
   const [savingVentureStudioCriteria, setSavingVentureStudioCriteria] = React.useState(false);
@@ -1219,6 +1234,7 @@ export function PipelineOpportunityDetailView({
     estimatedCloseDate: "",
     closedAt: "",
     closeReason: "",
+    memberFeedbackStatus: "",
     nextSteps: "",
     notes: ""
   });
@@ -1607,22 +1623,14 @@ export function PipelineOpportunityDetailView({
 
   React.useEffect(() => {
     if (!item?.isScreeningStage) {
-      setRelevantFeedbackDraftByHealthSystemId({});
-      setStatusUpdateDraftByHealthSystemId({});
+      setMemberFeedbackStatusDraftByHealthSystemId({});
       return;
     }
 
-    setRelevantFeedbackDraftByHealthSystemId((current) => {
+    setMemberFeedbackStatusDraftByHealthSystemId((current) => {
       const next: Record<string, string> = {};
       for (const entry of item.screening.healthSystems) {
-        next[entry.healthSystemId] = current[entry.healthSystemId] ?? entry.relevantFeedback ?? "";
-      }
-      return next;
-    });
-    setStatusUpdateDraftByHealthSystemId((current) => {
-      const next: Record<string, string> = {};
-      for (const entry of item.screening.healthSystems) {
-        next[entry.healthSystemId] = current[entry.healthSystemId] ?? entry.statusUpdate ?? "";
+        next[entry.healthSystemId] = current[entry.healthSystemId] ?? entry.memberFeedbackStatus ?? "";
       }
       return next;
     });
@@ -1882,15 +1890,21 @@ export function PipelineOpportunityDetailView({
   async function saveScreeningCell(healthSystemId: string, field: ScreeningCellField) {
     if (!item) return;
 
-    const value =
-      field === "RELEVANT_FEEDBACK"
-        ? relevantFeedbackDraftByHealthSystemId[healthSystemId] || ""
-        : statusUpdateDraftByHealthSystemId[healthSystemId] || "";
+    const value = memberFeedbackStatusDraftByHealthSystemId[healthSystemId] || "";
 
     const currentEntry = item.screening.healthSystems.find((entry) => entry.healthSystemId === healthSystemId);
     if (!currentEntry) return;
-    const currentValue = field === "RELEVANT_FEEDBACK" ? currentEntry.relevantFeedback : currentEntry.statusUpdate;
+    const currentValue = currentEntry.memberFeedbackStatus;
     if ((currentValue || "").trim() === value.trim()) return;
+    const linkedOpportunityIds = currentEntry.screeningOpportunityId
+      ? new Set([currentEntry.screeningOpportunityId])
+      : new Set(
+          item.opportunities
+            .filter(
+              (opportunity) => opportunity.type === "SCREENING_LOI" && opportunity.healthSystem?.id === healthSystemId
+            )
+            .map((opportunity) => opportunity.id)
+        );
 
     const key = screeningCellKey(healthSystemId, field);
     setSavingScreeningCellByKey((current) => ({ ...current, [key]: true }));
@@ -1914,35 +1928,52 @@ export function PipelineOpportunityDetailView({
         if (!current) return current;
         return {
           ...current,
+          opportunities:
+            linkedOpportunityIds.size === 0
+              ? current.opportunities
+              : current.opportunities.map((opportunity) =>
+                  linkedOpportunityIds.has(opportunity.id)
+                    ? {
+                        ...opportunity,
+                        memberFeedbackStatus: value.trim()
+                      }
+                    : opportunity
+                ),
           screening: {
+            ...current.screening,
             healthSystems: current.screening.healthSystems.map((healthSystem) => {
               if (healthSystem.healthSystemId !== healthSystemId) return healthSystem;
 
               const nextHistory =
-                field === "RELEVANT_FEEDBACK"
-                  ? entry
-                    ? [entry, ...healthSystem.relevantFeedbackHistory]
-                    : healthSystem.relevantFeedbackHistory
-                  : entry
-                    ? [entry, ...healthSystem.statusUpdateHistory]
-                    : healthSystem.statusUpdateHistory;
+                entry
+                  ? [entry, ...healthSystem.memberFeedbackStatusHistory]
+                  : healthSystem.memberFeedbackStatusHistory;
 
               return {
                 ...healthSystem,
-                relevantFeedback:
-                  field === "RELEVANT_FEEDBACK" ? value.trim() : healthSystem.relevantFeedback,
-                statusUpdate: field === "STATUS_UPDATE" ? value.trim() : healthSystem.statusUpdate,
-                relevantFeedbackHistory:
-                  field === "RELEVANT_FEEDBACK"
-                    ? nextHistory
-                    : healthSystem.relevantFeedbackHistory,
-                statusUpdateHistory:
-                  field === "STATUS_UPDATE" ? nextHistory : healthSystem.statusUpdateHistory
+                memberFeedbackStatus: value.trim(),
+                memberFeedbackStatusHistory: nextHistory
               };
             })
           }
         };
       });
+      if (linkedOpportunityIds.size > 0) {
+        setOpportunityDraftById((current) => {
+          let changed = false;
+          const next = { ...current };
+          for (const opportunityId of linkedOpportunityIds) {
+            const draft = current[opportunityId];
+            if (!draft || draft.memberFeedbackStatus === value.trim()) continue;
+            next[opportunityId] = {
+              ...draft,
+              memberFeedbackStatus: value.trim()
+            };
+            changed = true;
+          }
+          return changed ? next : current;
+        });
+      }
       setStatus({ kind: "ok", text: `${screeningCellFieldLabel(field)} updated.` });
     } catch (error) {
       setStatus({
@@ -2569,27 +2600,26 @@ export function PipelineOpportunityDetailView({
   function openScreeningStatusPreview() {
     if (!item) return;
 
-    const statusColorByValue: Record<ScreeningStatus, string> = {
-      NOT_STARTED: "#64748b",
-      PENDING: "#f59e0b",
-      NEGOTIATING: "#16a34a",
-      SIGNED: "#16a34a",
-      DECLINED: "#dc2626"
+    const statusColorByValue: Record<ScreeningInterestStatus, string> = {
+      GREY: "#64748b",
+      RED: "#dc2626",
+      YELLOW: "#f59e0b",
+      GREEN: "#16a34a",
+      BLUE: "#2563eb"
     };
 
     const rowsHtml = item.screening.healthSystems
       .map((entry) => {
         const attendees = uniqueIndividuals(entry);
         const attendedCount = entry.participants.filter((participant) => participant.attendanceStatus === "ATTENDED").length;
-        const relevantFeedback =
-          relevantFeedbackDraftByHealthSystemId[entry.healthSystemId] ?? entry.relevantFeedback ?? "";
-        const statusUpdate = statusUpdateDraftByHealthSystemId[entry.healthSystemId] ?? entry.statusUpdate ?? "";
+        const memberFeedbackStatus =
+          memberFeedbackStatusDraftByHealthSystemId[entry.healthSystemId] ?? entry.memberFeedbackStatus ?? "";
         const attendeesMarkup =
           attendees.length > 0
             ? `<ul class="preview-inline-list">${attendees
                 .map((person) => `<li>${escapeHtml(person.label)}</li>`)
                 .join("")}</ul>`
-            : `<p class="preview-empty">No attendees listed.</p>`;
+            : `<p class="preview-empty">No participants listed.</p>`;
 
         return `
           <tr>
@@ -2597,13 +2627,18 @@ export function PipelineOpportunityDetailView({
             <td>${attendedCount > 0 ? escapeHtml(String(attendedCount)) : "NA"}</td>
             <td>
               <span class="preview-status-chip">
-                <span class="preview-status-dot" style="background:${statusColorByValue[entry.status]}"></span>
-                ${escapeHtml(statusMeta(entry.status).label)}
+                <span class="preview-status-dot" style="background:${statusColorByValue[entry.preliminaryInterestStatus]}"></span>
+                ${escapeHtml(entry.preliminaryInterestLabel)}
+              </span>
+            </td>
+            <td>
+              <span class="preview-status-chip">
+                <span class="preview-status-dot" style="background:${statusColorByValue[entry.currentInterestStatus]}"></span>
+                ${escapeHtml(entry.currentInterestLabel)}
               </span>
             </td>
             <td>${attendeesMarkup}</td>
-            <td>${escapeHtml(relevantFeedback.trim() || "No relevant feedback entered.")}</td>
-            <td>${escapeHtml(statusUpdate.trim() || "No status update entered.")}</td>
+            <td>${escapeHtml(memberFeedbackStatus.trim() || "No member feedback/status entered.")}</td>
           </tr>`;
       })
       .join("");
@@ -2628,9 +2663,9 @@ export function PipelineOpportunityDetailView({
               <th>Organization</th>
               <th>Attend? (#)</th>
               <th>Preliminary Interest</th>
-              <th>Attendees</th>
-              <th>Relevant Feedback + Next Steps</th>
-              <th>Status Update</th>
+              <th>Current Interest</th>
+              <th>Participants</th>
+              <th>Member Feedback/Status</th>
             </tr>
           </thead>
           <tbody>
@@ -2639,12 +2674,12 @@ export function PipelineOpportunityDetailView({
         </table>
       `,
       extraStyles: `
-        .preview-screening-status-table col:first-child { width: 16%; }
+        .preview-screening-status-table col:first-child { width: 15%; }
         .preview-screening-status-table col:nth-child(2) { width: 8%; }
-        .preview-screening-status-table col:nth-child(3) { width: 15%; }
-        .preview-screening-status-table col:nth-child(4) { width: 18%; }
-        .preview-screening-status-table col:nth-child(5) { width: 21%; }
-        .preview-screening-status-table col:nth-child(6) { width: 22%; }
+        .preview-screening-status-table col:nth-child(3) { width: 14%; }
+        .preview-screening-status-table col:nth-child(4) { width: 14%; }
+        .preview-screening-status-table col:nth-child(5) { width: 19%; }
+        .preview-screening-status-table col:nth-child(6) { width: 30%; }
         .preview-status-chip {
           display: inline-flex;
           align-items: center;
@@ -3757,6 +3792,7 @@ function stripCurrencyFormatting(value: string) {
       estimatedCloseDate: draft.estimatedCloseDate.trim() || null,
       closedAt: draft.closedAt.trim() || null,
       closeReason,
+      memberFeedbackStatus: draft.memberFeedbackStatus.trim() || null,
       nextSteps: draft.nextSteps.trim() || null,
       notes: draft.notes.trim() || null
     };
@@ -3869,6 +3905,7 @@ function stripCurrencyFormatting(value: string) {
         estimatedCloseDate: "",
         closedAt: "",
         closeReason: "",
+        memberFeedbackStatus: "",
         nextSteps: "",
         notes: ""
       });
@@ -4154,6 +4191,7 @@ function stripCurrencyFormatting(value: string) {
       estimatedCloseDate: "",
       closedAt: "",
       closeReason: "",
+      memberFeedbackStatus: "",
       nextSteps: "",
       notes: ""
     });
@@ -4246,9 +4284,9 @@ function stripCurrencyFormatting(value: string) {
         })
       });
       const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Failed to add attendee.");
+      if (!res.ok) throw new Error(payload.error || "Failed to add participant.");
       const participant = payload.participant as ScreeningParticipant | undefined;
-      if (!participant) throw new Error("Failed to add attendee.");
+      if (!participant) throw new Error("Failed to add participant.");
 
       setItem((current) => {
         if (!current) return current;
@@ -4258,23 +4296,42 @@ function stripCurrencyFormatting(value: string) {
             healthSystems: current.screening.healthSystems.map((entry) => {
               if (entry.healthSystemId !== healthSystemId) return entry;
               const existingIndex = entry.participants.findIndex((row) => row.id === participant.id);
+              const nextParticipantRoster = (() => {
+                const rosterKey = participant.contactId || participant.id;
+                const next = new Map(
+                  entry.participantRoster.map((row) => [row.contactId || row.id, row] as const)
+                );
+                next.set(rosterKey, {
+                  id: participant.id,
+                  contactId: participant.contactId,
+                  contactName: participant.contactName,
+                  contactTitle: participant.contactTitle
+                });
+                return Array.from(next.values()).sort((left, right) =>
+                  left.contactName.localeCompare(right.contactName, undefined, { sensitivity: "base" })
+                );
+              })();
               if (existingIndex >= 0) {
                 const next = [...entry.participants];
                 next[existingIndex] = participant;
-                return { ...entry, participants: next };
+                return { ...entry, participants: next, participantRoster: nextParticipantRoster };
               }
-              return { ...entry, participants: [participant, ...entry.participants] };
+              return {
+                ...entry,
+                participants: [participant, ...entry.participants],
+                participantRoster: nextParticipantRoster
+              };
             })
           }
         };
       });
 
-      setStatus({ kind: "ok", text: "Attendee added." });
+      setStatus({ kind: "ok", text: "Participant added." });
       return true;
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to add attendee."
+        text: error instanceof Error ? error.message : "Failed to add participant."
       });
       return false;
     } finally {
@@ -4321,23 +4378,29 @@ function stripCurrencyFormatting(value: string) {
     }
   }
 
-  async function updateScreeningStatus(healthSystemId: string, nextStatus: ScreeningStatus) {
+  async function updateScreeningInterestStatus(
+    healthSystemId: string,
+    nextStatus: Exclude<ScreeningInterestStatus, "GREY">,
+    source: "CURRENT" | "PRELIMINARY" = "CURRENT"
+  ) {
     if (!item) return;
 
     setSavingStatusByHealthSystemId((current) => ({ ...current, [healthSystemId]: true }));
     setStatus(null);
 
     try {
-      const res = await fetch(`/api/pipeline/opportunities/${item.id}/screening`, {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/screening-interest`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          action: "SET_STATUS",
           healthSystemId,
-          status: nextStatus
+          status: nextStatus,
+          source
         })
       });
       const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Failed to update screening status");
+      if (!res.ok) throw new Error(payload.error || "Failed to update screening interest");
 
       setItem((current) => {
         if (!current) return current;
@@ -4348,23 +4411,114 @@ function stripCurrencyFormatting(value: string) {
               entry.healthSystemId === healthSystemId
                 ? {
                     ...entry,
-                    status: payload.status || nextStatus,
-                    notes: payload.notes ?? entry.notes,
-                    statusUpdatedAt: payload.statusUpdatedAt || entry.statusUpdatedAt
+                    currentInterestStatus: payload.currentInterestStatus || nextStatus,
+                    currentInterestLabel: payload.currentInterestLabel || entry.currentInterestLabel,
+                    currentInterestUpdatedAt: payload.updatedAt || entry.currentInterestUpdatedAt,
+                    screeningOpportunityId: payload.opportunityId || entry.screeningOpportunityId,
+                    screeningOpportunityStage: payload.stage || entry.screeningOpportunityStage,
+                    preliminaryInterestStatus:
+                      payload.preliminaryInterestStatus || entry.preliminaryInterestStatus,
+                    preliminaryInterestLabel:
+                      payload.preliminaryInterestLabel || entry.preliminaryInterestLabel
                   }
                 : entry
             )
           }
         };
       });
-      setStatus({ kind: "ok", text: "Health system status updated." });
+      setStatus({
+        kind: "ok",
+        text: source === "PRELIMINARY" ? "Preliminary Interest updated." : "Current Interest updated."
+      });
     } catch (error) {
       setStatus({
         kind: "error",
-        text: error instanceof Error ? error.message : "Failed to update screening status"
+        text: error instanceof Error ? error.message : "Failed to update screening interest"
       });
     } finally {
       setSavingStatusByHealthSystemId((current) => ({ ...current, [healthSystemId]: false }));
+    }
+  }
+
+  async function clearPreliminaryInterestOverride(healthSystemId: string) {
+    if (!item) return;
+
+    setSavingStatusByHealthSystemId((current) => ({ ...current, [healthSystemId]: true }));
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/screening-interest`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "CLEAR_PRELIMINARY_OVERRIDE",
+          healthSystemId
+        })
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to clear preliminary interest override");
+
+      setItem((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          screening: {
+            healthSystems: current.screening.healthSystems.map((entry) =>
+              entry.healthSystemId === healthSystemId
+                ? {
+                    ...entry,
+                    currentInterestStatus: payload.currentInterestStatus || entry.currentInterestStatus,
+                    currentInterestLabel: payload.currentInterestLabel || entry.currentInterestLabel,
+                    currentInterestUpdatedAt: payload.updatedAt || entry.currentInterestUpdatedAt,
+                    screeningOpportunityId: payload.opportunityId || entry.screeningOpportunityId,
+                    screeningOpportunityStage: payload.stage || entry.screeningOpportunityStage,
+                    preliminaryInterestStatus:
+                      payload.preliminaryInterestStatus || entry.preliminaryInterestStatus,
+                    preliminaryInterestLabel:
+                      payload.preliminaryInterestLabel || entry.preliminaryInterestLabel
+                  }
+                : entry
+            )
+          }
+        };
+      });
+      setStatus({ kind: "ok", text: "Preliminary Interest reset to the survey-derived status." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to clear preliminary interest override"
+      });
+    } finally {
+      setSavingStatusByHealthSystemId((current) => ({ ...current, [healthSystemId]: false }));
+    }
+  }
+
+  async function refreshScreeningOpportunities() {
+    if (!item) return;
+
+    setRefreshingScreeningOpportunities(true);
+    setStatus(null);
+
+    try {
+      const res = await fetch(`/api/pipeline/opportunities/${item.id}/screening-opportunities/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to refresh screening opportunities");
+      await loadItem();
+      setStatus({
+        kind: "ok",
+        text: `Refreshed survey-driven opportunities for ${payload.refreshedCount || 0} health systems.`
+      });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to refresh screening opportunities"
+      });
+    } finally {
+      setRefreshingScreeningOpportunities(false);
     }
   }
 
@@ -5499,9 +5653,19 @@ function stripCurrencyFormatting(value: string) {
               </button>
             ))}
             {screeningDetailView === "status" ? (
-              <button className="detail-tab screening-material-preview-action" type="button" onClick={openScreeningStatusPreview}>
-                Preview Format
-              </button>
+              <>
+                <button
+                  className="detail-tab screening-material-preview-action"
+                  type="button"
+                  onClick={() => void refreshScreeningOpportunities()}
+                  disabled={refreshingScreeningOpportunities}
+                >
+                  {refreshingScreeningOpportunities ? "Refreshing..." : "Refresh Survey Opportunities"}
+                </button>
+                <button className="detail-tab screening-material-preview-action" type="button" onClick={openScreeningStatusPreview}>
+                  Preview Format
+                </button>
+              </>
             ) : screeningDetailView === "quantitative" ? (
               <button
                 className="detail-tab screening-material-preview-action"
@@ -6497,9 +6661,9 @@ function stripCurrencyFormatting(value: string) {
                     <th scope="col">Organization</th>
                     <th scope="col">Attend? (#)</th>
                     <th scope="col">Preliminary Interest</th>
-                    <th scope="col">Attendees</th>
-                    <th scope="col">Relevant Feedback + Next Steps</th>
-                    <th scope="col">Status Update</th>
+                    <th scope="col">Current Interest</th>
+                    <th scope="col">Participants</th>
+                    <th scope="col">Member Feedback/Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -6508,22 +6672,16 @@ function stripCurrencyFormatting(value: string) {
                     const attendedCount = entry.participants.filter(
                       (participant) => participant.attendanceStatus === "ATTENDED"
                     ).length;
-                    const relevantFeedbackDraft =
-                      relevantFeedbackDraftByHealthSystemId[entry.healthSystemId] ?? entry.relevantFeedback ?? "";
-                    const statusUpdateDraft =
-                      statusUpdateDraftByHealthSystemId[entry.healthSystemId] ?? entry.statusUpdate ?? "";
+                    const memberFeedbackDraft =
+                      memberFeedbackStatusDraftByHealthSystemId[entry.healthSystemId] ?? entry.memberFeedbackStatus ?? "";
                     const savingFeedbackCell = Boolean(
-                      savingScreeningCellByKey[screeningCellKey(entry.healthSystemId, "RELEVANT_FEEDBACK")]
+                      savingScreeningCellByKey[screeningCellKey(entry.healthSystemId, "MEMBER_FEEDBACK_STATUS")]
                     );
-                    const savingStatusCell = Boolean(
-                      savingScreeningCellByKey[screeningCellKey(entry.healthSystemId, "STATUS_UPDATE")]
-                    );
-                    const isEditingRelevant =
+                    const isEditingMemberFeedback =
                       editingScreeningCell?.healthSystemId === entry.healthSystemId &&
-                      editingScreeningCell.field === "RELEVANT_FEEDBACK";
-                    const isEditingStatus =
-                      editingScreeningCell?.healthSystemId === entry.healthSystemId &&
-                      editingScreeningCell.field === "STATUS_UPDATE";
+                      editingScreeningCell.field === "MEMBER_FEEDBACK_STATUS";
+                    const currentInterestValue =
+                      entry.currentInterestStatus === "GREY" ? "" : entry.currentInterestStatus;
 
                     return (
                       <tr key={entry.healthSystemId}>
@@ -6538,24 +6696,67 @@ function stripCurrencyFormatting(value: string) {
                           )}
                         </td>
                         <td>
+                          <div className="screening-interest-stack">
+                            <span
+                              className={`screening-inline-status-select screening-inline-status-chip ${inlineInterestClassName(entry.preliminaryInterestStatus)}`}
+                            >
+                              {entry.preliminaryInterestLabel}
+                            </span>
+                            <p className="muted">
+                              {entry.preliminaryInterestAverageScore === null
+                                ? "No scored survey answers yet"
+                                : `Average flagged score: ${entry.preliminaryInterestAverageScore}/10`}
+                            </p>
+                            {entry.preliminaryInterestStatus !== "BLUE" ? (
+                              <button
+                                type="button"
+                                className="ghost small"
+                                onClick={() =>
+                                  void updateScreeningInterestStatus(entry.healthSystemId, "BLUE", "PRELIMINARY")
+                                }
+                                disabled={Boolean(savingStatusByHealthSystemId[entry.healthSystemId])}
+                              >
+                                Set Revisit Later
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="ghost small"
+                                onClick={() => void clearPreliminaryInterestOverride(entry.healthSystemId)}
+                                disabled={Boolean(savingStatusByHealthSystemId[entry.healthSystemId])}
+                              >
+                                Use Survey-Derived Status
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                        <td>
                           <select
-                            value={entry.status}
-                            className={`screening-inline-status-select ${inlineInterestClassName(entry.status)}`}
-                            onChange={(event) =>
-                              void updateScreeningStatus(entry.healthSystemId, event.target.value as ScreeningStatus)
-                            }
+                            value={currentInterestValue}
+                            className={`screening-inline-status-select ${inlineInterestClassName(entry.currentInterestStatus)}`}
+                            onChange={(event) => {
+                              const nextValue = event.target.value as Exclude<ScreeningInterestStatus, "GREY"> | "";
+                              if (!nextValue) return;
+                              void updateScreeningInterestStatus(entry.healthSystemId, nextValue);
+                            }}
                             disabled={Boolean(savingStatusByHealthSystemId[entry.healthSystemId])}
                           >
+                            <option value="" disabled>
+                              {entry.currentInterestLabel}
+                            </option>
                             {screeningInlineInterestOptions.map((option) => (
                               <option key={option.value} value={option.value}>
                                 {option.label}
                               </option>
                             ))}
                           </select>
+                          {entry.currentInterestUpdatedAt ? (
+                            <p className="muted">Updated {formatTimestamp(entry.currentInterestUpdatedAt)}</p>
+                          ) : null}
                         </td>
                         <td>
                           {individuals.length === 0 ? (
-                            <span className="muted">No attendees listed</span>
+                            <span className="muted">No participants listed</span>
                           ) : (
                             <div className="screening-attendee-list">
                               {individuals.map((individual) => (
@@ -6584,13 +6785,13 @@ function stripCurrencyFormatting(value: string) {
                           </p>
                         </td>
                         <td>
-                          {isEditingRelevant ? (
+                          {isEditingMemberFeedback ? (
                             <textarea
                               className="screening-inline-cell-editor"
                               autoFocus
-                              value={relevantFeedbackDraft}
+                              value={memberFeedbackDraft}
                               onChange={(event) =>
-                                setRelevantFeedbackDraftByHealthSystemId((current) => ({
+                                setMemberFeedbackStatusDraftByHealthSystemId((current) => ({
                                   ...current,
                                   [entry.healthSystemId]: event.target.value
                                 }))
@@ -6598,63 +6799,27 @@ function stripCurrencyFormatting(value: string) {
                               onBlur={() => {
                                 setEditingScreeningCell((current) =>
                                   current?.healthSystemId === entry.healthSystemId &&
-                                  current.field === "RELEVANT_FEEDBACK"
+                                  current.field === "MEMBER_FEEDBACK_STATUS"
                                     ? null
                                     : current
                                 );
-                                void saveScreeningCell(entry.healthSystemId, "RELEVANT_FEEDBACK");
+                                void saveScreeningCell(entry.healthSystemId, "MEMBER_FEEDBACK_STATUS");
                               }}
                             />
                           ) : (
                             <p
-                              className={`screening-inline-cell-text ${relevantFeedbackDraft.trim() ? "" : "empty"}`}
+                              className={`screening-inline-cell-text ${memberFeedbackDraft.trim() ? "" : "empty"}`}
                               onClick={() =>
                                 setEditingScreeningCell({
                                   healthSystemId: entry.healthSystemId,
-                                  field: "RELEVANT_FEEDBACK"
+                                  field: "MEMBER_FEEDBACK_STATUS"
                                 })
                               }
                             >
-                              {relevantFeedbackDraft.trim() || "Click to add relevant feedback + next steps"}
+                              {memberFeedbackDraft.trim() || "Click to add member feedback/status"}
                             </p>
                           )}
                           {savingFeedbackCell ? <p className="muted screening-inline-saving">Saving...</p> : null}
-                        </td>
-                        <td>
-                          {isEditingStatus ? (
-                            <textarea
-                              className="screening-inline-cell-editor"
-                              autoFocus
-                              value={statusUpdateDraft}
-                              onChange={(event) =>
-                                setStatusUpdateDraftByHealthSystemId((current) => ({
-                                  ...current,
-                                  [entry.healthSystemId]: event.target.value
-                                }))
-                              }
-                              onBlur={() => {
-                                setEditingScreeningCell((current) =>
-                                  current?.healthSystemId === entry.healthSystemId && current.field === "STATUS_UPDATE"
-                                    ? null
-                                    : current
-                                );
-                                void saveScreeningCell(entry.healthSystemId, "STATUS_UPDATE");
-                              }}
-                            />
-                          ) : (
-                            <p
-                              className={`screening-inline-cell-text ${statusUpdateDraft.trim() ? "" : "empty"}`}
-                              onClick={() =>
-                                setEditingScreeningCell({
-                                  healthSystemId: entry.healthSystemId,
-                                  field: "STATUS_UPDATE"
-                                })
-                              }
-                            >
-                              {statusUpdateDraft.trim() || "Click to add status update"}
-                            </p>
-                          )}
-                          {savingStatusCell ? <p className="muted screening-inline-saving">Saving...</p> : null}
                         </td>
                       </tr>
                     );
@@ -7667,6 +7832,25 @@ function stripCurrencyFormatting(value: string) {
                           />
                         </div>
                         <div className="detail-grid-full">
+                          <label>Member Feedback/Status</label>
+                          <textarea
+                            rows={4}
+                            value={draft.memberFeedbackStatus}
+                            onChange={(event) =>
+                              updateOpportunityDraft(selectedOpportunityForModal.id, {
+                                memberFeedbackStatus: event.target.value
+                              })
+                            }
+                            placeholder="Member feedback, status updates, or next-step context for this health system"
+                            onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
+                          />
+                          <p className="muted" style={{ marginTop: 6 }}>
+                            {selectedOpportunityForModal.healthSystem
+                              ? `This text also appears in the Screening Status Matrix row for ${selectedOpportunityForModal.healthSystem.name} and can be edited there.`
+                              : "This text also appears in the Screening Status Matrix after a health system is assigned to this opportunity."}
+                          </p>
+                        </div>
+                        <div className="detail-grid-full">
                           <label>Close Reason{closedStage ? " (required)" : ""}</label>
                           <textarea
                             rows={2}
@@ -8380,7 +8564,7 @@ function stripCurrencyFormatting(value: string) {
                   setAddAttendeeModal(null);
                 })();
               }}
-              placeholder="Type attendee name..."
+              placeholder="Type participant name..."
               emptyLabel="Start typing to find a contact"
               contactCreateContext={{
                 parentType: "healthSystem",
@@ -8393,7 +8577,7 @@ function stripCurrencyFormatting(value: string) {
               className="screening-attendee-lookup"
             />
             {addingAttendeeByHealthSystemId[addAttendeeModal.healthSystemId] ? (
-              <p className="muted">Adding attendee...</p>
+              <p className="muted">Adding participant...</p>
             ) : null}
           </div>
         </div>

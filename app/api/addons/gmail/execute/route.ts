@@ -16,11 +16,42 @@ import { attachEmailAsNotes, createCompanyFromForm, createContactFromForm, creat
 import { buildFallbackMessageMetadata, fetchMessageMetadata } from "@/lib/gmail-addon/gmail";
 import { findMatchesForMessage } from "@/lib/gmail-addon/match";
 import {
+  getAuthorizedScopes,
   getEventParameters,
   resolveAddonAction,
   resolveMessageTokens,
   type GmailAddonEvent
 } from "@/lib/gmail-addon/types";
+
+const GMAIL_MESSAGE_METADATA_SCOPE = "https://www.googleapis.com/auth/gmail.addons.current.message.metadata";
+
+function buildGoogleScopeRequest(scopes: string[]) {
+  return {
+    requesting_google_scopes: {
+      scopes
+    }
+  };
+}
+
+function shouldRequestMessageMetadataScope(args: {
+  messageId: string | null;
+  gmailAccessToken: string | null;
+  userOAuthToken: string | null;
+  authorizedScopes: string[];
+}) {
+  if (!args.messageId) return false;
+  if (!args.gmailAccessToken && !args.userOAuthToken) return false;
+  return !args.authorizedScopes.includes(GMAIL_MESSAGE_METADATA_SCOPE);
+}
+
+function isGmailScopeError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("insufficient authentication scopes") ||
+    message.includes("Insufficient Permission") ||
+    message.includes("PERMISSION_DENIED")
+  );
+}
 
 function resolveEndpointUrl(request: Request) {
   const configured = process.env.GMAIL_ADDON_ENDPOINT_AUDIENCE?.trim();
@@ -52,7 +83,19 @@ export async function POST(request: Request) {
     const parameters = getEventParameters(event);
 
     const tokenContext = resolveMessageTokens(event);
+    const authorizedScopes = getAuthorizedScopes(event);
     const messageId = tokenContext.messageId || parameters.messageId || null;
+
+    if (
+      shouldRequestMessageMetadataScope({
+        messageId,
+        gmailAccessToken: tokenContext.gmailAccessToken,
+        userOAuthToken: tokenContext.userOAuthToken,
+        authorizedScopes
+      })
+    ) {
+      return NextResponse.json(buildGoogleScopeRequest([GMAIL_MESSAGE_METADATA_SCOPE]));
+    }
 
     let message = buildFallbackMessageMetadata(messageId);
     try {
@@ -62,6 +105,10 @@ export async function POST(request: Request) {
         gmailAccessToken: tokenContext.gmailAccessToken
       });
     } catch (error) {
+      if (isGmailScopeError(error)) {
+        return NextResponse.json(buildGoogleScopeRequest([GMAIL_MESSAGE_METADATA_SCOPE]));
+      }
+
       console.error("gmail_addon_message_fetch_error", {
         error,
         messageId,

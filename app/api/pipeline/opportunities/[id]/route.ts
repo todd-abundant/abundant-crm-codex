@@ -9,6 +9,12 @@ import {
   phaseLabel,
   type PipelinePhase
 } from "@/lib/pipeline-opportunities";
+import {
+  averageScreeningScores,
+  derivePreliminaryInterestStatus,
+  mapOpportunityStageToCurrentInterest,
+  preliminaryInterestLabel
+} from "@/lib/screening-interest";
 
 function formatLocation(company: {
   headquartersCity: string | null;
@@ -348,6 +354,40 @@ export async function GET(
         }
       }
     });
+    const screeningSurveySubmissions = await prisma.companyScreeningSurveySubmission.findMany({
+      where: {
+        session: { companyId: id },
+        healthSystemId: { not: null }
+      },
+      orderBy: [{ submittedAt: "desc" }],
+      select: {
+        id: true,
+        healthSystemId: true,
+        participantName: true,
+        participantEmail: true,
+        submittedAt: true,
+        contact: {
+          select: {
+            id: true,
+            name: true,
+            title: true,
+            email: true
+          }
+        },
+        answers: {
+          where: {
+            sessionQuestion: {
+              drivesScreeningOpportunity: true
+            },
+            score: { not: null },
+            isSkipped: false
+          },
+          select: {
+            score: true
+          }
+        }
+      }
+    });
 
     const activeQuestionKeys = new Set<string>();
     const inactiveQuestionKeys = new Set<string>();
@@ -400,6 +440,10 @@ export async function GET(
     const loiByHealthSystemId = new Map(
       company.lois.map((entry) => [entry.healthSystemId, entry])
     );
+    const screeningOpportunityByHealthSystemId = new Map<
+      string,
+      (typeof company.opportunities)[number]
+    >();
     const screeningDocumentsByHealthSystemId = new Map<string, typeof company.screeningDocuments>();
     const screeningParticipantsByHealthSystemId = new Map<
       string,
@@ -429,7 +473,7 @@ export async function GET(
       string,
       Array<{
         id: string;
-        field: "RELEVANT_FEEDBACK" | "STATUS_UPDATE";
+        field: "RELEVANT_FEEDBACK" | "STATUS_UPDATE" | "MEMBER_FEEDBACK_STATUS";
         value: string;
         createdAt: Date;
         changedByUserId: string | null;
@@ -437,6 +481,30 @@ export async function GET(
         changedByUser: { id: string; name: string | null; email: string } | null;
       }>
     >();
+    const surveyRespondentsByHealthSystemId = new Map<
+      string,
+      Array<{
+        id: string;
+        contactId: string | null;
+        contactName: string;
+        contactTitle: string | null;
+        contactEmail: string | null;
+        submittedAt: Date;
+      }>
+    >();
+    const flaggedScoresByHealthSystemId = new Map<string, number[]>();
+
+    for (const opportunity of company.opportunities) {
+      if (opportunity.type !== "SCREENING_LOI" || !opportunity.healthSystem?.id) continue;
+      const existing = screeningOpportunityByHealthSystemId.get(opportunity.healthSystem.id);
+      const existingClosed =
+        existing?.stage === "CLOSED_WON" || existing?.stage === "CLOSED_LOST";
+      const nextClosed =
+        opportunity.stage === "CLOSED_WON" || opportunity.stage === "CLOSED_LOST";
+      if (!existing || (existingClosed && !nextClosed)) {
+        screeningOpportunityByHealthSystemId.set(opportunity.healthSystem.id, opportunity);
+      }
+    }
 
     for (const document of company.screeningDocuments) {
       const existing = screeningDocumentsByHealthSystemId.get(document.healthSystemId) || [];
@@ -476,6 +544,32 @@ export async function GET(
       screeningQualitativeFeedbackByHealthSystemId.set(entry.healthSystemId, existing);
     }
 
+    for (const submission of screeningSurveySubmissions) {
+      const healthSystemId = submission.healthSystemId;
+      if (!healthSystemId) continue;
+      const existing = surveyRespondentsByHealthSystemId.get(healthSystemId) || [];
+      existing.push({
+        id: submission.id,
+        contactId: submission.contact?.id || null,
+        contactName:
+          submission.contact?.name ||
+          submission.participantName ||
+          submission.participantEmail ||
+          "Survey participant",
+        contactTitle: submission.contact?.title || null,
+        contactEmail: submission.contact?.email || submission.participantEmail || null,
+        submittedAt: submission.submittedAt
+      });
+      surveyRespondentsByHealthSystemId.set(healthSystemId, existing);
+
+      const scores = flaggedScoresByHealthSystemId.get(healthSystemId) || [];
+      for (const answer of submission.answers) {
+        const score = toNumber(answer.score);
+        if (score !== null) scores.push(score);
+      }
+      flaggedScoresByHealthSystemId.set(healthSystemId, scores);
+    }
+
     for (const change of company.screeningCellChanges) {
       const existing = screeningCellChangesByHealthSystemId.get(change.healthSystemId) || [];
       existing.push({
@@ -492,6 +586,7 @@ export async function GET(
 
     const screeningHealthSystems = screeningMatrixHealthSystems.map((healthSystem) => {
       const loi = loiByHealthSystemId.get(healthSystem.id);
+      const screeningOpportunity = screeningOpportunityByHealthSystemId.get(healthSystem.id) || null;
       const cellChanges = screeningCellChangesByHealthSystemId.get(healthSystem.id) || [];
       const relevantFeedbackHistory = cellChanges
         .filter((change) => change.field === "RELEVANT_FEEDBACK")
@@ -515,21 +610,103 @@ export async function GET(
             change.changedByName || change.changedByUser?.name || change.changedByUser?.email || "Unknown user"
         }))
         .slice(0, 25);
+      const memberFeedbackStatusHistory = cellChanges
+        .filter((change) => change.field === "MEMBER_FEEDBACK_STATUS")
+        .map((change) => ({
+          id: change.id,
+          value: change.value,
+          changedAt: change.createdAt,
+          changedByUserId: change.changedByUserId,
+          changedByName:
+            change.changedByName || change.changedByUser?.name || change.changedByUser?.email || "Unknown user"
+        }))
+        .slice(0, 25);
       const fallbackRelevantFeedback =
         (screeningQualitativeFeedbackByHealthSystemId.get(healthSystem.id) || [])[0]?.feedback ||
         (screeningQuantitativeFeedbackByHealthSystemId.get(healthSystem.id) || [])[0]?.notes ||
         "";
       const fallbackStatusUpdate = latestNoteEntry(loi?.notes);
+      const legacyMemberFeedback = [relevantFeedbackHistory[0]?.value, statusUpdateHistory[0]?.value]
+        .map((value) => (value || "").trim())
+        .filter(Boolean)
+        .join("\n\n");
+      const memberFeedbackStatus =
+        screeningOpportunity?.memberFeedbackStatus ||
+        memberFeedbackStatusHistory[0]?.value ||
+        legacyMemberFeedback ||
+        fallbackRelevantFeedback ||
+        fallbackStatusUpdate ||
+        "";
+      const preliminaryAverageScore = averageScreeningScores(
+        flaggedScoresByHealthSystemId.get(healthSystem.id) || []
+      );
+      const preliminaryInterestStatus = derivePreliminaryInterestStatus({
+        averageScore: preliminaryAverageScore,
+        overrideStatus:
+          screeningOpportunity?.preliminaryInterestOverride === "BLUE"
+            ? "BLUE"
+            : null
+      });
+      const currentInterest = mapOpportunityStageToCurrentInterest(screeningOpportunity?.stage || null);
+      const participantRoster = new Map<
+        string,
+        {
+          id: string;
+          contactId: string | null;
+          contactName: string;
+          contactTitle: string | null;
+        }
+      >();
+      for (const participant of screeningParticipantsByHealthSystemId.get(healthSystem.id) || []) {
+        const key = participant.contactId || `event:${participant.id}`;
+        participantRoster.set(key, {
+          id: participant.id,
+          contactId: participant.contactId,
+          contactName: participant.contactName,
+          contactTitle: participant.contactTitle
+        });
+      }
+      for (const respondent of surveyRespondentsByHealthSystemId.get(healthSystem.id) || []) {
+        const key = respondent.contactId || respondent.contactEmail || `survey:${respondent.id}`;
+        participantRoster.set(key, {
+          id: respondent.id,
+          contactId: respondent.contactId,
+          contactName: respondent.contactName,
+          contactTitle: respondent.contactTitle
+        });
+      }
+      for (const link of screeningOpportunity?.contacts || []) {
+        const key = link.contact.id;
+        participantRoster.set(key, {
+          id: link.id,
+          contactId: link.contact.id,
+          contactName: link.contact.name,
+          contactTitle: link.contact.title
+        });
+      }
       return {
         healthSystemId: healthSystem.id,
         healthSystemName: healthSystem.name,
         status: loi?.status || "NOT_STARTED",
         notes: loi?.notes || "",
         statusUpdatedAt: loi?.statusUpdatedAt || null,
+        preliminaryInterestStatus,
+        preliminaryInterestLabel: preliminaryInterestLabel(preliminaryInterestStatus),
+        preliminaryInterestAverageScore: preliminaryAverageScore,
+        currentInterestStatus: currentInterest.status,
+        currentInterestLabel: currentInterest.label,
+        currentInterestUpdatedAt: screeningOpportunity?.updatedAt || loi?.statusUpdatedAt || null,
+        screeningOpportunityId: screeningOpportunity?.id || null,
+        screeningOpportunityStage: screeningOpportunity?.stage || null,
+        memberFeedbackStatus,
+        memberFeedbackStatusHistory,
         relevantFeedback: relevantFeedbackHistory[0]?.value || fallbackRelevantFeedback,
         statusUpdate: statusUpdateHistory[0]?.value || fallbackStatusUpdate,
         relevantFeedbackHistory,
         statusUpdateHistory,
+        participantRoster: Array.from(participantRoster.values()).sort((left, right) =>
+          left.contactName.localeCompare(right.contactName, undefined, { sensitivity: "base" })
+        ),
         participants: (screeningParticipantsByHealthSystemId.get(healthSystem.id) || []).map((participant) => ({
           id: participant.id,
           contactId: participant.contactId,
@@ -628,6 +805,7 @@ export async function GET(
           contractPriceUsd: opportunity.contractPriceUsd,
           durationDays: computeDurationDays(opportunity.createdAt, opportunity.closedAt),
           likelihoodPercent: opportunity.likelihoodPercent,
+          memberFeedbackStatus: opportunity.memberFeedbackStatus,
           nextSteps: opportunity.nextSteps,
           notes: opportunity.notes,
           closeReason: opportunity.closeReason,

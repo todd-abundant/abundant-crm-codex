@@ -12,6 +12,13 @@ import {
   type MarketLandscapePayload
 } from "@/lib/market-landscape";
 import { parseDateInput } from "@/lib/date-parse";
+import {
+  averageScreeningScores,
+  derivePreliminaryInterestStatus,
+  mapOpportunityStageToCurrentInterest,
+  preliminaryInterestLabel,
+  type ScreeningInterestStatus
+} from "@/lib/screening-interest";
 
 export type ReportSectionMode = "AUTO" | "OVERRIDE";
 
@@ -47,12 +54,23 @@ type VentureCriteriaRow = {
 type ScreeningHealthSystemSummary = {
   id: string;
   name: string;
-  status: "NOT_STARTED" | "PENDING" | "NEGOTIATING" | "SIGNED" | "DECLINED";
-  statusUpdatedAt: string | null;
+  preliminaryInterestStatus: ScreeningInterestStatus;
+  preliminaryInterestLabel: string;
+  preliminaryInterestAverageScore: number | null;
+  currentInterestStatus: ScreeningInterestStatus;
+  currentInterestLabel: string;
+  currentInterestUpdatedAt: string | null;
   participantCount: number;
   attendedCount: number;
-  relevantFeedback: string | null;
-  statusUpdate: string | null;
+  memberFeedbackStatus: string | null;
+};
+
+type ScreeningInterestCounts = {
+  grey: number;
+  red: number;
+  yellow: number;
+  green: number;
+  blue: number;
 };
 
 type QuantitativeCategorySummary = {
@@ -118,13 +136,8 @@ type ScreeningReportSnapshot = BaseReportSnapshot & {
   allianceHealthSystems: ScreeningHealthSystemSummary[];
   quantitativeSummary: QuantitativeCategorySummary[];
   qualitativeThemes: QualitativeThemeSummary[];
-  loiCounts: {
-    notStarted: number;
-    pending: number;
-    negotiating: number;
-    signed: number;
-    declined: number;
-  };
+  preliminaryInterestCounts: ScreeningInterestCounts;
+  currentInterestCounts: ScreeningInterestCounts;
 };
 
 type OpportunityReportSnapshot = BaseReportSnapshot & {
@@ -328,18 +341,11 @@ function percent(value: number | null | undefined) {
   return `${Math.max(0, Math.min(100, Math.round(value)))}%`;
 }
 
-function statusLabel(status: ScreeningHealthSystemSummary["status"]) {
-  if (status === "PENDING") return "Evaluating";
-  if (status === "NEGOTIATING") return "Negotiating";
-  if (status === "SIGNED") return "Signed";
-  if (status === "DECLINED") return "Declined";
-  return "Not Started";
-}
-
-function statusDotClass(status: ScreeningHealthSystemSummary["status"]) {
-  if (status === "SIGNED" || status === "NEGOTIATING") return "green";
-  if (status === "PENDING") return "yellow";
-  if (status === "DECLINED") return "red";
+function interestStatusDotClass(status: ScreeningInterestStatus) {
+  if (status === "GREEN") return "green";
+  if (status === "YELLOW") return "yellow";
+  if (status === "RED") return "red";
+  if (status === "BLUE") return "blue";
   return "grey";
 }
 
@@ -394,20 +400,24 @@ function assessmentLabel(value: VentureCriteriaRow["assessment"]) {
   return "Grey";
 }
 
-function loiStatusCounts(rows: ScreeningHealthSystemSummary[]) {
+function screeningInterestCounts(
+  rows: ScreeningHealthSystemSummary[],
+  key: "preliminaryInterestStatus" | "currentInterestStatus"
+) {
   const counters = {
-    notStarted: 0,
-    pending: 0,
-    negotiating: 0,
-    signed: 0,
-    declined: 0
+    grey: 0,
+    red: 0,
+    yellow: 0,
+    green: 0,
+    blue: 0
   };
   for (const row of rows) {
-    if (row.status === "PENDING") counters.pending += 1;
-    else if (row.status === "NEGOTIATING") counters.negotiating += 1;
-    else if (row.status === "SIGNED") counters.signed += 1;
-    else if (row.status === "DECLINED") counters.declined += 1;
-    else counters.notStarted += 1;
+    const status = row[key];
+    if (status === "GREEN") counters.green += 1;
+    else if (status === "YELLOW") counters.yellow += 1;
+    else if (status === "RED") counters.red += 1;
+    else if (status === "BLUE") counters.blue += 1;
+    else counters.grey += 1;
   }
   return counters;
 }
@@ -461,11 +471,11 @@ function toSnapshotNotes(
 
 function extractLatestCellText(
   changes: Array<{
-    field: "RELEVANT_FEEDBACK" | "STATUS_UPDATE";
+    field: "RELEVANT_FEEDBACK" | "STATUS_UPDATE" | "MEMBER_FEEDBACK_STATUS";
     value: string;
     createdAt: Date;
   }>,
-  field: "RELEVANT_FEEDBACK" | "STATUS_UPDATE"
+  field: "RELEVANT_FEEDBACK" | "STATUS_UPDATE" | "MEMBER_FEEDBACK_STATUS"
 ) {
   const match = changes.find((entry) => entry.field === field);
   return match ? htmlToPlainText(match.value) : null;
@@ -475,7 +485,7 @@ async function buildReportSnapshot(
   companyId: string,
   type: CompanyReportType
 ): Promise<CompanyReportSourceSnapshot> {
-  const [company, notes, allianceHealthSystems] = await Promise.all([
+  const [company, notes, allianceHealthSystems, screeningSurveySubmissions] = await Promise.all([
     prisma.company.findUnique({
       where: { id: companyId },
       include: {
@@ -500,7 +510,7 @@ async function buildReportSnapshot(
               }
             },
             contacts: {
-              select: { id: true }
+              select: { contactId: true }
             }
           }
         },
@@ -508,6 +518,8 @@ async function buildReportSnapshot(
           include: {
             participants: {
               select: {
+                id: true,
+                contactId: true,
                 healthSystemId: true,
                 attendanceStatus: true
               }
@@ -580,6 +592,29 @@ async function buildReportSnapshot(
         name: true
       },
       orderBy: [{ name: "asc" }]
+    }),
+    prisma.companyScreeningSurveySubmission.findMany({
+      where: {
+        session: { companyId },
+        healthSystemId: { not: null }
+      },
+      select: {
+        healthSystemId: true,
+        contactId: true,
+        participantEmail: true,
+        answers: {
+          where: {
+            sessionQuestion: {
+              drivesScreeningOpportunity: true
+            },
+            isSkipped: false,
+            score: { not: null }
+          },
+          select: {
+            score: true
+          }
+        }
+      }
     })
   ]);
 
@@ -602,16 +637,24 @@ async function buildReportSnapshot(
   };
 
   const attendanceBySystemId = new Map<string, { total: number; attended: number }>();
+  const participantRosterBySystemId = new Map<string, Set<string>>();
   for (const event of company.screeningEvents) {
     for (const participant of event.participants) {
       const current = attendanceBySystemId.get(participant.healthSystemId) || { total: 0, attended: 0 };
       current.total += 1;
       if (participant.attendanceStatus === "ATTENDED") current.attended += 1;
       attendanceBySystemId.set(participant.healthSystemId, current);
+
+      const roster = participantRosterBySystemId.get(participant.healthSystemId) || new Set<string>();
+      roster.add(participant.contactId || `event:${participant.id}`);
+      participantRosterBySystemId.set(participant.healthSystemId, roster);
     }
   }
 
-  const changesBySystemId = new Map<string, Array<{ field: "RELEVANT_FEEDBACK" | "STATUS_UPDATE"; value: string; createdAt: Date }>>();
+  const changesBySystemId = new Map<
+    string,
+    Array<{ field: "RELEVANT_FEEDBACK" | "STATUS_UPDATE" | "MEMBER_FEEDBACK_STATUS"; value: string; createdAt: Date }>
+  >();
   for (const change of company.screeningCellChanges) {
     const existing = changesBySystemId.get(change.healthSystemId) || [];
     existing.push({
@@ -636,9 +679,43 @@ async function buildReportSnapshot(
     qualitativeBySystemId.set(entry.healthSystemId, existing);
   }
 
-  const loiBySystemId = new Map(company.lois.map((entry) => [entry.healthSystemId, entry] as const));
+  const screeningOpportunityBySystemId = new Map<string, (typeof company.opportunities)[number]>();
+  for (const opportunity of company.opportunities) {
+    if (opportunity.type !== "SCREENING_LOI" || !opportunity.healthSystem?.id) continue;
+    const existing = screeningOpportunityBySystemId.get(opportunity.healthSystem.id);
+    const existingClosed = existing?.stage === "CLOSED_WON" || existing?.stage === "CLOSED_LOST";
+    const nextClosed = opportunity.stage === "CLOSED_WON" || opportunity.stage === "CLOSED_LOST";
+    if (!existing || (existingClosed && !nextClosed)) {
+      screeningOpportunityBySystemId.set(opportunity.healthSystem.id, opportunity);
+    }
+  }
+
+  const flaggedScoresBySystemId = new Map<string, number[]>();
+  for (const submission of screeningSurveySubmissions) {
+    if (!submission.healthSystemId) continue;
+
+    const roster = participantRosterBySystemId.get(submission.healthSystemId) || new Set<string>();
+    roster.add(submission.contactId || submission.participantEmail || `submission:${roster.size + 1}`);
+    participantRosterBySystemId.set(submission.healthSystemId, roster);
+
+    const scores = flaggedScoresBySystemId.get(submission.healthSystemId) || [];
+    for (const answer of submission.answers) {
+      const score = Number(answer.score);
+      if (Number.isFinite(score)) scores.push(score);
+    }
+    flaggedScoresBySystemId.set(submission.healthSystemId, scores);
+  }
+
+  for (const opportunity of company.opportunities) {
+    if (opportunity.type !== "SCREENING_LOI" || !opportunity.healthSystem?.id) continue;
+    const roster = participantRosterBySystemId.get(opportunity.healthSystem.id) || new Set<string>();
+    for (const link of opportunity.contacts) {
+      roster.add(link.contactId);
+    }
+    participantRosterBySystemId.set(opportunity.healthSystem.id, roster);
+  }
+
   const allScreeningSystemIds = new Set<string>(allianceHealthSystems.map((entry) => entry.id));
-  for (const entry of company.lois) allScreeningSystemIds.add(entry.healthSystemId);
   for (const entry of company.screeningQuantitativeFeedback) allScreeningSystemIds.add(entry.healthSystemId);
   for (const entry of company.screeningQualitativeFeedback) allScreeningSystemIds.add(entry.healthSystemId);
   for (const event of company.screeningEvents) {
@@ -646,37 +723,63 @@ async function buildReportSnapshot(
       allScreeningSystemIds.add(participant.healthSystemId);
     }
   }
+  for (const submission of screeningSurveySubmissions) {
+    if (submission.healthSystemId) allScreeningSystemIds.add(submission.healthSystemId);
+  }
+  for (const opportunity of company.opportunities) {
+    if (opportunity.type === "SCREENING_LOI" && opportunity.healthSystem?.id) {
+      allScreeningSystemIds.add(opportunity.healthSystem.id);
+    }
+  }
 
   const screeningSystemNameById = new Map<string, string>();
   for (const entry of allianceHealthSystems) screeningSystemNameById.set(entry.id, entry.name);
   for (const entry of company.lois) screeningSystemNameById.set(entry.healthSystemId, entry.healthSystem.name);
+  for (const entry of company.opportunities) {
+    if (entry.type === "SCREENING_LOI" && entry.healthSystem?.id) {
+      screeningSystemNameById.set(entry.healthSystem.id, entry.healthSystem.name);
+    }
+  }
 
   const allianceSummaries = Array.from(allScreeningSystemIds)
     .map((systemId) => {
-      const loi = loiBySystemId.get(systemId);
+      const screeningOpportunity = screeningOpportunityBySystemId.get(systemId) || null;
       const attendance = attendanceBySystemId.get(systemId) || { total: 0, attended: 0 };
       const changes = changesBySystemId.get(systemId) || [];
       const quantitativeRows = quantitativeBySystemId.get(systemId) || [];
       const qualitativeRows = qualitativeBySystemId.get(systemId) || [];
-      const relevantFeedback =
-        extractLatestCellText(changes, "RELEVANT_FEEDBACK") ||
+      const preliminaryInterestAverageScore = averageScreeningScores(flaggedScoresBySystemId.get(systemId) || []);
+      const preliminaryInterestStatus = derivePreliminaryInterestStatus({
+        averageScore: preliminaryInterestAverageScore,
+        overrideStatus:
+          screeningOpportunity?.preliminaryInterestOverride === "BLUE"
+            ? "BLUE"
+            : null
+      });
+      const currentInterest = mapOpportunityStageToCurrentInterest(screeningOpportunity?.stage || null);
+      const memberFeedbackStatus =
+        screeningOpportunity?.memberFeedbackStatus ||
+        extractLatestCellText(changes, "MEMBER_FEEDBACK_STATUS") ||
+        [extractLatestCellText(changes, "RELEVANT_FEEDBACK"), extractLatestCellText(changes, "STATUS_UPDATE")]
+          .filter(Boolean)
+          .join("\n\n") ||
         htmlToPlainText(qualitativeRows[0]?.feedback) ||
         htmlToPlainText(quantitativeRows[0]?.notes) ||
         null;
-      const statusUpdate =
-        extractLatestCellText(changes, "STATUS_UPDATE") ||
-        htmlToPlainText(loi?.notes) ||
-        null;
+      const participantCount = participantRosterBySystemId.get(systemId)?.size || 0;
 
       return {
         id: systemId,
         name: screeningSystemNameById.get(systemId) || "Alliance Member",
-        status: loi?.status || "NOT_STARTED",
-        statusUpdatedAt: formatDateIso(loi?.statusUpdatedAt),
-        participantCount: attendance.total,
+        preliminaryInterestStatus,
+        preliminaryInterestLabel: preliminaryInterestLabel(preliminaryInterestStatus),
+        preliminaryInterestAverageScore,
+        currentInterestStatus: currentInterest.status,
+        currentInterestLabel: currentInterest.label,
+        currentInterestUpdatedAt: formatDateIso(screeningOpportunity?.updatedAt),
+        participantCount,
         attendedCount: attendance.attended,
-        relevantFeedback,
-        statusUpdate
+        memberFeedbackStatus
       } satisfies ScreeningHealthSystemSummary;
     })
     .sort((left, right) => left.name.localeCompare(right.name));
@@ -730,7 +833,8 @@ async function buildReportSnapshot(
       allianceHealthSystems: allianceSummaries,
       quantitativeSummary,
       qualitativeThemes,
-      loiCounts: loiStatusCounts(allianceSummaries)
+      preliminaryInterestCounts: screeningInterestCounts(allianceSummaries, "preliminaryInterestStatus"),
+      currentInterestCounts: screeningInterestCounts(allianceSummaries, "currentInterestStatus")
     };
   }
 
@@ -941,7 +1045,9 @@ const reportTemplates: Record<CompanyReportType, ReportTemplateDefinition> = {
             `<p><strong>Alliance Systems Tracked:</strong> ${screening.allianceHealthSystems.length}</p>`,
             `<p><strong>Target LOIs:</strong> ${screening.targetLoiCount}</p>`,
             `<p><strong>Webinar Date 1:</strong> ${escapeHtml(formatDate(screening.screeningWebinarDate1At))}</p>`,
-            `<p><strong>Webinar Date 2:</strong> ${escapeHtml(formatDate(screening.screeningWebinarDate2At))}</p>`
+            `<p><strong>Webinar Date 2:</strong> ${escapeHtml(formatDate(screening.screeningWebinarDate2At))}</p>`,
+            `<p><strong>Preliminary Green / Yellow:</strong> ${screening.preliminaryInterestCounts.green} / ${screening.preliminaryInterestCounts.yellow}</p>`,
+            `<p><strong>Current Green / Yellow / Blue:</strong> ${screening.currentInterestCounts.green} / ${screening.currentInterestCounts.yellow} / ${screening.currentInterestCounts.blue}</p>`
           ].join("");
         }
       },
@@ -954,11 +1060,15 @@ const reportTemplates: Record<CompanyReportType, ReportTemplateDefinition> = {
           const screening = screeningSnapshot(snapshot);
           const rows = screening.allianceHealthSystems.map((entry) => [
             entry.name,
-            statusLabel(entry.status),
+            entry.preliminaryInterestLabel,
+            entry.currentInterestLabel,
             `${entry.attendedCount}/${entry.participantCount}`,
-            entry.statusUpdate || "No status update"
+            ensureText(entry.memberFeedbackStatus)
           ]);
-          return tableHtml(["Health System", "LOI Status", "Attended/Tracked", "Status Update"], rows);
+          return tableHtml(
+            ["Health System", "Preliminary Interest", "Current Interest", "Attended/Participants", "Member Feedback/Status"],
+            rows
+          );
         }
       },
       {
@@ -992,21 +1102,26 @@ const reportTemplates: Record<CompanyReportType, ReportTemplateDefinition> = {
         }
       },
       {
-        id: "loi-progression",
-        label: "LOI Progression",
-        description: "Current LOI pipeline status distribution.",
-        autoTitle: () => "LOI Progression",
+        id: "interest-summary",
+        label: "Interest Summary",
+        description: "Preliminary and current interest distribution across alliance members.",
+        autoTitle: () => "Interest Summary",
         autoBodyHtml: (snapshot) => {
           const screening = screeningSnapshot(snapshot);
-          const totals = screening.loiCounts;
+          const preliminary = screening.preliminaryInterestCounts;
+          const current = screening.currentInterestCounts;
           return [
             `<div class="chip-row">`,
-            `<span class="chip ${statusDotClass("NOT_STARTED")}">Not Started: ${totals.notStarted}</span>`,
-            `<span class="chip ${statusDotClass("PENDING")}">Pending: ${totals.pending}</span>`,
-            `<span class="chip ${statusDotClass("NEGOTIATING")}">Negotiating: ${totals.negotiating}</span>`,
-            `<span class="chip ${statusDotClass("SIGNED")}">Signed: ${totals.signed}</span>`,
-            `<span class="chip ${statusDotClass("DECLINED")}">Declined: ${totals.declined}</span>`,
-            `</div>`
+            `<span class="chip ${interestStatusDotClass("GREY")}">Prelim Grey: ${preliminary.grey}</span>`,
+            `<span class="chip ${interestStatusDotClass("RED")}">Prelim Red: ${preliminary.red}</span>`,
+            `<span class="chip ${interestStatusDotClass("YELLOW")}">Prelim Yellow: ${preliminary.yellow}</span>`,
+            `<span class="chip ${interestStatusDotClass("GREEN")}">Prelim Green: ${preliminary.green}</span>`,
+            `<span class="chip ${interestStatusDotClass("BLUE")}">Current Blue: ${current.blue}</span>`,
+            `<span class="chip ${interestStatusDotClass("GREEN")}">Current Green: ${current.green}</span>`,
+            `<span class="chip ${interestStatusDotClass("YELLOW")}">Current Yellow: ${current.yellow}</span>`,
+            `<span class="chip ${interestStatusDotClass("RED")}">Current Red: ${current.red}</span>`,
+            `</div>`,
+            `<p><strong>Current Grey:</strong> ${current.grey}</p>`
           ].join("");
         }
       },
@@ -1017,17 +1132,16 @@ const reportTemplates: Record<CompanyReportType, ReportTemplateDefinition> = {
         autoTitle: () => "Recommendation",
         autoBodyHtml: (snapshot) => {
           const screening = screeningSnapshot(snapshot);
-          const signed = screening.loiCounts.signed;
-          const negotiating = screening.loiCounts.negotiating;
-          const pending = screening.loiCounts.pending;
+          const current = screening.currentInterestCounts;
+          const preliminary = screening.preliminaryInterestCounts;
           const recommendation =
-            signed >= screening.targetLoiCount
+            current.green >= screening.targetLoiCount
               ? "Advance immediately to commercial acceleration planning."
-              : signed + negotiating >= screening.targetLoiCount
-                ? "Prioritize negotiations to close remaining LOIs and finalize readiness."
-                : pending > 0
+              : current.green + current.yellow >= screening.targetLoiCount
+                ? "Prioritize active health system opportunities and convert current interest into LOIs."
+                : preliminary.green + preliminary.yellow > 0
                   ? "Continue targeted screening follow-ups before acceleration."
-                  : "Reassess fit and reset screening strategy.";
+                : "Reassess fit and reset screening strategy.";
           return [
             `<p>${escapeHtml(recommendation)}</p>`,
             `<h4>Next Step</h4>${multilineParagraphHtml(screening.nextStep)}`
@@ -1408,6 +1522,7 @@ function renderReportHtml(input: {
       .chip.yellow { background: #fff8df; border-color: #f2dfa2; }
       .chip.red { background: #fdecef; border-color: #f1c2cb; }
       .chip.grey { background: #edf0f4; border-color: #d3dae4; }
+      .chip.blue { background: #e8f0ff; border-color: #bfd4ff; }
       .report-footer {
         margin-top: 14px;
         text-align: right;

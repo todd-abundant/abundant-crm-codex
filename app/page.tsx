@@ -462,7 +462,12 @@ export default async function HomePage() {
     if (!company) continue;
     const companyType = normalizeCompanyType(company.companyType);
     const actorName = resolveActorName(change.changedByName, change.changedByUser);
-    const fieldLabel = change.field === "STATUS_UPDATE" ? "status update" : "relevant feedback";
+    const fieldLabel =
+      change.field === "STATUS_UPDATE"
+        ? "status update"
+        : change.field === "MEMBER_FEEDBACK_STATUS"
+          ? "member feedback/status"
+          : "relevant feedback";
     const valueSnippet = truncate(stripRichText(change.value), 140);
     const scopeLabel = change.healthSystem?.name
       ? `${company.name} (${change.healthSystem.name})`

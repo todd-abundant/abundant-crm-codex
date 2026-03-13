@@ -1609,9 +1609,6 @@ export function AdminSurveyManagement() {
           if (questionIndex === index) {
             return { ...question, drivesScreeningOpportunity: enabled };
           }
-          if (enabled && question.drivesScreeningOpportunity) {
-            return { ...question, drivesScreeningOpportunity: false };
-          }
           return question;
         })
       };
@@ -2176,7 +2173,7 @@ export function AdminSurveyManagement() {
                                   disabled={questionEditingLocked}
                                 />
                                 <label htmlFor={`screening-opportunity-driver-${question.questionId}-${globalQuestionIndex}`}>
-                                  Auto-create Screening opportunity at score 7+
+                                  Include in Preliminary Interest rollup / survey-driven opportunity creation
                                 </label>
                                 <input
                                   id={`screening-opportunity-driver-${question.questionId}-${globalQuestionIndex}`}

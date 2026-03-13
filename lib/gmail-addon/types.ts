@@ -124,6 +124,16 @@ export function resolveMessageTokens(event: GmailAddonEvent) {
   };
 }
 
+export function getAuthorizedScopes(event: GmailAddonEvent): string[] {
+  const scopes = event.authorizationEventObject?.authorizedScopes;
+  if (!Array.isArray(scopes)) return [];
+
+  return scopes
+    .filter((scope): scope is string => typeof scope === "string")
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+}
+
 export function toNullableTrimmed(value: string | null | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;

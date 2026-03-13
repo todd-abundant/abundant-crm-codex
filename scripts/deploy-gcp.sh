@@ -32,7 +32,7 @@ Optional environment variables:
   ALLOW_UNAUTHENTICATED                true/false (default: true).
   OPENAI_MODEL                         Default OPENAI_MODEL env var on service.
   OPENAI_SEARCH_MODEL                  Default OPENAI_SEARCH_MODEL env var on service.
-  GMAIL_ADDON_ENABLED                  Enable Gmail add-on endpoint behavior (default: false).
+  GMAIL_ADDON_ENABLED                  Enable Gmail add-on endpoint behavior (default: preserve current service value, else false).
   GOOGLE_OAUTH_REDIRECT_URI            Optional explicit redirect URI.
 EOF
   exit 0
@@ -117,6 +117,28 @@ check_secret_exists() {
   gcloud secrets describe "$secret_name" --project "$PROJECT_ID" >/dev/null 2>&1
 }
 
+read_existing_service_env_value() {
+  local env_name="$1"
+
+  gcloud run services describe "$SERVICE_NAME" \
+    --project "$PROJECT_ID" \
+    --region "$REGION" \
+    --format='yaml(spec.template.spec.containers[0].env)' 2>/dev/null | \
+    awk -v target="$env_name" '
+      $1 == "-" && $2 == "name:" {
+        current = $3
+        next
+      }
+      $1 == "value:" && current == target {
+        value = $2
+        gsub(/^'\''/, "", value)
+        gsub(/'\''$/, "", value)
+        print value
+        exit
+      }
+    '
+}
+
 SECRET_MAPPINGS=()
 add_required_secret_mapping() {
   local env_var="$1"
@@ -196,11 +218,23 @@ add_optional_secret_mapping "GMAIL_ADDON_ENDPOINT_AUDIENCE" "$GMAIL_ADDON_ENDPOI
 add_optional_secret_mapping "GMAIL_ADDON_SERVICE_ACCOUNT_EMAIL" "$GMAIL_ADDON_SERVICE_ACCOUNT_EMAIL_SECRET_NAME"
 add_optional_secret_mapping "GMAIL_ADDON_OAUTH_CLIENT_ID" "$GMAIL_ADDON_OAUTH_CLIENT_ID_SECRET_NAME"
 
+GMAIL_ADDON_ENABLED_VALUE="${GMAIL_ADDON_ENABLED:-}"
+if [ -z "$GMAIL_ADDON_ENABLED_VALUE" ]; then
+  GMAIL_ADDON_ENABLED_VALUE="$(read_existing_service_env_value "GMAIL_ADDON_ENABLED" || true)"
+  if [ -n "$GMAIL_ADDON_ENABLED_VALUE" ]; then
+    log "Preserving existing GMAIL_ADDON_ENABLED=${GMAIL_ADDON_ENABLED_VALUE} from Cloud Run service."
+  fi
+fi
+
+if [ -z "$GMAIL_ADDON_ENABLED_VALUE" ]; then
+  GMAIL_ADDON_ENABLED_VALUE="false"
+fi
+
 ENV_VARS=(
   "NODE_ENV=production"
   "OPENAI_MODEL=${OPENAI_MODEL:-gpt-4.1-mini}"
   "OPENAI_SEARCH_MODEL=${OPENAI_SEARCH_MODEL:-gpt-4o-mini}"
-  "GMAIL_ADDON_ENABLED=${GMAIL_ADDON_ENABLED:-false}"
+  "GMAIL_ADDON_ENABLED=${GMAIL_ADDON_ENABLED_VALUE}"
 )
 
 if [ -n "${GOOGLE_OAUTH_REDIRECT_URI:-}" ]; then

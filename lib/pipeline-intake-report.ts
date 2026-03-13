@@ -68,6 +68,9 @@ type ScreeningSummarySource = {
   healthSystemName: string;
   status: string | null;
   statusUpdatedAt: string | Date | null;
+  preliminaryInterest?: string | null;
+  currentInterest?: string | null;
+  memberFeedbackStatus?: string | null;
   relevantFeedback: string | null;
   statusUpdate: string | null;
 };
@@ -279,6 +282,9 @@ function formatScreeningSummary(summaries: ScreeningSummarySource[]) {
       (entry) =>
         Boolean(entry.healthSystemName.trim()) ||
         Boolean(entry.status) ||
+        Boolean(entry.preliminaryInterest) ||
+        Boolean(entry.currentInterest) ||
+        Boolean(entry.memberFeedbackStatus) ||
         Boolean(entry.relevantFeedback) ||
         Boolean(entry.statusUpdate)
     )
@@ -286,10 +292,16 @@ function formatScreeningSummary(summaries: ScreeningSummarySource[]) {
       const status = ensureText(entry.status);
       const latest = [];
       if (entry.statusUpdatedAt) latest.push(`updated ${formatDate(entry.statusUpdatedAt)}`);
+      const currentInterest = normalizeText(entry.currentInterest);
+      const preliminaryInterest = normalizeText(entry.preliminaryInterest);
+      const memberFeedbackStatus = normalizeText(entry.memberFeedbackStatus);
       const lineParts = [
         entry.healthSystemName || "Unknown alliance member",
         `status ${status}`,
+        preliminaryInterest ? `preliminary ${preliminaryInterest}` : null,
+        currentInterest ? `current ${currentInterest}` : null,
         ...latest,
+        memberFeedbackStatus ? `member feedback/status: ${memberFeedbackStatus}` : null,
         entry.relevantFeedback ? `feedback: ${ensureText(entry.relevantFeedback)}` : null,
         entry.statusUpdate ? `status update: ${ensureText(entry.statusUpdate)}` : null
       ].filter(Boolean);

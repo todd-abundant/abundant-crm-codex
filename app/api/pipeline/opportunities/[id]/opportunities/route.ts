@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { parseDateInput } from "@/lib/date-parse";
 import { generateOpportunityTitle } from "@/lib/opportunity-title";
+import { mirrorHealthSystemOpportunity } from "@/lib/screening-opportunity-sync";
 
 const opportunityTypeSchema = z.enum([
   "SCREENING_LOI",
@@ -29,6 +30,7 @@ const createSchema = z.object({
   stage: opportunityStageSchema.default("IDENTIFIED"),
   likelihoodPercent: z.number().int().min(0).max(100).optional().nullable(),
   contractPriceUsd: z.number().nonnegative().optional().nullable(),
+  memberFeedbackStatus: z.string().max(10000).optional().nullable(),
   notes: z.string().max(10000).optional().nullable(),
   nextSteps: z.string().max(10000).optional().nullable(),
   closeReason: z.string().max(2000).optional().nullable(),
@@ -112,6 +114,7 @@ function toPayload(opportunity: {
   stage: string;
   contractPriceUsd: { toString(): string } | null;
   likelihoodPercent: number | null;
+  memberFeedbackStatus: string | null;
   nextSteps: string | null;
   notes: string | null;
   closeReason: string | null;
@@ -145,6 +148,7 @@ function toPayload(opportunity: {
     contractPriceUsd: toNumber(opportunity.contractPriceUsd),
     durationDays: computeDurationDays(opportunity.createdAt, opportunity.closedAt),
     likelihoodPercent: opportunity.likelihoodPercent,
+    memberFeedbackStatus: opportunity.memberFeedbackStatus,
     nextSteps: opportunity.nextSteps,
     notes: opportunity.notes,
     closeReason: opportunity.closeReason,
@@ -240,6 +244,7 @@ export async function POST(
           stage: input.stage,
           likelihoodPercent: input.likelihoodPercent ?? null,
           contractPriceUsd: input.contractPriceUsd ?? null,
+          memberFeedbackStatus: trimOrNull(input.memberFeedbackStatus),
           notes: trimOrNull(input.notes),
           nextSteps: trimOrNull(input.nextSteps),
           closeReason,
@@ -249,39 +254,10 @@ export async function POST(
         include: includeOpportunity
       });
 
-      await tx.healthSystemOpportunity.upsert({
-        where: { id: legacyCreated.id },
-        update: {
-          legacyCompanyOpportunityId: legacyCreated.id,
-          companyId,
-          healthSystemId,
-          type: input.type,
-          title,
-          stage: input.stage,
-          likelihoodPercent: input.likelihoodPercent ?? null,
-          contractPriceUsd: input.contractPriceUsd ?? null,
-          notes: trimOrNull(input.notes),
-          nextSteps: trimOrNull(input.nextSteps),
-          closeReason,
-          estimatedCloseDate: toNullableDate(input.estimatedCloseDate),
-          closedAt: isClosedStage(input.stage) ? toNullableDate(input.closedAt) || new Date() : null
-        },
-        create: {
-          id: legacyCreated.id,
-          legacyCompanyOpportunityId: legacyCreated.id,
-          companyId,
-          healthSystemId,
-          type: input.type,
-          title,
-          stage: input.stage,
-          likelihoodPercent: input.likelihoodPercent ?? null,
-          contractPriceUsd: input.contractPriceUsd ?? null,
-          notes: trimOrNull(input.notes),
-          nextSteps: trimOrNull(input.nextSteps),
-          closeReason,
-          estimatedCloseDate: toNullableDate(input.estimatedCloseDate),
-          closedAt: isClosedStage(input.stage) ? toNullableDate(input.closedAt) || new Date() : null
-        }
+      await mirrorHealthSystemOpportunity(tx, {
+        ...legacyCreated,
+        healthSystemId,
+        memberFeedbackStatus: trimOrNull(input.memberFeedbackStatus)
       });
 
       return legacyCreated;
@@ -384,6 +360,7 @@ export async function PATCH(
         stage?: z.infer<typeof opportunityStageSchema>;
         likelihoodPercent?: number | null;
         contractPriceUsd?: number | null;
+        memberFeedbackStatus?: string | null;
         notes?: string | null;
         nextSteps?: string | null;
         closeReason?: string | null;
@@ -402,6 +379,9 @@ export async function PATCH(
       }
       if (Object.prototype.hasOwnProperty.call(input, "contractPriceUsd")) {
         updateData.contractPriceUsd = input.contractPriceUsd ?? null;
+      }
+      if (Object.prototype.hasOwnProperty.call(input, "memberFeedbackStatus")) {
+        updateData.memberFeedbackStatus = trimOrNull(input.memberFeedbackStatus);
       }
       if (Object.prototype.hasOwnProperty.call(input, "notes")) {
         updateData.notes = trimOrNull(input.notes);
@@ -439,41 +419,10 @@ export async function PATCH(
         include: includeOpportunity
       });
 
-      await tx.healthSystemOpportunity.upsert({
-        where: { id: legacyUpdated.id },
-        update: {
-          legacyCompanyOpportunityId: legacyUpdated.id,
-          companyId,
-          healthSystemId: legacyUpdated.healthSystem?.id ?? null,
-          type: legacyUpdated.type as z.infer<typeof opportunityTypeSchema>,
-          title: legacyUpdated.title,
-          stage: legacyUpdated.stage as z.infer<typeof opportunityStageSchema>,
-          likelihoodPercent: legacyUpdated.likelihoodPercent,
-          contractPriceUsd: legacyUpdated.contractPriceUsd ? Number(legacyUpdated.contractPriceUsd.toString()) : null,
-          notes: legacyUpdated.notes,
-          nextSteps: legacyUpdated.nextSteps,
-          closeReason: legacyUpdated.closeReason,
-          estimatedCloseDate: legacyUpdated.estimatedCloseDate,
-          closedAt: legacyUpdated.closedAt
-        },
-        create: {
-          id: legacyUpdated.id,
-          legacyCompanyOpportunityId: legacyUpdated.id,
-          companyId,
-          healthSystemId: legacyUpdated.healthSystem?.id ?? null,
-          type: legacyUpdated.type as z.infer<typeof opportunityTypeSchema>,
-          title: legacyUpdated.title,
-          stage: legacyUpdated.stage as z.infer<typeof opportunityStageSchema>,
-          likelihoodPercent: legacyUpdated.likelihoodPercent,
-          contractPriceUsd: legacyUpdated.contractPriceUsd ? Number(legacyUpdated.contractPriceUsd.toString()) : null,
-          notes: legacyUpdated.notes,
-          nextSteps: legacyUpdated.nextSteps,
-          closeReason: legacyUpdated.closeReason,
-          estimatedCloseDate: legacyUpdated.estimatedCloseDate,
-          closedAt: legacyUpdated.closedAt,
-          createdAt: legacyUpdated.createdAt,
-          updatedAt: legacyUpdated.updatedAt
-        }
+      await mirrorHealthSystemOpportunity(tx, {
+        ...legacyUpdated,
+        healthSystemId: legacyUpdated.healthSystem?.id ?? null,
+        memberFeedbackStatus: legacyUpdated.memberFeedbackStatus
       });
 
       return legacyUpdated;

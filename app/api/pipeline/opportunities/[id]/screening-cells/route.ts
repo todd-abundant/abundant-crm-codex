@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/server";
+import { mirrorHealthSystemOpportunity } from "@/lib/screening-opportunity-sync";
 
 const patchSchema = z.object({
   healthSystemId: z.string().min(1),
-  field: z.enum(["RELEVANT_FEEDBACK", "STATUS_UPDATE"]),
+  field: z.enum(["RELEVANT_FEEDBACK", "STATUS_UPDATE", "MEMBER_FEEDBACK_STATUS"]),
   value: z.string()
 });
 
@@ -89,6 +90,27 @@ export async function PATCH(
         }
       }
     });
+
+    if (input.field === "MEMBER_FEEDBACK_STATUS") {
+      const opportunity = await prisma.companyOpportunity.findFirst({
+        where: {
+          companyId,
+          healthSystemId: input.healthSystemId,
+          type: "SCREENING_LOI"
+        },
+        orderBy: [{ updatedAt: "desc" }]
+      });
+
+      if (opportunity) {
+        const updatedOpportunity = await prisma.companyOpportunity.update({
+          where: { id: opportunity.id },
+          data: {
+            memberFeedbackStatus: nextValue || null
+          }
+        });
+        await mirrorHealthSystemOpportunity(prisma, updatedOpportunity);
+      }
+    }
 
     return NextResponse.json({
       updated: true,

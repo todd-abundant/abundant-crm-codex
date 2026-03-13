@@ -233,6 +233,7 @@ enum CompanyScreeningFeedbackSentiment {
 enum CompanyScreeningCellField {
   RELEVANT_FEEDBACK
   STATUS_UPDATE
+  MEMBER_FEEDBACK_STATUS
 }
 
 enum CompanyScreeningSurveySessionStatus {
@@ -849,6 +850,8 @@ model CompanyOpportunity {
   likelihoodPercent  Int?
   contractPriceUsd   Decimal?                @db.Decimal(16, 2)
   durationDays       Int?
+  preliminaryInterestOverride String?
+  memberFeedbackStatus String?
   notes              String?
   nextSteps          String?
   closeReason        String?
@@ -891,6 +894,8 @@ model HealthSystemOpportunity {
   likelihoodPercent          Int?
   contractPriceUsd           Decimal?                @db.Decimal(16, 2)
   durationDays               Int?
+  preliminaryInterestOverride String?
+  memberFeedbackStatus       String?
   notes                      String?
   nextSteps                  String?
   closeReason                String?

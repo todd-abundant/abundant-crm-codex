@@ -7,7 +7,7 @@ import {
   upsertHealthSystemContactLink
 } from "@/lib/contact-resolution";
 import { inferQualitativeFeedbackFromImpression } from "@/lib/screening-qualitative-inference";
-import { generateOpportunityTitle } from "@/lib/opportunity-title";
+import { refreshSurveyDrivenScreeningOpportunity } from "@/lib/screening-opportunity-sync";
 
 const submitResponseSchema = z
   .object({
@@ -52,16 +52,6 @@ function inferNameFromEmail(email: string) {
     .split(/\s+/)
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(" ");
-}
-
-function appendTimestampedNote(existing: string | null | undefined, message: string) {
-  const trimmedMessage = message.trim();
-  if (!trimmedMessage) return existing || null;
-  const entry = `[${new Date().toISOString()}] ${trimmedMessage}`;
-  if (!existing || !existing.trim()) {
-    return entry;
-  }
-  return `${existing.trim()}\n\n${entry}`;
 }
 
 export async function POST(
@@ -321,183 +311,18 @@ export async function POST(
         }
       });
 
-      const triggerQuestion = session.questions.find((entry) => entry.drivesScreeningOpportunity);
-      let screeningOpportunityId: string | null = null;
-      if (triggerQuestion) {
-        const triggerAnswer = dedupedAnswers.get(triggerQuestion.id);
-        const triggerScore = triggerAnswer?.skipped ? null : triggerAnswer?.score ?? null;
-        if (triggerScore !== null && triggerScore >= 7) {
-          const openScreeningOpportunity = await tx.companyOpportunity.findFirst({
-            where: {
-              companyId: session.companyId,
-              healthSystemId: input.healthSystemId,
-              type: "SCREENING_LOI",
-              stage: {
-                notIn: ["CLOSED_WON", "CLOSED_LOST"]
-              }
-            },
-            orderBy: [{ updatedAt: "desc" }]
-          });
-
-          const note = `Auto-qualified via screening survey "${session.title}" with trigger score ${triggerScore}/10.`;
-          const nextLikelihood = Math.max(70, Math.min(100, Math.round(triggerScore * 10)));
-
-          if (openScreeningOpportunity) {
-            const updated = await tx.companyOpportunity.update({
-              where: { id: openScreeningOpportunity.id },
-              data: {
-                title: generateOpportunityTitle({
-                  companyName: session.company.name,
-                  healthSystemName: healthSystem.name,
-                  type: "SCREENING_LOI"
-                }),
-                likelihoodPercent:
-                  openScreeningOpportunity.likelihoodPercent === null
-                    ? nextLikelihood
-                    : Math.max(openScreeningOpportunity.likelihoodPercent, nextLikelihood),
-                notes: appendTimestampedNote(openScreeningOpportunity.notes, note)
-              }
-            });
-
-            await tx.healthSystemOpportunity.upsert({
-              where: { id: updated.id },
-              update: {
-                legacyCompanyOpportunityId: updated.id,
-                companyId: updated.companyId,
-                healthSystemId: updated.healthSystemId,
-                type: updated.type,
-                title: updated.title,
-                stage: updated.stage,
-                likelihoodPercent: updated.likelihoodPercent,
-                contractPriceUsd: updated.contractPriceUsd,
-                durationDays: updated.durationDays,
-                notes: updated.notes,
-                nextSteps: updated.nextSteps,
-                closeReason: updated.closeReason,
-                estimatedCloseDate: updated.estimatedCloseDate,
-                closedAt: updated.closedAt
-              },
-              create: {
-                id: updated.id,
-                legacyCompanyOpportunityId: updated.id,
-                companyId: updated.companyId,
-                healthSystemId: updated.healthSystemId,
-                type: updated.type,
-                title: updated.title,
-                stage: updated.stage,
-                likelihoodPercent: updated.likelihoodPercent,
-                contractPriceUsd: updated.contractPriceUsd,
-                durationDays: updated.durationDays,
-                notes: updated.notes,
-                nextSteps: updated.nextSteps,
-                closeReason: updated.closeReason,
-                estimatedCloseDate: updated.estimatedCloseDate,
-                closedAt: updated.closedAt,
-                createdAt: updated.createdAt,
-                updatedAt: updated.updatedAt
-              }
-            });
-            screeningOpportunityId = updated.id;
-          } else {
-            const created = await tx.companyOpportunity.create({
-              data: {
-                companyId: session.companyId,
-                healthSystemId: input.healthSystemId,
-                type: "SCREENING_LOI",
-                title: generateOpportunityTitle({
-                  companyName: session.company.name,
-                  healthSystemName: healthSystem.name,
-                  type: "SCREENING_LOI"
-                }),
-                stage: "QUALIFICATION",
-                likelihoodPercent: nextLikelihood,
-                notes: appendTimestampedNote(null, note)
-              }
-            });
-
-            await tx.healthSystemOpportunity.upsert({
-              where: { id: created.id },
-              update: {
-                legacyCompanyOpportunityId: created.id,
-                companyId: created.companyId,
-                healthSystemId: created.healthSystemId,
-                type: created.type,
-                title: created.title,
-                stage: created.stage,
-                likelihoodPercent: created.likelihoodPercent,
-                contractPriceUsd: created.contractPriceUsd,
-                durationDays: created.durationDays,
-                notes: created.notes,
-                nextSteps: created.nextSteps,
-                closeReason: created.closeReason,
-                estimatedCloseDate: created.estimatedCloseDate,
-                closedAt: created.closedAt
-              },
-              create: {
-                id: created.id,
-                legacyCompanyOpportunityId: created.id,
-                companyId: created.companyId,
-                healthSystemId: created.healthSystemId,
-                type: created.type,
-                title: created.title,
-                stage: created.stage,
-                likelihoodPercent: created.likelihoodPercent,
-                contractPriceUsd: created.contractPriceUsd,
-                durationDays: created.durationDays,
-                notes: created.notes,
-                nextSteps: created.nextSteps,
-                closeReason: created.closeReason,
-                estimatedCloseDate: created.estimatedCloseDate,
-                closedAt: created.closedAt,
-                createdAt: created.createdAt,
-                updatedAt: created.updatedAt
-              }
-            });
-            screeningOpportunityId = created.id;
-          }
-
-          if (!screeningOpportunityId) {
-            throw new Error("Failed to upsert screening opportunity.");
-          }
-
-          await tx.companyOpportunityContact.upsert({
-            where: {
-              opportunityId_contactId: {
-                opportunityId: screeningOpportunityId,
-                contactId
-              }
-            },
-            update: {},
-            create: {
-              opportunityId: screeningOpportunityId,
-              contactId,
-              role: "CONTRACTING_CONTACT"
-            }
-          });
-
-          await tx.healthSystemOpportunityContact.upsert({
-            where: {
-              opportunityId_contactId: {
-                opportunityId: screeningOpportunityId,
-                contactId
-              }
-            },
-            update: {
-              role: "CONTRACTING_CONTACT"
-            },
-            create: {
-              opportunityId: screeningOpportunityId,
-              contactId,
-              role: "CONTRACTING_CONTACT"
-            }
-          });
-        }
-      }
+      const hasInterestDriver = session.questions.some((entry) => entry.drivesScreeningOpportunity);
+      const screeningOpportunityResult = hasInterestDriver
+        ? await refreshSurveyDrivenScreeningOpportunity(tx, {
+            companyId: session.companyId,
+            healthSystemId: input.healthSystemId
+          })
+        : null;
 
       return {
         submissionId: submission.id,
         qualitativeInferenceSource: inferredQualitative.source,
-        screeningOpportunityId
+        screeningOpportunityId: screeningOpportunityResult?.opportunityId || null
       };
     });
 

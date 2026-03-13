@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/server";
 import { marketLandscapePayloadFromRecord } from "@/lib/market-landscape";
 import { buildPipelineIntakeReportPayload } from "@/lib/pipeline-intake-report";
+import { mapOpportunityStageToCurrentInterest } from "@/lib/screening-interest";
 import {
   IntakeSlidesGenerationError,
   cleanupIntakeReportsOnDrive,
@@ -87,9 +88,20 @@ function buildIntakeReportSource(
         vendors: string;
       }>;
     } | null;
-    screeningCellChanges: Array<{ healthSystemId: string; field: "RELEVANT_FEEDBACK" | "STATUS_UPDATE"; value: string }>;
+    screeningCellChanges: Array<{
+      healthSystemId: string;
+      field: "RELEVANT_FEEDBACK" | "STATUS_UPDATE" | "MEMBER_FEEDBACK_STATUS";
+      value: string;
+    }>;
     screeningQualitativeFeedback: Array<{ healthSystemId: string; feedback: string | null }>;
     screeningQuantitativeFeedback: Array<{ healthSystemId: string; notes: string | null }>;
+    opportunities: Array<{
+      healthSystemId: string | null;
+      type: string;
+      stage: string;
+      updatedAt: Date;
+      memberFeedbackStatus: string | null;
+    }>;
     lois: Array<{
       healthSystemId: string;
       status: string;
@@ -135,26 +147,65 @@ function buildIntakeReportSource(
     loiByHealthSystemId.set(entry.healthSystemId, entry);
   }
 
+  const screeningOpportunityByHealthSystemId = new Map<string, (typeof company.opportunities)[number]>();
+  for (const entry of company.opportunities) {
+    if (entry.type !== "SCREENING_LOI" || !entry.healthSystemId) continue;
+    const existing = screeningOpportunityByHealthSystemId.get(entry.healthSystemId);
+    const existingClosed = existing?.stage === "CLOSED_WON" || existing?.stage === "CLOSED_LOST";
+    const nextClosed = entry.stage === "CLOSED_WON" || entry.stage === "CLOSED_LOST";
+    if (!existing || (existingClosed && !nextClosed)) {
+      screeningOpportunityByHealthSystemId.set(entry.healthSystemId, entry);
+    }
+  }
+
   const screeningHealthSystemSummaries = healthSystems.map((healthSystem) => {
+    const screeningOpportunity = screeningOpportunityByHealthSystemId.get(healthSystem.id);
     const relevantChange = screeningCellChangesByHealthSystemId
       .get(healthSystem.id)
       ?.find((entry) => entry.field === "RELEVANT_FEEDBACK")?.value;
     const statusChange = screeningCellChangesByHealthSystemId
       .get(healthSystem.id)
       ?.find((entry) => entry.field === "STATUS_UPDATE")?.value;
-    const statusUpdatedAt = loiByHealthSystemId.get(healthSystem.id)?.statusUpdatedAt || null;
-    const loiStatus = loiByHealthSystemId.get(healthSystem.id)?.status || "NOT_STARTED";
+    const memberFeedbackStatusChange = screeningCellChangesByHealthSystemId
+      .get(healthSystem.id)
+      ?.find((entry) => entry.field === "MEMBER_FEEDBACK_STATUS")?.value;
+    const statusUpdatedAt =
+      screeningOpportunity?.updatedAt || loiByHealthSystemId.get(healthSystem.id)?.statusUpdatedAt || null;
+    const currentInterest = mapOpportunityStageToCurrentInterest(
+      (screeningOpportunity?.stage as
+        | "IDENTIFIED"
+        | "QUALIFICATION"
+        | "PROPOSAL"
+        | "NEGOTIATION"
+        | "LEGAL"
+        | "CLOSED_WON"
+        | "CLOSED_LOST"
+        | "ON_HOLD"
+        | null
+        | undefined) || null
+    );
     const fallbackRelevant =
       (qualitativeByHealthSystemId.get(healthSystem.id) || [])[0]?.feedback || "";
     const fallbackStatusUpdate =
       (quantitativeByHealthSystemId.get(healthSystem.id) || [])[0]?.notes || "";
+    const memberFeedbackStatus =
+      screeningOpportunity?.memberFeedbackStatus ||
+      memberFeedbackStatusChange ||
+      [relevantChange, statusChange, fallbackRelevant, fallbackStatusUpdate]
+        .map((value) => (value || "").trim())
+        .filter(Boolean)
+        .join("\n\n") ||
+      null;
 
     return {
       healthSystemName: healthSystem.name,
-      status: loiStatus,
+      status: currentInterest.label,
       statusUpdatedAt,
-      relevantFeedback: relevantChange || fallbackRelevant || null,
-      statusUpdate: statusChange || fallbackStatusUpdate || null
+      preliminaryInterest: null,
+      currentInterest: currentInterest.label,
+      memberFeedbackStatus,
+      relevantFeedback: relevantChange || memberFeedbackStatus || fallbackRelevant || null,
+      statusUpdate: statusChange || memberFeedbackStatus || fallbackStatusUpdate || null
     };
   });
 
@@ -233,6 +284,16 @@ export async function POST(
               healthSystemId: true,
               status: true,
               statusUpdatedAt: true
+            }
+          },
+          opportunities: {
+            orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+            select: {
+              healthSystemId: true,
+              type: true,
+              stage: true,
+              updatedAt: true,
+              memberFeedbackStatus: true
             }
           },
           screeningDocuments: {

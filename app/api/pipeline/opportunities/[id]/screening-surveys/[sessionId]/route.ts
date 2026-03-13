@@ -196,13 +196,6 @@ export async function PATCH(
             displayOrder: index
           }));
 
-        const triggerQuestionCount = normalizedIncomingQuestions.filter(
-          (entry) => entry.drivesScreeningOpportunity
-        ).length;
-        if (triggerQuestionCount > 1) {
-          throw new Error("Only one question can drive automatic Screening opportunities.");
-        }
-
         const normalizedExistingQuestions = existing.questions.map((entry, index) => ({
           questionId: entry.questionId,
           category: (entry.categoryOverride || entry.question.category).trim(),

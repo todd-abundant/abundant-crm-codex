@@ -5911,12 +5911,26 @@ select {
   font-weight: 700;
 }
 
+.screening-inline-status-chip {
+  display: inline-flex;
+  align-items: center;
+  padding-right: 10px;
+  cursor: default;
+}
+
 .screening-inline-status-select.screening-status-grey,
 .screening-inline-status-select.screening-status-red,
 .screening-inline-status-select.screening-status-yellow,
 .screening-inline-status-select.screening-status-green,
-.screening-inline-status-select.screening-status-green-check {
+.screening-inline-status-select.screening-status-green-check,
+.screening-inline-status-select.screening-status-blue {
   border-width: 1px;
+}
+
+.screening-interest-stack {
+  display: grid;
+  gap: 4px;
+  align-content: start;
 }
 
 .screening-inline-attendee-entry {
@@ -6859,6 +6873,12 @@ select {
   background: #d1fae5;
   border-color: #34d399;
   color: #065f46;
+}
+
+.screening-status-blue {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1d4ed8;
 }
 
 .live-survey-main {
