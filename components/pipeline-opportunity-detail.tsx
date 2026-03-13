@@ -621,6 +621,8 @@ const qualitativeCategoryOptions = [
   "Key Theme"
 ];
 
+const showRefreshSurveyOpportunitiesButton = process.env.NODE_ENV !== "production";
+
 function compareQualitativeCategoryName(a: string, b: string) {
   const categoryAIndex = qualitativeCategoryOptions.indexOf(a);
   const categoryBIndex = qualitativeCategoryOptions.indexOf(b);
@@ -5654,14 +5656,16 @@ function stripCurrencyFormatting(value: string) {
             ))}
             {screeningDetailView === "status" ? (
               <>
-                <button
-                  className="detail-tab screening-material-preview-action"
-                  type="button"
-                  onClick={() => void refreshScreeningOpportunities()}
-                  disabled={refreshingScreeningOpportunities}
-                >
-                  {refreshingScreeningOpportunities ? "Refreshing..." : "Refresh Survey Opportunities"}
-                </button>
+                {showRefreshSurveyOpportunitiesButton ? (
+                  <button
+                    className="detail-tab screening-material-preview-action"
+                    type="button"
+                    onClick={() => void refreshScreeningOpportunities()}
+                    disabled={refreshingScreeningOpportunities}
+                  >
+                    {refreshingScreeningOpportunities ? "Refreshing..." : "Refresh Survey Opportunities"}
+                  </button>
+                ) : null}
                 <button className="detail-tab screening-material-preview-action" type="button" onClick={openScreeningStatusPreview}>
                   Preview Format
                 </button>
