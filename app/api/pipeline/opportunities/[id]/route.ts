@@ -630,13 +630,14 @@ export async function GET(
         .map((value) => (value || "").trim())
         .filter(Boolean)
         .join("\n\n");
-      const memberFeedbackStatus =
-        screeningOpportunity?.memberFeedbackStatus ||
-        memberFeedbackStatusHistory[0]?.value ||
-        legacyMemberFeedback ||
-        fallbackRelevantFeedback ||
-        fallbackStatusUpdate ||
-        "";
+      const latestMemberFeedbackChange = memberFeedbackStatusHistory[0] || null;
+      const memberFeedbackStatus = latestMemberFeedbackChange
+        ? latestMemberFeedbackChange.value
+        : screeningOpportunity?.memberFeedbackStatus ||
+          legacyMemberFeedback ||
+          fallbackRelevantFeedback ||
+          fallbackStatusUpdate ||
+          "";
       const preliminaryAverageScore = averageScreeningScores(
         flaggedScoresByHealthSystemId.get(healthSystem.id) || []
       );
@@ -766,6 +767,9 @@ export async function GET(
         }))
       };
     });
+    const screeningMemberFeedbackStatusByHealthSystemId = new Map(
+      screeningHealthSystems.map((entry) => [entry.healthSystemId, entry.memberFeedbackStatus] as const)
+    );
 
     return NextResponse.json({
       item: {
@@ -797,30 +801,37 @@ export async function GET(
         ownerName: company.pipeline?.ownerName ?? null,
         createdAt: company.createdAt.toISOString(),
         updatedAt: (company.pipeline?.updatedAt || company.updatedAt).toISOString(),
-        opportunities: company.opportunities.map((opportunity) => ({
-          id: opportunity.id,
-          title: opportunity.title,
-          type: opportunity.type,
-          stage: opportunity.stage,
-          contractPriceUsd: opportunity.contractPriceUsd,
-          durationDays: computeDurationDays(opportunity.createdAt, opportunity.closedAt),
-          likelihoodPercent: opportunity.likelihoodPercent,
-          memberFeedbackStatus: opportunity.memberFeedbackStatus,
-          nextSteps: opportunity.nextSteps,
-          notes: opportunity.notes,
-          closeReason: opportunity.closeReason,
-          createdAt: opportunity.createdAt,
-          estimatedCloseDate: opportunity.estimatedCloseDate,
-          closedAt: opportunity.closedAt,
-          updatedAt: opportunity.updatedAt,
-          healthSystem: opportunity.healthSystem,
-          contacts: opportunity.contacts.map((link) => ({
-            id: link.id,
-            role: link.role,
-            createdAt: link.createdAt,
-            contact: link.contact
-          }))
-        })),
+        opportunities: company.opportunities.map((opportunity) => {
+          const fallbackMemberFeedbackStatus =
+            opportunity.type === "SCREENING_LOI" && opportunity.healthSystem?.id
+              ? screeningMemberFeedbackStatusByHealthSystemId.get(opportunity.healthSystem.id) ?? null
+              : null;
+
+          return {
+            id: opportunity.id,
+            title: opportunity.title,
+            type: opportunity.type,
+            stage: opportunity.stage,
+            contractPriceUsd: opportunity.contractPriceUsd,
+            durationDays: computeDurationDays(opportunity.createdAt, opportunity.closedAt),
+            likelihoodPercent: opportunity.likelihoodPercent,
+            memberFeedbackStatus: opportunity.memberFeedbackStatus ?? fallbackMemberFeedbackStatus,
+            nextSteps: opportunity.nextSteps,
+            notes: opportunity.notes,
+            closeReason: opportunity.closeReason,
+            createdAt: opportunity.createdAt,
+            estimatedCloseDate: opportunity.estimatedCloseDate,
+            closedAt: opportunity.closedAt,
+            updatedAt: opportunity.updatedAt,
+            healthSystem: opportunity.healthSystem,
+            contacts: opportunity.contacts.map((link) => ({
+              id: link.id,
+              role: link.role,
+              createdAt: link.createdAt,
+              contact: link.contact
+            }))
+          };
+        }),
         documents: company.documents.map((document) => ({
           id: document.id,
           type: document.type,

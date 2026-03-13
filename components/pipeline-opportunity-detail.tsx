@@ -437,6 +437,12 @@ function toOpportunityDraft(opportunity: PipelineOpportunityDetail["opportunitie
   };
 }
 
+function resizeTextareaToContent(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) return;
+  textarea.style.height = "0px";
+  textarea.style.height = `${textarea.scrollHeight}px`;
+}
+
 function compareUpdatedAt(
   clientUpdatedAt: string | null | undefined,
   serverUpdatedAt: string | null | undefined
@@ -1374,6 +1380,16 @@ export function PipelineOpportunityDetailView({
     if (!item || !opportunityModal || opportunityModal.mode !== "edit") return null;
     return item.opportunities.find((opportunity) => opportunity.id === opportunityModal.opportunityId) || null;
   }, [item, opportunityModal]);
+  const memberFeedbackOpportunityTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const selectedOpportunityMemberFeedbackStatus = selectedOpportunityForModal
+    ? (opportunityDraftById[selectedOpportunityForModal.id]?.memberFeedbackStatus ??
+        selectedOpportunityForModal.memberFeedbackStatus ??
+        "")
+    : "";
+
+  React.useLayoutEffect(() => {
+    resizeTextareaToContent(memberFeedbackOpportunityTextareaRef.current);
+  }, [selectedOpportunityForModal?.id, selectedOpportunityMemberFeedbackStatus, opportunityModalTab]);
 
   const currentIntakeDocument = (item?.documents || [])
     .filter((document) => document.type === "INTAKE_REPORT")
@@ -7835,20 +7851,26 @@ function stripCurrencyFormatting(value: string) {
                             readOnly
                           />
                         </div>
-                        <div className="detail-grid-full">
+                        <div className="detail-grid-full opportunity-modal-notes-field">
                           <label>Member Feedback/Status</label>
                           <textarea
-                            rows={4}
+                            ref={(node) => {
+                              memberFeedbackOpportunityTextareaRef.current = node;
+                              resizeTextareaToContent(node);
+                            }}
+                            className="opportunity-modal-member-feedback-textarea"
+                            rows={1}
                             value={draft.memberFeedbackStatus}
-                            onChange={(event) =>
+                            onChange={(event) => {
                               updateOpportunityDraft(selectedOpportunityForModal.id, {
                                 memberFeedbackStatus: event.target.value
-                              })
-                            }
+                              });
+                              resizeTextareaToContent(event.currentTarget);
+                            }}
                             placeholder="Member feedback, status updates, or next-step context for this health system"
                             onBlur={() => void saveOpportunity(selectedOpportunityForModal.id)}
                           />
-                          <p className="muted" style={{ marginTop: 6 }}>
+                          <p className="muted opportunity-modal-field-note">
                             {selectedOpportunityForModal.healthSystem
                               ? `This text also appears in the Screening Status Matrix row for ${selectedOpportunityForModal.healthSystem.name} and can be edited there.`
                               : "This text also appears in the Screening Status Matrix after a health system is assigned to this opportunity."}

@@ -186,7 +186,7 @@ async function latestMemberFeedbackStatus(
   companyId: string,
   healthSystemId: string
 ) {
-  const latest = await tx.companyScreeningCellChange.findFirst({
+  const latestCellChange = await tx.companyScreeningCellChange.findFirst({
     where: {
       companyId,
       healthSystemId,
@@ -194,7 +194,22 @@ async function latestMemberFeedbackStatus(
     },
     orderBy: [{ createdAt: "desc" }]
   });
-  return normalizeText(latest?.value);
+  if (latestCellChange) {
+    return normalizeText(latestCellChange.value);
+  }
+
+  const latestQualitativeFeedback = await tx.companyScreeningQualitativeFeedback.findFirst({
+    where: {
+      companyId,
+      healthSystemId
+    },
+    orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+    select: {
+      feedback: true
+    }
+  });
+
+  return normalizeText(latestQualitativeFeedback?.feedback);
 }
 
 function chooseExistingOpportunityStage(

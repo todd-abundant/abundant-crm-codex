@@ -5586,8 +5586,26 @@ select {
   padding: 0;
 }
 
+.pipeline-opportunity-modal .opportunity-modal-notes-field > textarea {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  padding: 8px 10px;
+}
+
+.pipeline-opportunity-modal .opportunity-modal-card .detail-grid > .opportunity-modal-notes-field > .opportunity-modal-member-feedback-textarea {
+  min-height: calc(1.45em + 16px);
+  overflow: hidden;
+  resize: none;
+}
+
 .pipeline-opportunity-modal .opportunity-modal-notes-field .rich-text-editor-input {
   --rich-text-editor-min-height: clamp(260px, 38vh, 460px);
+}
+
+.pipeline-opportunity-modal .opportunity-modal-field-note {
+  margin-top: 6px;
+  font-style: italic;
 }
 
 .opportunity-add-link {
