@@ -270,6 +270,24 @@ export const companyHealthSystemRelationshipSchema = z.enum([
 ]);
 export type CompanyHealthSystemRelationship = z.infer<typeof companyHealthSystemRelationshipSchema>;
 
+export const companyHealthSystemPreliminaryInterestSchema = z.enum([
+  "EXPRESSED_INTEREST",
+  "REQUESTED_MORE_INFO",
+  "INTRO_CALL_SCHEDULED",
+  "SCREENING_RECOMMENDED"
+]);
+export type CompanyHealthSystemPreliminaryInterest = z.infer<typeof companyHealthSystemPreliminaryInterestSchema>;
+
+export const companyHealthSystemCurrentStateSchema = z.enum([
+  "ACTIVE_SCREENING",
+  "LOI_SIGNED",
+  "CO_DEV",
+  "COMMERCIAL_AGREEMENT",
+  "PASSED",
+  "REVISIT"
+]);
+export type CompanyHealthSystemCurrentState = z.infer<typeof companyHealthSystemCurrentStateSchema>;
+
 export const companyCoInvestorRelationshipSchema = z.enum(["INVESTOR", "PARTNER", "OTHER"]);
 export type CompanyCoInvestorRelationship = z.infer<typeof companyCoInvestorRelationshipSchema>;
 
@@ -307,6 +325,8 @@ export const companyInputSchema = z.object({
       z.object({
         healthSystemId: z.string().min(1),
         relationshipType: companyHealthSystemRelationshipSchema.default("CUSTOMER"),
+        preliminaryInterest: companyHealthSystemPreliminaryInterestSchema.nullable().optional(),
+        currentState: companyHealthSystemCurrentStateSchema.nullable().optional(),
         notes: z.string().optional(),
         investmentAmountUsd: z.number().nonnegative().optional().nullable(),
         ownershipPercent: z.number().nonnegative().max(100).optional().nullable()
@@ -360,6 +380,8 @@ export const companyUpdateSchema = z.object({
       z.object({
         healthSystemId: z.string().min(1),
         relationshipType: companyHealthSystemRelationshipSchema.default("CUSTOMER"),
+        preliminaryInterest: companyHealthSystemPreliminaryInterestSchema.nullable().optional(),
+        currentState: companyHealthSystemCurrentStateSchema.nullable().optional(),
         notes: z.string().optional(),
         investmentAmountUsd: z.number().nonnegative().optional().nullable(),
         ownershipPercent: z.number().nonnegative().max(100).optional().nullable()

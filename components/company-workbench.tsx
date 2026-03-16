@@ -103,6 +103,20 @@ type CompanyHealthSystemLink = {
   id: string;
   healthSystemId: string;
   relationshipType: "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER";
+  preliminaryInterest:
+    | "EXPRESSED_INTEREST"
+    | "REQUESTED_MORE_INFO"
+    | "INTRO_CALL_SCHEDULED"
+    | "SCREENING_RECOMMENDED"
+    | null;
+  currentState:
+    | "ACTIVE_SCREENING"
+    | "LOI_SIGNED"
+    | "CO_DEV"
+    | "COMMERCIAL_AGREEMENT"
+    | "PASSED"
+    | "REVISIT"
+    | null;
   notes: string | null;
   investmentAmountUsd: number | string | null;
   ownershipPercent: number | string | null;
@@ -211,6 +225,20 @@ type DetailDraft = {
   healthSystemLinks: Array<{
     healthSystemId: string;
     relationshipType: "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER";
+    preliminaryInterest:
+      | "EXPRESSED_INTEREST"
+      | "REQUESTED_MORE_INFO"
+      | "INTRO_CALL_SCHEDULED"
+      | "SCREENING_RECOMMENDED"
+      | null;
+    currentState:
+      | "ACTIVE_SCREENING"
+      | "LOI_SIGNED"
+      | "CO_DEV"
+      | "COMMERCIAL_AGREEMENT"
+      | "PASSED"
+      | "REVISIT"
+      | null;
     notes: string;
     investmentAmountUsd: string;
     ownershipPercent: string;
@@ -232,6 +260,46 @@ const companyHealthSystemRelationshipOptions: Array<{ value: "CUSTOMER" | "SPIN_
     { value: "INVESTOR_PARTNER", label: "Investor Partner" },
     { value: "OTHER", label: "Other" }
   ];
+
+const healthSystemPreliminaryInterestOptions = [
+  { value: "", label: "Not set" },
+  { value: "EXPRESSED_INTEREST", label: "Expressed Interest" },
+  { value: "REQUESTED_MORE_INFO", label: "Requested More Info" },
+  { value: "INTRO_CALL_SCHEDULED", label: "Intro Call Scheduled" },
+  { value: "SCREENING_RECOMMENDED", label: "Screening Recommended" }
+] as const;
+
+const healthSystemCurrentStateOptions = [
+  { value: "", label: "Not set" },
+  { value: "ACTIVE_SCREENING", label: "Active Screening" },
+  { value: "LOI_SIGNED", label: "LOI Signed" },
+  { value: "CO_DEV", label: "Co-Dev" },
+  { value: "COMMERCIAL_AGREEMENT", label: "Commercial Agreement" },
+  { value: "PASSED", label: "Passed" },
+  { value: "REVISIT", label: "Revisit" }
+] as const;
+
+function healthSystemPreliminaryInterestLabel(
+  value: CompanyHealthSystemLink["preliminaryInterest"]
+) {
+  if (!value) return "Not set";
+  return healthSystemPreliminaryInterestOptions.find((option) => option.value === value)?.label || value;
+}
+
+function healthSystemCurrentStateLabel(value: CompanyHealthSystemLink["currentState"]) {
+  if (!value) return "Not set";
+  return healthSystemCurrentStateOptions.find((option) => option.value === value)?.label || value;
+}
+
+function healthSystemCurrentStateClassName(value: CompanyHealthSystemLink["currentState"]) {
+  if (value === "LOI_SIGNED") return "loi-signed";
+  if (value === "CO_DEV") return "co-dev";
+  if (value === "COMMERCIAL_AGREEMENT") return "commercial-agreement";
+  if (value === "PASSED") return "passed";
+  if (value === "REVISIT") return "revisit";
+  if (value === "ACTIVE_SCREENING") return "active-screening";
+  return "unknown";
+}
 
 const companyCoInvestorRelationshipOptions: Array<{ value: "INVESTOR" | "PARTNER" | "OTHER"; label: string }> = [
   { value: "INVESTOR", label: "Investor" },
@@ -549,6 +617,8 @@ function draftFromRecord(record: CompanyRecord): DetailDraft {
     healthSystemLinks: record.healthSystemLinks.map((link) => ({
       healthSystemId: link.healthSystemId,
       relationshipType: link.relationshipType,
+      preliminaryInterest: link.preliminaryInterest ?? null,
+      currentState: link.currentState ?? null,
       notes: link.notes || "",
       investmentAmountUsd: parseNumber(link.investmentAmountUsd),
       ownershipPercent: parseNumber(link.ownershipPercent)
@@ -643,6 +713,12 @@ export function CompanyWorkbench() {
   const [editingHealthSystemRelationshipType, setEditingHealthSystemRelationshipType] = React.useState<
     "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
   >("CUSTOMER");
+  const [editingHealthSystemPreliminaryInterest, setEditingHealthSystemPreliminaryInterest] = React.useState<
+    "" | "EXPRESSED_INTEREST" | "REQUESTED_MORE_INFO" | "INTRO_CALL_SCHEDULED" | "SCREENING_RECOMMENDED"
+  >("");
+  const [editingHealthSystemCurrentState, setEditingHealthSystemCurrentState] = React.useState<
+    "" | "ACTIVE_SCREENING" | "LOI_SIGNED" | "CO_DEV" | "COMMERCIAL_AGREEMENT" | "PASSED" | "REVISIT"
+  >("");
   const [editingHealthSystemNotes, setEditingHealthSystemNotes] = React.useState("");
   const [editingHealthSystemInvestmentAmountUsd, setEditingHealthSystemInvestmentAmountUsd] = React.useState("");
   const [editingHealthSystemOwnershipPercent, setEditingHealthSystemOwnershipPercent] = React.useState("");
@@ -650,6 +726,12 @@ export function CompanyWorkbench() {
   const [newHealthSystemRelationshipType, setNewHealthSystemRelationshipType] = React.useState<
     "CUSTOMER" | "SPIN_OUT_PARTNER" | "INVESTOR_PARTNER" | "OTHER"
   >("CUSTOMER");
+  const [newHealthSystemPreliminaryInterest, setNewHealthSystemPreliminaryInterest] = React.useState<
+    "" | "EXPRESSED_INTEREST" | "REQUESTED_MORE_INFO" | "INTRO_CALL_SCHEDULED" | "SCREENING_RECOMMENDED"
+  >("");
+  const [newHealthSystemCurrentState, setNewHealthSystemCurrentState] = React.useState<
+    "" | "ACTIVE_SCREENING" | "LOI_SIGNED" | "CO_DEV" | "COMMERCIAL_AGREEMENT" | "PASSED" | "REVISIT"
+  >("");
   const [newHealthSystemNotes, setNewHealthSystemNotes] = React.useState("");
   const [newHealthSystemInvestmentAmountUsd, setNewHealthSystemInvestmentAmountUsd] = React.useState("");
   const [newHealthSystemOwnershipPercent, setNewHealthSystemOwnershipPercent] = React.useState("");
@@ -1282,6 +1364,8 @@ export function CompanyWorkbench() {
   function resetHealthSystemLinkForm() {
     setNewHealthSystemLinkId("");
     setNewHealthSystemRelationshipType("CUSTOMER");
+    setNewHealthSystemPreliminaryInterest("");
+    setNewHealthSystemCurrentState("");
     setNewHealthSystemNotes("");
     setNewHealthSystemInvestmentAmountUsd("");
     setNewHealthSystemOwnershipPercent("");
@@ -1302,6 +1386,8 @@ export function CompanyWorkbench() {
   function beginEditingHealthSystemLink(link: CompanyHealthSystemLink) {
     setEditingHealthSystemLinkId(link.id);
     setEditingHealthSystemRelationshipType(link.relationshipType);
+    setEditingHealthSystemPreliminaryInterest(link.preliminaryInterest || "");
+    setEditingHealthSystemCurrentState(link.currentState || "");
     setEditingHealthSystemNotes(link.notes || "");
     setEditingHealthSystemInvestmentAmountUsd(parseNumber(link.investmentAmountUsd));
     setEditingHealthSystemOwnershipPercent(parseNumber(link.ownershipPercent));
@@ -1311,6 +1397,8 @@ export function CompanyWorkbench() {
   function resetEditingHealthSystemLinkForm() {
     setEditingHealthSystemLinkId(null);
     setEditingHealthSystemRelationshipType("CUSTOMER");
+    setEditingHealthSystemPreliminaryInterest("");
+    setEditingHealthSystemCurrentState("");
     setEditingHealthSystemNotes("");
     setEditingHealthSystemInvestmentAmountUsd("");
     setEditingHealthSystemOwnershipPercent("");
@@ -1330,6 +1418,8 @@ export function CompanyWorkbench() {
         ? {
             ...link,
             relationshipType: editingHealthSystemRelationshipType,
+            preliminaryInterest: editingHealthSystemPreliminaryInterest || null,
+            currentState: editingHealthSystemCurrentState || null,
             notes: editingHealthSystemNotes,
             investmentAmountUsd: editingHealthSystemInvestmentAmountUsd,
             ownershipPercent: editingHealthSystemOwnershipPercent
@@ -1459,6 +1549,8 @@ export function CompanyWorkbench() {
         {
           healthSystemId: newHealthSystemLinkId,
           relationshipType: newHealthSystemRelationshipType,
+          preliminaryInterest: newHealthSystemPreliminaryInterest || null,
+          currentState: newHealthSystemCurrentState || null,
           notes: newHealthSystemNotes,
           investmentAmountUsd: newHealthSystemInvestmentAmountUsd,
           ownershipPercent: newHealthSystemOwnershipPercent
@@ -2900,6 +2992,52 @@ export function CompanyWorkbench() {
                               </select>
                             </div>
                             <div>
+                              <label>Preliminary Interest</label>
+                              <select
+                                value={editingHealthSystemPreliminaryInterest}
+                                onChange={(event) =>
+                                  setEditingHealthSystemPreliminaryInterest(
+                                    event.target.value as
+                                      | ""
+                                      | "EXPRESSED_INTEREST"
+                                      | "REQUESTED_MORE_INFO"
+                                      | "INTRO_CALL_SCHEDULED"
+                                      | "SCREENING_RECOMMENDED"
+                                  )
+                                }
+                              >
+                                {healthSystemPreliminaryInterestOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label>Current State</label>
+                              <select
+                                value={editingHealthSystemCurrentState}
+                                onChange={(event) =>
+                                  setEditingHealthSystemCurrentState(
+                                    event.target.value as
+                                      | ""
+                                      | "ACTIVE_SCREENING"
+                                      | "LOI_SIGNED"
+                                      | "CO_DEV"
+                                      | "COMMERCIAL_AGREEMENT"
+                                      | "PASSED"
+                                      | "REVISIT"
+                                  )
+                                }
+                              >
+                                {healthSystemCurrentStateOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
                               <label>Investment Amount (USD)</label>
                               <input
                                 value={editingHealthSystemInvestmentAmountUsd}
@@ -2950,6 +3088,14 @@ export function CompanyWorkbench() {
                         <div className="contact-row">
                           <div className="contact-row-details">
                             <strong>{link.healthSystem.name}</strong> - {link.relationshipType}
+                            <div className="relationship-badge-row">
+                              <span className="relationship-status-pill preliminary">
+                                Preliminary: {healthSystemPreliminaryInterestLabel(link.preliminaryInterest)}
+                              </span>
+                              <span className={`relationship-status-pill current ${healthSystemCurrentStateClassName(link.currentState)}`}>
+                                Current: {healthSystemCurrentStateLabel(link.currentState)}
+                              </span>
+                            </div>
                             {link.investmentAmountUsd !== null ? ` | Invested/Allocated: ${link.investmentAmountUsd}` : ""}
                             {link.ownershipPercent !== null ? ` | Ownership: ${link.ownershipPercent}%` : ""}
                           </div>
@@ -3015,6 +3161,52 @@ export function CompanyWorkbench() {
                         }
                       >
                         {companyHealthSystemRelationshipOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label>Preliminary Interest</label>
+                      <select
+                        value={newHealthSystemPreliminaryInterest}
+                        onChange={(event) =>
+                          setNewHealthSystemPreliminaryInterest(
+                            event.target.value as
+                              | ""
+                              | "EXPRESSED_INTEREST"
+                              | "REQUESTED_MORE_INFO"
+                              | "INTRO_CALL_SCHEDULED"
+                              | "SCREENING_RECOMMENDED"
+                          )
+                        }
+                      >
+                        {healthSystemPreliminaryInterestOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label>Current State</label>
+                      <select
+                        value={newHealthSystemCurrentState}
+                        onChange={(event) =>
+                          setNewHealthSystemCurrentState(
+                            event.target.value as
+                              | ""
+                              | "ACTIVE_SCREENING"
+                              | "LOI_SIGNED"
+                              | "CO_DEV"
+                              | "COMMERCIAL_AGREEMENT"
+                              | "PASSED"
+                              | "REVISIT"
+                          )
+                        }
+                      >
+                        {healthSystemCurrentStateOptions.map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label}
                           </option>

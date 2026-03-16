@@ -49,6 +49,8 @@ export async function PATCH(
     const healthSystemLinks = input.healthSystemLinks.map((link) => ({
       healthSystemId: link.healthSystemId,
       relationshipType: link.relationshipType,
+      preliminaryInterest: link.preliminaryInterest ?? undefined,
+      currentState: link.currentState ?? undefined,
       notes: link.notes || null,
       investmentAmountUsd: toNullableNumber(link.investmentAmountUsd),
       ownershipPercent: toNullableNumber(link.ownershipPercent)

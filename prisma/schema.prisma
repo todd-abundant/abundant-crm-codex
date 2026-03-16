@@ -125,6 +125,22 @@ enum CompanyHealthSystemRelationship {
   OTHER
 }
 
+enum CompanyHealthSystemPreliminaryInterest {
+  EXPRESSED_INTEREST
+  REQUESTED_MORE_INFO
+  INTRO_CALL_SCHEDULED
+  SCREENING_RECOMMENDED
+}
+
+enum CompanyHealthSystemCurrentState {
+  ACTIVE_SCREENING
+  LOI_SIGNED
+  CO_DEV
+  COMMERCIAL_AGREEMENT
+  PASSED
+  REVISIT
+}
+
 enum CompanyCoInvestorRelationship {
   INVESTOR
   PARTNER
@@ -652,19 +668,23 @@ model CompanySignalEvent {
 }
 
 model CompanyHealthSystemLink {
-  id                  String                          @id @default(cuid())
+  id                  String                                 @id @default(cuid())
   companyId           String
   healthSystemId      String
-  relationshipType    CompanyHealthSystemRelationship @default(CUSTOMER)
+  relationshipType    CompanyHealthSystemRelationship        @default(CUSTOMER)
+  preliminaryInterest CompanyHealthSystemPreliminaryInterest?
+  currentState        CompanyHealthSystemCurrentState?
   notes               String?
-  investmentAmountUsd Decimal?                        @db.Decimal(16, 2)
-  ownershipPercent    Decimal?                        @db.Decimal(7, 2)
-  createdAt           DateTime                        @default(now())
+  investmentAmountUsd Decimal?                               @db.Decimal(16, 2)
+  ownershipPercent    Decimal?                               @db.Decimal(7, 2)
+  createdAt           DateTime                               @default(now())
 
   company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
 
   @@index([companyId, healthSystemId])
+  @@index([preliminaryInterest])
+  @@index([currentState])
 }
 
 model CompanyCoInvestorLink {
