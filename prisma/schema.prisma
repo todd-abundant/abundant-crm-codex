@@ -118,6 +118,21 @@ enum CompanyLeadSourceType {
   OTHER
 }
 
+enum PipelineLeadSourceType {
+  INSIDE_OUT
+  ALLIANCE_REFERRAL
+  CO_INVESTOR_REFERRAL
+  COLD_INBOUND
+  WARM_INTRO
+  OTHER
+}
+
+enum PipelineLeadSourceEntityType {
+  CONTACT
+  HEALTH_SYSTEM
+  CO_INVESTOR
+}
+
 enum CompanyHealthSystemRelationship {
   CUSTOMER
   SPIN_OUT_PARTNER
@@ -752,6 +767,10 @@ model CompanyPipeline {
   s1InvestmentAmountUsd           Decimal?              @db.Decimal(16, 2)
   ventureStudioCriteria           Json?
   portfolioAddedAt                DateTime?
+  leadSourceType                  PipelineLeadSourceType?
+  leadSourceEntityType            PipelineLeadSourceEntityType?
+  leadSourceEntityId              String?
+  leadSourceEntityName            String?
   createdAt                       DateTime              @default(now())
   updatedAt                       DateTime              @updatedAt
 

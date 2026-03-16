@@ -184,6 +184,17 @@ type FundraiseDraft = {
   investors: FundraiseInvestorDraft[];
 };
 
+type PipelineLeadSourceType =
+  | "INSIDE_OUT"
+  | "ALLIANCE_REFERRAL"
+  | "CO_INVESTOR_REFERRAL"
+  | "COLD_INBOUND"
+  | "WARM_INTRO"
+  | "OTHER"
+  | "";
+
+type PipelineLeadSourceEntityType = "CONTACT" | "HEALTH_SYSTEM" | "CO_INVESTOR" | "";
+
 type PipelineDraft = {
   phase: PipelinePhase;
   stageChangedAt: string;
@@ -212,6 +223,10 @@ type PipelineDraft = {
   s1InvestmentAmountUsd: string;
   portfolioAddedAt: string;
   createdAt: string;
+  leadSourceType: PipelineLeadSourceType;
+  leadSourceEntityType: PipelineLeadSourceEntityType;
+  leadSourceEntityId: string;
+  leadSourceEntityName: string;
   documents: PipelineDocumentDraft[];
   opportunities: PipelineOpportunityDraft[];
   screeningEvents: ScreeningEventDraft[];
@@ -518,6 +533,10 @@ function hydratePipelineDraft(input: unknown): PipelineDraft {
     portfolioAddedAt: toDateInputValue(payload.portfolioAddedAt),
     createdAt: toDateInputValue(payload.createdAt),
     updatedAt: toText(payload.updatedAt),
+    leadSourceType: (payload.leadSourceType as PipelineLeadSourceType) || "",
+    leadSourceEntityType: (payload.leadSourceEntityType as PipelineLeadSourceEntityType) || "",
+    leadSourceEntityId: toText(payload.leadSourceEntityId),
+    leadSourceEntityName: toText(payload.leadSourceEntityName),
     documents: asArray(payload.documents).map((item) => {
       const entry = asObject(item);
       return {
@@ -632,6 +651,9 @@ function serializePipelineDraft(draft: PipelineDraft) {
     s1InvestmentAt: draft.s1InvestmentAt || null,
     s1InvestmentAmountUsd: parseNullableNumber(draft.s1InvestmentAmountUsd),
     portfolioAddedAt: draft.portfolioAddedAt || null,
+    leadSourceType: draft.leadSourceType || null,
+    leadSourceEntityType: draft.leadSourceEntityType || null,
+    leadSourceEntityId: draft.leadSourceEntityId.trim() || null,
     createdAt: draft.createdAt || null,
     documents: draft.documents
       .map((document) => ({
@@ -704,6 +726,149 @@ function serializePipelineDraft(draft: PipelineDraft) {
       .filter((fundraise) => fundraise.roundLabel)
   };
 }
+
+type EntitySearchResult = {
+  id: string;
+  entityType: "CONTACT" | "HEALTH_SYSTEM" | "CO_INVESTOR";
+  name: string;
+  label: string;
+};
+
+function entityTypeLabel(entityType: string) {
+  if (entityType === "HEALTH_SYSTEM") return "Health System";
+  if (entityType === "CO_INVESTOR") return "Co-Investor";
+  if (entityType === "CONTACT") return "Contact";
+  return entityType;
+}
+
+function LeadSourceEntityPicker({
+  entityId,
+  entityType,
+  entityName,
+  onSelect,
+  onClear
+}: {
+  entityId: string;
+  entityType: string;
+  entityName: string;
+  onSelect: (result: EntitySearchResult) => void;
+  onClear: () => void;
+}) {
+  const [editing, setEditing] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const [results, setResults] = React.useState<EntitySearchResult[]>([]);
+  const [searching, setSearching] = React.useState(false);
+  const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (editing) {
+      setQuery("");
+      setResults([]);
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [editing]);
+
+  React.useEffect(() => {
+    if (!editing) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      setResults([]);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetch(`/api/pipeline/entity-search?q=${encodeURIComponent(trimmed)}`);
+        const data = (await res.json()) as { results?: EntitySearchResult[] };
+        setResults(data.results ?? []);
+      } catch {
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query, editing]);
+
+  if (!editing) {
+    const hasValue = Boolean(entityId);
+    return (
+      <div className="lead-source-entity-display">
+        {hasValue ? (
+          <span className="lead-source-entity-value">
+            {entityName || entityId}
+            {entityType ? ` — ${entityTypeLabel(entityType)}` : ""}
+          </span>
+        ) : (
+          <span className="muted">Not set</span>
+        )}
+        <button type="button" className="link-button" onClick={() => setEditing(true)}>
+          {hasValue ? "Change" : "Select"}
+        </button>
+        {hasValue && (
+          <button type="button" className="link-button" onClick={onClear}>
+            Clear
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="lead-source-entity-picker">
+      <input
+        ref={inputRef}
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search contacts, health systems, co-investors…"
+        className="lead-source-entity-search-input"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setEditing(false);
+        }}
+      />
+      {searching && <p className="muted" style={{ fontSize: "0.8rem", margin: "4px 0 0" }}>Searching…</p>}
+      {results.length > 0 && (
+        <ul className="lead-source-entity-results">
+          {results.map((result) => (
+            <li key={`${result.entityType}:${result.id}`}>
+              <button
+                type="button"
+                className="lead-source-entity-result-item"
+                onClick={() => {
+                  onSelect(result);
+                  setEditing(false);
+                }}
+              >
+                {result.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!searching && query.trim().length >= 2 && results.length === 0 && (
+        <p className="muted" style={{ fontSize: "0.8rem", margin: "4px 0 0" }}>No matches found.</p>
+      )}
+      <button type="button" className="link-button" style={{ fontSize: "0.8rem", marginTop: "4px" }} onClick={() => setEditing(false)}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+const LEAD_SOURCE_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "", label: "Not set" },
+  { value: "INSIDE_OUT", label: "Inside-out" },
+  { value: "ALLIANCE_REFERRAL", label: "Alliance referral" },
+  { value: "CO_INVESTOR_REFERRAL", label: "Co-investor referral" },
+  { value: "COLD_INBOUND", label: "Cold inbound" },
+  { value: "WARM_INTRO", label: "Warm intro" },
+  { value: "OTHER", label: "Other" }
+];
 
 export function CompanyPipelineManager({
   companyId,
@@ -1458,6 +1623,49 @@ export function CompanyPipelineManager({
         }}
         onScreeningWebinarDate2Save={(value) => updateDraft({ screeningWebinarDate2At: value })}
       />
+
+      <div className="detail-section">
+        <p className="detail-label">Lead Source</p>
+        <div className="detail-grid">
+          <div className="inline-edit-field">
+            <label>Source Type</label>
+            <select
+              value={draft.leadSourceType}
+              onChange={(e) =>
+                updateDraft({ leadSourceType: e.target.value as PipelineLeadSourceType })
+              }
+            >
+              {LEAD_SOURCE_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="inline-edit-field">
+            <label>Source Entity</label>
+            <LeadSourceEntityPicker
+              entityId={draft.leadSourceEntityId}
+              entityType={draft.leadSourceEntityType}
+              entityName={draft.leadSourceEntityName}
+              onSelect={(result) =>
+                updateDraft({
+                  leadSourceEntityId: result.id,
+                  leadSourceEntityType: result.entityType as PipelineLeadSourceEntityType,
+                  leadSourceEntityName: result.name
+                })
+              }
+              onClear={() =>
+                updateDraft({
+                  leadSourceEntityId: "",
+                  leadSourceEntityType: "",
+                  leadSourceEntityName: ""
+                })
+              }
+            />
+          </div>
+        </div>
+      </div>
 
       {showExtendedPipelineSections ? (
         <>
