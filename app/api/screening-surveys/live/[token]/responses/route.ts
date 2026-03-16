@@ -8,6 +8,7 @@ import {
 } from "@/lib/contact-resolution";
 import { inferQualitativeFeedbackFromImpression } from "@/lib/screening-qualitative-inference";
 import { refreshSurveyDrivenScreeningOpportunity } from "@/lib/screening-opportunity-sync";
+import { setScreeningSurveyRespondentProfileCookie } from "@/lib/screening-survey-respondent-cookie";
 
 const submitResponseSchema = z
   .object({
@@ -322,16 +323,24 @@ export async function POST(
       return {
         submissionId: submission.id,
         qualitativeInferenceSource: inferredQualitative.source,
-        screeningOpportunityId: screeningOpportunityResult?.opportunityId || null
+        screeningOpportunityId: screeningOpportunityResult?.opportunityId || null,
+        respondentProfile: {
+          participantName: participantName || resolvedName || inferNameFromEmail(participantEmail || ""),
+          participantEmail,
+          healthSystemId: healthSystem.id,
+          healthSystemName: healthSystem.name
+        }
       };
     });
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       ok: true,
       submissionId: result.submissionId,
       qualitativeInferenceSource: result.qualitativeInferenceSource,
       screeningOpportunityId: result.screeningOpportunityId
     });
+    setScreeningSurveyRespondentProfileCookie(response, result.respondentProfile);
+    return response;
   } catch (error) {
     console.error("submit_live_screening_survey_response_error", error);
     return NextResponse.json(

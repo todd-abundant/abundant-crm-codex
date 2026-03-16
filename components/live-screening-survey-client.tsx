@@ -2,6 +2,11 @@
 "use client";
 
 import * as React from "react";
+import {
+  SCREENING_SURVEY_RESPONDENT_COOKIE_MAX_AGE_SECONDS,
+  SCREENING_SURVEY_RESPONDENT_COOKIE_NAME,
+  serializeScreeningSurveyRespondentProfileCookie
+} from "@/lib/screening-survey-respondent-cookie";
 
 type LiveSurveySession = {
   id: string;
@@ -29,6 +34,13 @@ type LiveSurveyHealthSystem = {
   name: string;
 };
 
+type LiveSurveyParticipantProfile = {
+  participantName: string | null;
+  participantEmail: string | null;
+  healthSystemId: string;
+  healthSystemName: string;
+};
+
 type LiveSurveyAnswer = {
   score: number;
   skipped: boolean;
@@ -40,6 +52,22 @@ function midpoint(min: number, max: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function resolvePrefilledHealthSystemId(
+  profile: LiveSurveyParticipantProfile | null,
+  healthSystems: LiveSurveyHealthSystem[]
+) {
+  if (!profile) return "";
+
+  if (healthSystems.some((entry) => entry.id === profile.healthSystemId)) {
+    return profile.healthSystemId;
+  }
+
+  const matchedHealthSystem = healthSystems.find(
+    (entry) => entry.name.trim().toLowerCase() === profile.healthSystemName.trim().toLowerCase()
+  );
+  return matchedHealthSystem?.id || "";
 }
 
 export function LiveScreeningSurveyClient({ token }: { token: string }) {
@@ -83,10 +111,15 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
           return a.sessionQuestionId.localeCompare(b.sessionQuestionId);
         });
         const nextHealthSystems = (payload.healthSystems || []) as LiveSurveyHealthSystem[];
+        const participantProfile =
+          (payload.participantProfile as LiveSurveyParticipantProfile | null | undefined) || null;
 
         setSession(nextSession);
         setQuestions(nextQuestions);
         setHealthSystems(nextHealthSystems);
+        setParticipantName(participantProfile?.participantName || "");
+        setParticipantEmail(participantProfile?.participantEmail || "");
+        setHealthSystemId(resolvePrefilledHealthSystemId(participantProfile, nextHealthSystems));
         setAnswers(
           nextQuestions.reduce<Record<string, LiveSurveyAnswer>>((accumulator, question) => {
             accumulator[question.sessionQuestionId] = {
@@ -130,11 +163,46 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
   const progressPercent = totalSteps > 0 ? ((stepIndex + 1) / totalSteps) * 100 : 0;
   const currentAnswer = currentQuestion ? answers[currentQuestion.sessionQuestionId] : null;
   const currentAnswerValue = currentAnswer?.score ?? 0;
+  const isLiveSession = session?.status === "LIVE";
+  const isPreviewSession = Boolean(session) && session?.status !== "LIVE";
+  const previewStateLabel = session?.status === "DRAFT" ? "draft" : "closed";
   const progressLabel = isIntroStep
     ? `Step 1 of ${totalSteps}`
     : currentQuestion
       ? `Question ${questionPosition + 1} of ${questionCount}`
       : "Final Feedback";
+
+  const persistRespondentProfileCookie = React.useCallback(() => {
+    if (typeof document === "undefined") return;
+
+    const selectedHealthSystem = healthSystems.find((entry) => entry.id === healthSystemId);
+    if (!selectedHealthSystem) return;
+
+    const trimmedName = participantName.trim();
+    const trimmedEmail = participantEmail.trim().toLowerCase();
+    if (!trimmedName && !trimmedEmail) return;
+
+    const cookieValue = serializeScreeningSurveyRespondentProfileCookie({
+      participantName: trimmedName || null,
+      participantEmail: trimmedEmail || null,
+      healthSystemId: selectedHealthSystem.id,
+      healthSystemName: selectedHealthSystem.name
+    });
+
+    document.cookie = [
+      `${SCREENING_SURVEY_RESPONDENT_COOKIE_NAME}=${cookieValue}`,
+      `Max-Age=${SCREENING_SURVEY_RESPONDENT_COOKIE_MAX_AGE_SECONDS}`,
+      "Path=/",
+      "SameSite=Lax",
+      window.location.protocol === "https:" ? "Secure" : ""
+    ]
+      .filter(Boolean)
+      .join("; ");
+  }, [healthSystemId, healthSystems, participantEmail, participantName]);
+
+  React.useEffect(() => {
+    persistRespondentProfileCookie();
+  }, [persistRespondentProfileCookie]);
 
   function goToNextStep() {
     if (totalSteps === 0) return;
@@ -166,6 +234,11 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
     goToNextStep();
   }
 
+  function handleStartSurvey() {
+    persistRespondentProfileCookie();
+    goToNextStep();
+  }
+
   async function submitSurvey() {
     if (!session) return;
     if (!healthSystemId) {
@@ -192,6 +265,15 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
     setSubmitting(true);
     setStatus(null);
     try {
+      if (!isLiveSession) {
+        setSubmitted(true);
+        setStatus({
+          kind: "ok",
+          text: `Preview complete. No responses were stored because this survey is ${previewStateLabel}, but this browser may remember your respondent details for prefilling.`
+        });
+        return;
+      }
+
       const res = await fetch(`/api/screening-surveys/live/${token}/responses`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -241,11 +323,18 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
 
         {!loading && !session ? <p className="muted">Survey unavailable.</p> : null}
 
-        {!loading && session && session.status !== "LIVE" ? (
-          <p className="muted">This survey is not currently accepting responses.</p>
+        {!loading && isPreviewSession ? (
+          <div className="live-survey-preview-banner" role="note" aria-live="polite">
+            <strong>{session?.status === "DRAFT" ? "Draft Survey Preview" : "Closed Survey Preview"}</strong>
+            <p>
+              This survey is open for testing only. Responses will not be submitted or stored because
+              this survey is {previewStateLabel}. This browser may still remember your respondent
+              details for prefilling.
+            </p>
+          </div>
         ) : null}
 
-        {!loading && session && session.status === "LIVE" && !submitted ? (
+        {!loading && session && !submitted ? (
           <>
             <div className="live-survey-form">
               <div className="live-survey-row">
@@ -331,10 +420,10 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
                       <button
                         type="button"
                         className="secondary"
-                        onClick={goToNextStep}
+                        onClick={handleStartSurvey}
                         disabled={submitting}
                       >
-                        Start Survey
+                        {isPreviewSession ? "Start Preview" : "Start Survey"}
                       </button>
                     </div>
                   </div>
@@ -443,7 +532,9 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
                         onClick={() => void submitSurvey()}
                         disabled={submitting}
                       >
-                        {submitting ? "Submitting..." : "Submit Survey"}
+                        {submitting
+                          ? (isPreviewSession ? "Finishing..." : "Submitting...")
+                          : (isPreviewSession ? "Finish Preview" : "Submit Survey")}
                       </button>
                     </div>
                   </div>
@@ -457,8 +548,12 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
 
         {submitted ? (
           <div className="live-survey-thankyou">
-            <h2>Thank you</h2>
-            <p>Your responses were captured successfully.</p>
+            <h2>{isPreviewSession ? "Preview complete" : "Thank you"}</h2>
+            <p>
+              {isPreviewSession
+                ? `No responses were stored because this survey is ${previewStateLabel}. This browser may still remember your respondent details for prefilling.`
+                : "Your responses were captured successfully."}
+            </p>
           </div>
         ) : null}
       </section>

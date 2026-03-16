@@ -1,12 +1,19 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import {
+  parseScreeningSurveyRespondentProfileCookie,
+  SCREENING_SURVEY_RESPONDENT_COOKIE_NAME
+} from "@/lib/screening-survey-respondent-cookie";
 
 export async function GET(
-  _request: Request,
+  request: NextRequest,
   context: { params: Promise<{ token: string }> }
 ) {
   try {
     const { token } = await context.params;
+    const participantProfile = parseScreeningSurveyRespondentProfileCookie(
+      request.cookies.get(SCREENING_SURVEY_RESPONDENT_COOKIE_NAME)?.value
+    );
 
     const session = await prisma.companyScreeningSurveySession.findUnique({
       where: { accessToken: token },
@@ -73,7 +80,8 @@ export async function GET(
         scaleMin: entry.question.scaleMin,
         scaleMax: entry.question.scaleMax
       })),
-      healthSystems
+      healthSystems,
+      participantProfile
     });
   } catch (error) {
     console.error("get_live_screening_survey_error", error);

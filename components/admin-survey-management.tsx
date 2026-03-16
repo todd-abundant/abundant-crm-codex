@@ -838,14 +838,6 @@ export function AdminSurveyManagement() {
     }
   }
 
-  function openSurveyLink(path: string) {
-    if (typeof window === "undefined") return;
-    const opened = window.open(path, "_blank", "noopener,noreferrer");
-    if (!opened) {
-      window.location.assign(path);
-    }
-  }
-
   function openAddSurveyModal() {
     const defaultCompanyId =
       selectedCompanyId || companies.find((entry) => entry.isScreeningStage)?.id || companies[0]?.id || "";
@@ -2115,13 +2107,14 @@ export function AdminSurveyManagement() {
 
               <div className="detail-section admin-survey-top-actions-row">
                 <div className="actions actions-flush">
-                  <button
+                  <a
                     className="secondary small"
-                    type="button"
-                    onClick={() => openSurveyLink(sessionDraft.sharePath)}
+                    href={sessionDraft.sharePath}
+                    target="_blank"
+                    rel="noreferrer"
                   >
                     Open Survey
-                  </button>
+                  </a>
                   <button
                     className="secondary small"
                     type="button"
