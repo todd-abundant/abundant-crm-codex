@@ -3,9 +3,9 @@
 import * as React from "react";
 import { PipelineOpportunityDetailView } from "./pipeline-opportunity-detail";
 
-type NarrativeOpportunityTarget = {
+type NarrativeDetailTarget = {
   companyId: string;
-  opportunityId: string;
+  opportunityId?: string | null;
 };
 
 export type HomeNarrativeChangeEvent = {
@@ -19,7 +19,7 @@ export type HomeNarrativeChangeEvent = {
   shouldPrefixActor: boolean;
   timestampIso: string;
   timestampLabel: string;
-  opportunityTarget: NarrativeOpportunityTarget | null;
+  detailTarget: NarrativeDetailTarget | null;
 };
 
 function formatActorNames(actorNames: string[]) {
@@ -61,10 +61,10 @@ export function HomeNarrativeChanges({
   events: HomeNarrativeChangeEvent[];
   totalCount: number;
 }) {
-  const [selectedOpportunity, setSelectedOpportunity] = React.useState<NarrativeOpportunityTarget | null>(null);
+  const [selectedDetail, setSelectedDetail] = React.useState<NarrativeDetailTarget | null>(null);
 
   const closeOpportunity = React.useCallback(() => {
-    setSelectedOpportunity(null);
+    setSelectedDetail(null);
   }, []);
 
   return (
@@ -84,15 +84,15 @@ export function HomeNarrativeChanges({
                 <li
                   key={event.id}
                   className="home-pipeline-activity-item"
-                  data-clickable={event.opportunityTarget ? "true" : "false"}
+                  data-clickable={event.detailTarget ? "true" : "false"}
                 >
-                  {event.opportunityTarget ? (
+                  {event.detailTarget ? (
                     <button
                       type="button"
                       className="home-pipeline-activity-button"
-                      onClick={() => setSelectedOpportunity(event.opportunityTarget)}
+                      onClick={() => setSelectedDetail(event.detailTarget)}
                       aria-haspopup="dialog"
-                      aria-label={`Open opportunity for activity: ${event.narrative}`}
+                      aria-label={`Open pipeline detail for activity: ${event.narrative}`}
                     >
                       <ActivityCard event={event} />
                     </button>
@@ -111,14 +111,14 @@ export function HomeNarrativeChanges({
         ) : null}
       </aside>
 
-      {selectedOpportunity ? (
+      {selectedDetail ? (
         <div className="pipeline-detail-backdrop" onMouseDown={closeOpportunity}>
           <PipelineOpportunityDetailView
-            itemId={selectedOpportunity.companyId}
+            itemId={selectedDetail.companyId}
             inModal
-            initialIntakeDetailTab="opportunities"
-            initialOpportunityId={selectedOpportunity.opportunityId}
-            closeContainerOnOpportunityClose
+            initialIntakeDetailTab={selectedDetail.opportunityId ? "opportunities" : "pipeline-status"}
+            initialOpportunityId={selectedDetail.opportunityId || null}
+            closeContainerOnOpportunityClose={Boolean(selectedDetail.opportunityId)}
             onCloseModal={closeOpportunity}
           />
         </div>

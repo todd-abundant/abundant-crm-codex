@@ -75,9 +75,9 @@ type ActivityEvent = {
   kind: "ENTRY" | "MOMENTUM" | "OPPORTUNITY" | "NOTE" | "SCREENING";
   pipelineType: PipelineCompanyType;
   shouldPrefixActor: boolean;
-  opportunityTarget: {
+  detailTarget: {
     companyId: string;
-    opportunityId: string;
+    opportunityId?: string | null;
   } | null;
 };
 
@@ -409,6 +409,8 @@ export default async function HomePage() {
     const phase = (company.pipeline?.phase || inferDefaultPhaseFromCompany(company)) as PipelinePhase;
     const currentStageName = stageNameForPhase(phase);
     const boardColumn = mapPhaseToBoardColumn(phase);
+    const fallbackActorName = resolveActorName(company.pipeline?.ownerName, null);
+    const fallbackActorNames = fallbackActorName ? [fallbackActorName] : [];
 
     if (boardColumn) {
       section.summary[boardColumn] += 1;
@@ -429,12 +431,14 @@ export default async function HomePage() {
       section.events.push({
         id: `company-created-${company.id}`,
         timestamp: company.createdAt,
-        actorNames: [],
+        actorNames: fallbackActorNames,
         narrative: `${company.name} entered the pipeline in ${currentStageName}.`,
         kind: "ENTRY",
         pipelineType: companyType,
         shouldPrefixActor: false,
-        opportunityTarget: null
+        detailTarget: {
+          companyId: company.id
+        }
       });
     }
 
@@ -444,12 +448,14 @@ export default async function HomePage() {
         section.events.push({
           id: `pipeline-updated-${company.id}`,
           timestamp: company.pipeline.updatedAt,
-          actorNames: [],
+          actorNames: fallbackActorNames,
           narrative: `${company.name} showed pipeline momentum and is currently in ${currentStageName}.`,
           kind: "MOMENTUM",
           pipelineType: companyType,
           shouldPrefixActor: false,
-          opportunityTarget: null
+          detailTarget: {
+            companyId: company.id
+          }
         });
       }
     }
@@ -479,7 +485,9 @@ export default async function HomePage() {
             companyId: opportunityAffiliations[0].companyId,
             opportunityId: opportunityAffiliations[0].id
           }
-        : null;
+        : {
+            companyId: company.id
+          };
     sectionDataByType[companyType].events.push({
       id: `note-${note.id}`,
       timestamp: note.createdAt,
@@ -488,7 +496,7 @@ export default async function HomePage() {
       kind: "NOTE",
       pipelineType: companyType,
       shouldPrefixActor: true,
-      opportunityTarget: noteOpportunity
+      detailTarget: noteOpportunity
     });
   }
 
@@ -524,31 +532,38 @@ export default async function HomePage() {
       kind: "SCREENING",
       pipelineType: companyType,
       shouldPrefixActor: true,
-      opportunityTarget: screeningOpportunity
+      detailTarget: screeningOpportunity
         ? {
             companyId: change.companyId,
             opportunityId: screeningOpportunity.id
           }
-        : null
+        : {
+            companyId: change.companyId
+          }
     });
   }
 
   for (const company of companies) {
     const companyType = normalizeCompanyType(company.companyType);
     const section = sectionDataByType[companyType];
+    const fallbackActorName = resolveActorName(company.pipeline?.ownerName, null);
+    const fallbackActorNames = fallbackActorName ? [fallbackActorName] : [];
 
     for (const opportunity of opportunitiesByCompanyId.get(company.id) || []) {
+      const attributedActorNames = sortedActorNames(opportunityActorNamesById.get(opportunity.id));
+      const actorNames = attributedActorNames.length > 0 ? attributedActorNames : fallbackActorNames;
+
       if (opportunity.createdAt >= lookbackStart) {
         const label = opportunityNarrativeLabel(opportunity.type);
         section.events.push({
           id: `opportunity-created-${opportunity.id}`,
           timestamp: opportunity.createdAt,
-          actorNames: sortedActorNames(opportunityActorNamesById.get(opportunity.id)),
+          actorNames,
           narrative: `A new ${label} was added for ${company.name} (${opportunity.title}).`,
           kind: "OPPORTUNITY",
           pipelineType: companyType,
           shouldPrefixActor: false,
-          opportunityTarget: {
+          detailTarget: {
             companyId: company.id,
             opportunityId: opportunity.id
           }
@@ -561,12 +576,12 @@ export default async function HomePage() {
         section.events.push({
           id: `opportunity-updated-${opportunity.id}`,
           timestamp: opportunity.updatedAt,
-          actorNames: sortedActorNames(opportunityActorNamesById.get(opportunity.id)),
+          actorNames,
           narrative: `${company.name} advanced or updated one ${label} (${opportunity.title}).`,
           kind: "OPPORTUNITY",
           pipelineType: companyType,
           shouldPrefixActor: false,
-          opportunityTarget: {
+          detailTarget: {
             companyId: company.id,
             opportunityId: opportunity.id
           }
@@ -886,7 +901,7 @@ export default async function HomePage() {
             shouldPrefixActor: event.shouldPrefixActor,
             timestampIso: event.timestamp.toISOString(),
             timestampLabel: TIMESTAMP_FORMATTER.format(event.timestamp),
-            opportunityTarget: event.opportunityTarget
+            detailTarget: event.detailTarget
           }))}
           totalCount={globalEvents.length}
         />
