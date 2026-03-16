@@ -37,7 +37,7 @@ type LiveSurveyHealthSystem = {
 type LiveSurveyParticipantProfile = {
   participantName: string | null;
   participantEmail: string | null;
-  healthSystemId: string;
+  healthSystemId: string | null;
   healthSystemName: string;
 };
 
@@ -54,20 +54,30 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function resolvePrefilledHealthSystemId(
-  profile: LiveSurveyParticipantProfile | null,
+function normalizeOrganizationName(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function findMatchingHealthSystem(
+  value: string,
   healthSystems: LiveSurveyHealthSystem[]
 ) {
-  if (!profile) return "";
+  const normalizedValue = normalizeOrganizationName(value);
+  if (!normalizedValue) return null;
 
-  if (healthSystems.some((entry) => entry.id === profile.healthSystemId)) {
-    return profile.healthSystemId;
-  }
-
-  const matchedHealthSystem = healthSystems.find(
-    (entry) => entry.name.trim().toLowerCase() === profile.healthSystemName.trim().toLowerCase()
+  return (
+    healthSystems.find((entry) => normalizeOrganizationName(entry.name) === normalizedValue) || null
   );
-  return matchedHealthSystem?.id || "";
+}
+
+function rankHealthSystemMatch(name: string, query: string) {
+  const normalizedName = normalizeOrganizationName(name);
+  const normalizedQuery = normalizeOrganizationName(query);
+  if (!normalizedQuery) return 0;
+  if (normalizedName === normalizedQuery) return 3;
+  if (normalizedName.startsWith(normalizedQuery)) return 2;
+  if (normalizedName.includes(normalizedQuery)) return 1;
+  return 0;
 }
 
 export function LiveScreeningSurveyClient({ token }: { token: string }) {
@@ -79,13 +89,14 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
   const [answers, setAnswers] = React.useState<Record<string, LiveSurveyAnswer>>({});
   const [participantName, setParticipantName] = React.useState("");
   const [participantEmail, setParticipantEmail] = React.useState("");
-  const [healthSystemId, setHealthSystemId] = React.useState("");
+  const [organizationName, setOrganizationName] = React.useState("");
   const [impressions, setImpressions] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
   const [submitted, setSubmitted] = React.useState(false);
   const [stepIndex, setStepIndex] = React.useState(0);
   const [slideDirection, setSlideDirection] = React.useState<"forward" | "backward">("forward");
   const [slideKey, setSlideKey] = React.useState(0);
+  const [organizationLookupOpen, setOrganizationLookupOpen] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -119,7 +130,7 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
         setHealthSystems(nextHealthSystems);
         setParticipantName(participantProfile?.participantName || "");
         setParticipantEmail(participantProfile?.participantEmail || "");
-        setHealthSystemId(resolvePrefilledHealthSystemId(participantProfile, nextHealthSystems));
+        setOrganizationName(participantProfile?.healthSystemName || "");
         setAnswers(
           nextQuestions.reduce<Record<string, LiveSurveyAnswer>>((accumulator, question) => {
             accumulator[question.sessionQuestionId] = {
@@ -171,22 +182,45 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
     : currentQuestion
       ? `Question ${questionPosition + 1} of ${questionCount}`
       : "Final Feedback";
+  const resolvedOrganizationName = organizationName.trim();
+  const matchedHealthSystem = findMatchingHealthSystem(resolvedOrganizationName, healthSystems);
+  const sortedHealthSystems = React.useMemo(
+    () => [...healthSystems].sort((a, b) => a.name.localeCompare(b.name)),
+    [healthSystems]
+  );
+  const organizationSuggestions = React.useMemo(() => {
+    if (!resolvedOrganizationName) {
+      return sortedHealthSystems.slice(0, 12);
+    }
+
+    return sortedHealthSystems
+      .map((entry) => ({
+        entry,
+        score: rankHealthSystemMatch(entry.name, resolvedOrganizationName)
+      }))
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.entry.name.localeCompare(b.entry.name);
+      })
+      .slice(0, 12)
+      .map((entry) => entry.entry);
+  }, [resolvedOrganizationName, sortedHealthSystems]);
+  const showUseTypedOrganizationOption = Boolean(resolvedOrganizationName) && !matchedHealthSystem;
 
   const persistRespondentProfileCookie = React.useCallback(() => {
     if (typeof document === "undefined") return;
 
-    const selectedHealthSystem = healthSystems.find((entry) => entry.id === healthSystemId);
-    if (!selectedHealthSystem) return;
-
     const trimmedName = participantName.trim();
     const trimmedEmail = participantEmail.trim().toLowerCase();
     if (!trimmedName && !trimmedEmail) return;
+    if (!resolvedOrganizationName) return;
 
     const cookieValue = serializeScreeningSurveyRespondentProfileCookie({
       participantName: trimmedName || null,
       participantEmail: trimmedEmail || null,
-      healthSystemId: selectedHealthSystem.id,
-      healthSystemName: selectedHealthSystem.name
+      healthSystemId: matchedHealthSystem?.id || null,
+      healthSystemName: resolvedOrganizationName
     });
 
     document.cookie = [
@@ -198,11 +232,29 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
     ]
       .filter(Boolean)
       .join("; ");
-  }, [healthSystemId, healthSystems, participantEmail, participantName]);
+  }, [
+    matchedHealthSystem?.id,
+    resolvedOrganizationName,
+    participantEmail,
+    participantName
+  ]);
 
   React.useEffect(() => {
     persistRespondentProfileCookie();
   }, [persistRespondentProfileCookie]);
+
+  function handleOrganizationLookupBlur(event: React.FocusEvent<HTMLDivElement>) {
+    const nextFocusedElement = event.relatedTarget;
+    if (nextFocusedElement instanceof Node && event.currentTarget.contains(nextFocusedElement)) {
+      return;
+    }
+    setOrganizationLookupOpen(false);
+  }
+
+  function selectOrganization(nextOrganizationName: string) {
+    setOrganizationName(nextOrganizationName);
+    setOrganizationLookupOpen(false);
+  }
 
   function goToNextStep() {
     if (totalSteps === 0) return;
@@ -241,8 +293,11 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
 
   async function submitSurvey() {
     if (!session) return;
-    if (!healthSystemId) {
-      setStatus({ kind: "error", text: "Select your health system." });
+    if (!resolvedOrganizationName) {
+      setStatus({
+        kind: "error",
+        text: "Enter your organization."
+      });
       return;
     }
     if (!participantName.trim() && !participantEmail.trim()) {
@@ -280,7 +335,8 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
         body: JSON.stringify({
           participantName: participantName.trim() || undefined,
           participantEmail: participantEmail.trim() || undefined,
-          healthSystemId,
+          healthSystemId: matchedHealthSystem?.id,
+          healthSystemName: resolvedOrganizationName,
           impressions: impressionText,
           answers: questions.map((question) => ({
             sessionQuestionId: question.sessionQuestionId,
@@ -360,20 +416,86 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
               </div>
 
               <div>
-                <label htmlFor="live-survey-health-system">Health system</label>
-                <select
-                  id="live-survey-health-system"
-                  value={healthSystemId}
-                  onChange={(event) => setHealthSystemId(event.target.value)}
-                  required
+                <label htmlFor="live-survey-health-system">Health system or organization</label>
+                <div
+                  className="live-survey-organization-lookup"
+                  onFocus={() => setOrganizationLookupOpen(true)}
+                  onBlur={handleOrganizationLookupBlur}
                 >
-                  <option value="">Select organization</option>
-                  {healthSystems.map((entry) => (
-                    <option key={entry.id} value={entry.id}>
-                      {entry.name}
-                    </option>
-                  ))}
-                </select>
+                  <input
+                    id="live-survey-health-system"
+                    value={organizationName}
+                    onChange={(event) => {
+                      setOrganizationName(event.target.value);
+                      setOrganizationLookupOpen(true);
+                    }}
+                    placeholder="Start typing an organization name"
+                    required
+                    autoComplete="organization"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={organizationLookupOpen}
+                    aria-controls="live-survey-organization-results"
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        setOrganizationLookupOpen(false);
+                      }
+                    }}
+                  />
+                  {organizationLookupOpen ? (
+                    <div
+                      id="live-survey-organization-results"
+                      className="live-survey-organization-results"
+                      role="listbox"
+                      aria-label="Organization matches"
+                    >
+                      {showUseTypedOrganizationOption ? (
+                        <button
+                          type="button"
+                          className="live-survey-organization-option active"
+                          onClick={() => selectOrganization(resolvedOrganizationName)}
+                          role="option"
+                          aria-selected="true"
+                        >
+                          <span className="live-survey-organization-option-name">
+                            Use &quot;{resolvedOrganizationName}&quot;
+                          </span>
+                          <span className="live-survey-organization-option-subtitle">
+                            Continue with this typed organization
+                          </span>
+                        </button>
+                      ) : null}
+                      {organizationSuggestions.length === 0 ? (
+                        <p className="muted live-survey-organization-empty">
+                          No matching organizations found yet.
+                        </p>
+                      ) : (
+                        organizationSuggestions.map((entry) => (
+                          <button
+                            type="button"
+                            key={entry.id}
+                            className={`live-survey-organization-option ${
+                              matchedHealthSystem?.id === entry.id ? "active" : ""
+                            }`}
+                            onClick={() => selectOrganization(entry.name)}
+                            role="option"
+                            aria-selected={matchedHealthSystem?.id === entry.id}
+                          >
+                            <span className="live-survey-organization-option-name">{entry.name}</span>
+                            <span className="live-survey-organization-option-subtitle">
+                              {matchedHealthSystem?.id === entry.id
+                                ? "Selected existing organization"
+                                : "Use existing organization"}
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+                <p className="muted">
+                  Start typing to narrow the list, or enter a new organization name if it is not listed.
+                </p>
               </div>
             </div>
 

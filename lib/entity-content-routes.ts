@@ -80,7 +80,10 @@ export function createEntityDocumentsHandlers(entityKind: EntityKind, entityLabe
         return NextResponse.json({ document }, { status: 201 });
       } catch (error) {
         console.error("create_entity_document_error", { entityKind, error });
-        return NextResponse.json({ error: `Failed to add ${entityLabel} document` }, { status: 400 });
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : `Failed to add ${entityLabel} document` },
+          { status: 400 }
+        );
       }
     },
 
@@ -101,7 +104,10 @@ export function createEntityDocumentsHandlers(entityKind: EntityKind, entityLabe
         return NextResponse.json({ document });
       } catch (error) {
         console.error("update_entity_document_error", { entityKind, error });
-        return NextResponse.json({ error: `Failed to update ${entityLabel} document` }, { status: 400 });
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : `Failed to update ${entityLabel} document` },
+          { status: 400 }
+        );
       }
     },
 
