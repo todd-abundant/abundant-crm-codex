@@ -497,6 +497,8 @@ main {
 .home-pipeline-hero {
   position: relative;
   overflow: hidden;
+  width: 100%;
+  align-self: stretch;
   border-color: #b8cbdf;
   background:
     radial-gradient(circle at 0% 0%, rgba(8, 86, 149, 0.15) 0%, rgba(8, 86, 149, 0) 44%),
@@ -516,15 +518,6 @@ main {
   pointer-events: none;
 }
 
-.home-pipeline-hero-top {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: 1.35fr 0.8fr;
-  gap: 12px;
-  align-items: start;
-}
-
 .home-pipeline-hero h1 {
   margin: 0 0 6px;
   color: #092f56;
@@ -538,14 +531,6 @@ main {
 
 .home-pipeline-hero .muted + .muted {
   margin-top: 6px;
-}
-
-.home-pipeline-progress-card {
-  border: 1px solid #c7d9ea;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 4px 16px rgba(8, 46, 83, 0.08);
-  padding: 10px 12px;
 }
 
 .home-progress-head {
@@ -587,23 +572,6 @@ main {
   background: linear-gradient(90deg, #0f69ad 0%, #08a28f 100%);
 }
 
-.home-kpi-grid {
-  position: relative;
-  z-index: 1;
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.home-kpi-card {
-  border: 1px solid #c8dae9;
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.88);
-  box-shadow: 0 4px 14px rgba(9, 43, 76, 0.08);
-  padding: 10px;
-}
-
 .home-kpi-label {
   margin: 0;
   color: #405b75;
@@ -611,18 +579,6 @@ main {
   font-weight: 700;
   letter-spacing: 0.012em;
   text-transform: uppercase;
-}
-
-.home-kpi-value {
-  margin: 6px 0 4px;
-  color: #0a345f;
-  font-size: 1.58rem;
-  line-height: 1;
-  font-weight: 700;
-}
-
-.home-kpi-card .muted {
-  margin: 0;
 }
 
 .home-executive-grid {
@@ -1102,10 +1058,6 @@ main {
 }
 
 @media (max-width: 1180px) {
-  .home-kpi-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .home-pipeline-shell {
     grid-template-columns: 1fr;
   }
@@ -1122,8 +1074,10 @@ main {
 }
 
 @media (max-width: 900px) {
-  .home-pipeline-hero-top {
-    grid-template-columns: 1fr;
+  .home-executive-callout-grid,
+  .home-executive-stage-band,
+  .home-pipeline-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1138,7 +1092,6 @@ main {
 @media (max-width: 560px) {
   .home-executive-callout-grid,
   .home-executive-stage-band,
-  .home-kpi-grid,
   .home-pipeline-summary-grid {
     grid-template-columns: 1fr;
   }

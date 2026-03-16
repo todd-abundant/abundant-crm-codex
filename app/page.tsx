@@ -232,10 +232,6 @@ function progressPercentForSection(summary: StageSummary) {
   return Math.round((beyondIntake / total) * 100);
 }
 
-function pacePerDay(value: number) {
-  return (value / LOOKBACK_DAYS).toFixed(1);
-}
-
 function pluralize(value: number, singular: string, plural = `${singular}s`) {
   return `${value} ${value === 1 ? singular : plural}`;
 }
@@ -644,21 +640,13 @@ export default async function HomePage() {
 
   const totals = sections.reduce(
     (accumulator, section) => {
-      accumulator.active += section.activeOpportunityCount;
       accumulator.newEntrants += section.newEntrants;
       accumulator.momentum += section.momentumEvents;
-      accumulator.attributed += section.attributedActions;
-      accumulator.notes += section.notesCaptured;
-      accumulator.score += section.momentumScore;
       return accumulator;
     },
     {
-      active: 0,
       newEntrants: 0,
-      momentum: 0,
-      attributed: 0,
-      notes: 0,
-      score: 0
+      momentum: 0
     }
   );
 
@@ -673,7 +661,6 @@ export default async function HomePage() {
   );
 
   const overallProgressPercent = progressPercentForSection(aggregateSummary);
-  const productivityPace = pacePerDay(totals.newEntrants + totals.momentum);
   const leadingSection = sections.reduce((best, section) => {
     if (section.momentumScore !== best.momentumScore) {
       return section.momentumScore > best.momentumScore ? section : best;
@@ -769,59 +756,20 @@ export default async function HomePage() {
   return (
     <main className="home-pipeline-page">
       <section className="panel home-pipeline-hero">
-        <div className="home-pipeline-hero-top">
-          <div>
-            <h1>Pipeline Productivity Dashboard</h1>
-            <p className="muted">
-              Window: <strong>{DATE_FORMATTER.format(lookbackStart)}</strong> to{" "}
-              <strong>{DATE_FORMATTER.format(now)}</strong> ({DISPLAY_TIME_ZONE}).
-            </p>
-            <p className="muted">
-              Focused on momentum: new entrants, advancement activity, and user-attributed changes across Startup,
-              Spin-out, and DeNovo.
-            </p>
-            {user ? (
-              <p className="muted">
-                Signed in as <strong>{user.name || user.email}</strong> with roles:{" "}
-                <strong>{displayRoles(user.roles)}</strong>
-              </p>
-            ) : null}
-          </div>
-
-          <div className="home-pipeline-progress-card">
-            <p className="home-progress-caption">Overall Pipeline Progress</p>
-            <p className="home-progress-value">{overallProgressPercent}% beyond Intake</p>
-            <div className="home-progress-track">
-              <span style={{ width: `${overallProgressPercent}%` }} />
-            </div>
-            <p className="muted">{totals.active} active pipeline companies currently in venture studio stages.</p>
-          </div>
-        </div>
-
-        <div className="home-kpi-grid">
-          <article className="home-kpi-card">
-            <p className="home-kpi-label">New Pipeline Entrants</p>
-            <p className="home-kpi-value">{totals.newEntrants}</p>
-            <p className="muted">{pacePerDay(totals.newEntrants)} per day over the last two weeks.</p>
-          </article>
-          <article className="home-kpi-card">
-            <p className="home-kpi-label">Momentum Events</p>
-            <p className="home-kpi-value">{totals.momentum}</p>
-            <p className="muted">{productivityPace} momentum actions per day.</p>
-          </article>
-          <article className="home-kpi-card">
-            <p className="home-kpi-label">User-Attributed Actions</p>
-            <p className="home-kpi-value">{totals.attributed}</p>
-            <p className="muted">
-              Updates with a visible actor in activity history. Narratives captured: {totals.notes}.
-            </p>
-          </article>
-          <article className="home-kpi-card">
-            <p className="home-kpi-label">Productivity Score</p>
-            <p className="home-kpi-value">{totals.score}</p>
-            <p className="muted">Weighted from entrants, movement, and attributed activity.</p>
-          </article>
-        </div>
+        <h1>Pipeline Productivity Dashboard</h1>
+        <p className="muted">
+          Window: <strong>{DATE_FORMATTER.format(lookbackStart)}</strong> to{" "}
+          <strong>{DATE_FORMATTER.format(now)}</strong> ({DISPLAY_TIME_ZONE}).
+        </p>
+        <p className="muted">
+          Focused on momentum: new entrants, advancement activity, and user-attributed changes across Startup,
+          Spin-out, and DeNovo.
+        </p>
+        {user ? (
+          <p className="muted">
+            Signed in as <strong>{user.name || user.email}</strong> with roles: <strong>{displayRoles(user.roles)}</strong>
+          </p>
+        ) : null}
       </section>
 
       <section className="home-executive-grid">
