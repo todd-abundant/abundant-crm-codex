@@ -843,13 +843,25 @@ export function CompanyPipelineManager({
     });
   }
 
+  function applyDraftPatch(patch: Partial<PipelineDraft>, options?: { save?: boolean }) {
+    if (!draft) return;
+    const nextDraft = { ...draft, ...patch };
+    setDraft(nextDraft);
+    if (options?.save) {
+      void savePipeline(nextDraft);
+    }
+  }
+
   function updateCurrentStage(nextColumn: PipelineBoardColumn) {
     const nextPhase = mapBoardColumnToCanonicalPhase(nextColumn);
-    updateDraft({
-      phase: nextPhase,
-      closedOutcome: "",
-      intakeDecision: nextPhase === "INTAKE" ? "PENDING" : "ADVANCE_TO_NEGOTIATION"
-    });
+    applyDraftPatch(
+      {
+        phase: nextPhase,
+        closedOutcome: "",
+        intakeDecision: nextPhase === "INTAKE" ? "PENDING" : "ADVANCE_TO_NEGOTIATION"
+      },
+      { save: true }
+    );
   }
 
   function updateIntakeVenturePipelineStatus(
@@ -861,76 +873,100 @@ export function CompanyPipelineManager({
 
     if (nextStatus === "OPEN") {
       if (section === "INTAKE") {
-        updateDraft({
-          ...(isClosedPhase ? { phase: "INTAKE" as PipelinePhase } : {}),
-          intakeDecision: "PENDING",
-          closedOutcome: "",
-          declineReasonNotes: ""
-        });
+        applyDraftPatch(
+          {
+            ...(isClosedPhase ? { phase: "INTAKE" as PipelinePhase } : {}),
+            intakeDecision: "PENDING",
+            closedOutcome: "",
+            declineReasonNotes: ""
+          },
+          { save: true }
+        );
         return;
       }
-      updateDraft({
-        ...(isClosedPhase ? { phase: "VENTURE_STUDIO_NEGOTIATION" as PipelinePhase } : {}),
-        intakeDecision: "ADVANCE_TO_NEGOTIATION",
-        closedOutcome: "",
-        declineReasonNotes: ""
-      });
+      applyDraftPatch(
+        {
+          ...(isClosedPhase ? { phase: "VENTURE_STUDIO_NEGOTIATION" as PipelinePhase } : {}),
+          intakeDecision: "ADVANCE_TO_NEGOTIATION",
+          closedOutcome: "",
+          declineReasonNotes: ""
+        },
+        { save: true }
+      );
       return;
     }
 
     if (nextStatus === "CLOSED_WON") {
       const targetPhase = section === "INTAKE" ? "VENTURE_STUDIO_NEGOTIATION" : "SCREENING";
       if (section === "INTAKE") {
-        updateDraft({
+        applyDraftPatch(
+          {
+            ...(shouldAdvancePhase(draft.phase, targetPhase) ? { phase: targetPhase } : {}),
+            intakeDecision: "ADVANCE_TO_NEGOTIATION",
+            closedOutcome: "",
+            declineReasonNotes: ""
+          },
+          { save: true }
+        );
+        return;
+      }
+      applyDraftPatch(
+        {
           ...(shouldAdvancePhase(draft.phase, targetPhase) ? { phase: targetPhase } : {}),
           intakeDecision: "ADVANCE_TO_NEGOTIATION",
           closedOutcome: "",
           declineReasonNotes: ""
-        });
-        return;
-      }
-      updateDraft({
-        ...(shouldAdvancePhase(draft.phase, targetPhase) ? { phase: targetPhase } : {}),
-        intakeDecision: "ADVANCE_TO_NEGOTIATION",
-        closedOutcome: "",
-        declineReasonNotes: ""
-      });
+        },
+        { save: true }
+      );
       return;
     }
 
     if (nextStatus === "CLOSED_REVISIT") {
-      updateDraft({
-        phase: "DECLINED",
-        intakeDecision: "REVISIT_LATER",
-        closedOutcome: ""
-      });
+      applyDraftPatch(
+        {
+          phase: "DECLINED",
+          intakeDecision: "REVISIT_LATER",
+          closedOutcome: ""
+        },
+        { save: true }
+      );
       return;
     }
 
-    updateDraft({
-      phase: "DECLINED",
-      intakeDecision: "DECLINE",
-      closedOutcome: "",
-      ventureLikelihoodPercent: "0"
-    });
+    applyDraftPatch(
+      {
+        phase: "DECLINED",
+        intakeDecision: "DECLINE",
+        closedOutcome: "",
+        ventureLikelihoodPercent: "0"
+      },
+      { save: true }
+    );
   }
 
   function updateScreeningPipelineStatus(nextStatus: ScreeningPipelineStatus) {
     if (nextStatus === "CLOSED_LOST") {
-      updateDraft({
-        phase: "DECLINED",
-        intakeDecision: "DECLINE",
-        closedOutcome: "LOST",
-        ventureLikelihoodPercent: "0"
-      });
+      applyDraftPatch(
+        {
+          phase: "DECLINED",
+          intakeDecision: "DECLINE",
+          closedOutcome: "LOST",
+          ventureLikelihoodPercent: "0"
+        },
+        { save: true }
+      );
       return;
     }
     const shouldReopenToScreening = draft?.phase === "DECLINED" || draft?.phase === "CLOSED";
-    updateDraft({
-      ...(shouldReopenToScreening ? { phase: "SCREENING" as PipelinePhase } : {}),
-      intakeDecision: "ADVANCE_TO_NEGOTIATION",
-      closedOutcome: ""
-    });
+    applyDraftPatch(
+      {
+        ...(shouldReopenToScreening ? { phase: "SCREENING" as PipelinePhase } : {}),
+        intakeDecision: "ADVANCE_TO_NEGOTIATION",
+        closedOutcome: ""
+      },
+      { save: true }
+    );
   }
 
   function updateDocument(index: number, patch: Partial<PipelineDocumentDraft>) {
@@ -1081,13 +1117,13 @@ export function CompanyPipelineManager({
     });
   }
 
-  async function savePipeline() {
-    if (!draft) return;
+  async function savePipeline(draftToSave: PipelineDraft | null = draft) {
+    if (!draftToSave) return;
 
     setSaving(true);
     setStatus(null);
     const debugContext = createDateDebugContext("company-pipeline-manager.save", companyId);
-    const requestPayload = serializePipelineDraft(draft);
+    const requestPayload = serializePipelineDraft(draftToSave);
     const requestSequence = saveSequenceRef.current + 1;
     saveSequenceRef.current = requestSequence;
     const requestStartMs = Date.now();
@@ -1113,8 +1149,8 @@ export function CompanyPipelineManager({
       "Content-Type": "application/json"
     };
     headers["x-date-debug-seq"] = String(requestSequence);
-    if (draft.updatedAt) {
-      headers["x-date-debug-client-updated-at"] = draft.updatedAt;
+    if (draftToSave.updatedAt) {
+      headers["x-date-debug-client-updated-at"] = draftToSave.updatedAt;
     }
     if (debugContext) {
       headers["x-date-debug-request-id"] = debugContext.requestId;
@@ -1128,8 +1164,8 @@ export function CompanyPipelineManager({
       requestHas,
       requestSequence,
       durationMs: 0,
-      clientUpdatedAt: draft.updatedAt || null,
-      clientUpdatedAtParsed: compareUpdatedAt(draft.updatedAt, null).parsedClientUpdatedAt,
+      clientUpdatedAt: draftToSave.updatedAt || null,
+      clientUpdatedAtParsed: compareUpdatedAt(draftToSave.updatedAt, null).parsedClientUpdatedAt,
       datePayloadHas: requestHas,
       current: {
         intakeDecisionAt: requestPayload.intakeDecisionAt,
@@ -1189,7 +1225,7 @@ export function CompanyPipelineManager({
         ?.requestSequence;
       const dateDebug = (payload as { _dateDebug?: { serverUpdatedAt?: string | null } })._dateDebug;
       const serverUpdatedAt = returnedPipeline?.updatedAt ?? dateDebug?.serverUpdatedAt ?? null;
-      const responseUpdatedState = compareUpdatedAt(draft.updatedAt, serverUpdatedAt);
+      const responseUpdatedState = compareUpdatedAt(draftToSave.updatedAt, serverUpdatedAt);
       debugDateLog("company-pipeline-manager.save-response", {
         companyId,
         debugRequestId: debugContext?.requestId,
@@ -2258,7 +2294,7 @@ export function CompanyPipelineManager({
       ) : null}
 
       <div className="actions company-pipeline-save-actions">
-        <button className="primary" type="button" onClick={savePipeline} disabled={saving}>
+        <button className="primary" type="button" onClick={() => void savePipeline()} disabled={saving}>
           {saving ? "Saving..." : "Save"}
         </button>
       </div>
