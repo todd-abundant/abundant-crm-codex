@@ -118,7 +118,6 @@ export function HomeNarrativeChanges({
             inModal
             initialIntakeDetailTab={selectedDetail.opportunityId ? "opportunities" : "pipeline-status"}
             initialOpportunityId={selectedDetail.opportunityId || null}
-            closeContainerOnOpportunityClose={Boolean(selectedDetail.opportunityId)}
             onCloseModal={closeOpportunity}
           />
         </div>

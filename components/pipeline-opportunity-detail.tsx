@@ -1152,14 +1152,12 @@ export function PipelineOpportunityDetailView({
   itemId,
   inModal = false,
   onCloseModal,
-  closeContainerOnOpportunityClose = false,
   initialIntakeDetailTab = "pipeline-status",
   initialOpportunityId = null
 }: {
   itemId: string;
   inModal?: boolean;
   onCloseModal?: () => void;
-  closeContainerOnOpportunityClose?: boolean;
   initialIntakeDetailTab?: IntakeDetailTab;
   initialOpportunityId?: string | null;
 }) {
@@ -1633,24 +1631,16 @@ export function PipelineOpportunityDetailView({
     if (!item) return;
     const stillExists = item.opportunities.some((opportunity) => opportunity.id === opportunityModal.opportunityId);
     if (!stillExists) {
-      if (closeContainerOnOpportunityClose && onCloseModal) {
-        onCloseModal();
-        return;
-      }
       setOpportunityModal(null);
       setOpportunityModalTab("details");
     }
-  }, [closeContainerOnOpportunityClose, item, onCloseModal, opportunityModal]);
+  }, [item, opportunityModal]);
 
   React.useEffect(() => {
     if (!opportunityModal) return;
     const previousOverflow = document.body.style.overflow;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        if (closeContainerOnOpportunityClose && onCloseModal) {
-          onCloseModal();
-          return;
-        }
         setOpportunityModal(null);
         setOpportunityModalTab("details");
       }
@@ -1661,7 +1651,7 @@ export function PipelineOpportunityDetailView({
       window.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
     };
-  }, [closeContainerOnOpportunityClose, onCloseModal, opportunityModal]);
+  }, [opportunityModal]);
 
   React.useEffect(() => {
     if (!item?.isScreeningStage) {
@@ -4247,10 +4237,6 @@ function stripCurrencyFormatting(value: string) {
   }
 
   function closeOpportunityModal() {
-    if (closeContainerOnOpportunityClose && onCloseModal) {
-      onCloseModal();
-      return;
-    }
     setOpportunityModal(null);
     setOpportunityModalTab("details");
     setEditingOpportunityModalNextStepsId(null);
