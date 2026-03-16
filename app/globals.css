@@ -7456,6 +7456,16 @@ select {
   padding: 0 12px;
 }
 
+.admin-survey-sidebar-actions {
+  margin: 6px 0 10px;
+}
+
+.admin-survey-session-list {
+  max-height: min(72vh, 960px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
 .admin-control-content.admin-control-content-surveys .status {
   margin-left: 12px;
   margin-right: 12px;

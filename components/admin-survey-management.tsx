@@ -372,7 +372,9 @@ export function AdminSurveyManagement() {
   const [loadingSessions, setLoadingSessions] = React.useState(false);
   const [selectedSessionId, setSelectedSessionId] = React.useState("");
   const [sessionDraft, setSessionDraft] = React.useState<SurveySessionDraft | null>(null);
+  const [surveySearch, setSurveySearch] = React.useState("");
   const [newSurveyTitle, setNewSurveyTitle] = React.useState("");
+  const [newSurveyCompanyId, setNewSurveyCompanyId] = React.useState("");
   const [newSurveySourceMode, setNewSurveySourceMode] = React.useState<"TEMPLATE" | "SESSION" | "QUESTIONS">(
     "TEMPLATE"
   );
@@ -408,16 +410,14 @@ export function AdminSurveyManagement() {
   const [origin, setOrigin] = React.useState("");
   const [loadingResults, setLoadingResults] = React.useState(false);
   const [results, setResults] = React.useState<SurveyResultsPayload | null>(null);
+  const latestSessionLoadRef = React.useRef(0);
+  const preferredSessionIdRef = React.useRef<string | undefined>(undefined);
 
   const companyLookupOptions = React.useMemo(
     () => companies.map((company) => ({ id: company.id, name: company.name })),
     [companies]
   );
-  const handleCompanySelected = React.useCallback((nextCompanyId: string) => {
-    setSelectedCompanyId(nextCompanyId);
-    setSelectedSessionId("");
-  }, []);
-  const handleCompanyCreated = React.useCallback((option: { id: string; name: string }) => {
+  const registerCompanyOption = React.useCallback((option: { id: string; name: string }) => {
     setCompanies((current) => {
       if (current.some((entry) => entry.id === option.id)) return current;
       return [
@@ -431,11 +431,17 @@ export function AdminSurveyManagement() {
         ...current
       ];
     });
-    setSelectedCompanyId(option.id);
-    setSelectedSessionId("");
   }, []);
+  const handleNewSurveyCompanyCreated = React.useCallback(
+    (option: { id: string; name: string }) => {
+      registerCompanyOption(option);
+      setNewSurveyCompanyId(option.id);
+    },
+    [registerCompanyOption]
+  );
 
   const selectedCompany = companies.find((entry) => entry.id === selectedCompanyId) || null;
+  const newSurveyCompany = companies.find((entry) => entry.id === newSurveyCompanyId) || null;
   const selectedSession = sessions.find((entry) => entry.id === selectedSessionId) || null;
   const selectedLibraryTemplate = libraryTemplates.find((entry) => entry.id === libraryTemplateId) || null;
   const selectedTemplateLibrary =
@@ -462,6 +468,45 @@ export function AdminSurveyManagement() {
     );
     return questionBank.filter((entry) => entry.isActive && !usedQuestionIds.has(entry.id));
   }, [addQuestionModal, questionBank, sessionDraft?.questions, templateLibraryDraft?.questions]);
+  const allSurveySessions = React.useMemo<SurveyCopySourceSession[]>(() => {
+    const globalSessions =
+      sourceSessions.length > 0
+        ? sourceSessions
+        : sessions.map((session) => ({
+            id: session.id,
+            companyId: selectedCompany?.id || "",
+            companyName: selectedCompany?.name || "Unknown company",
+            title: session.title,
+            status: session.status,
+            updatedAt: session.updatedAt,
+            questionCount: session.questions.length,
+            responseCount: session.responseCount,
+            templateId: session.templateId || null,
+            templateName: session.templateName || null
+          }));
+
+    return [...globalSessions].sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
+  }, [selectedCompany?.id, selectedCompany?.name, sessions, sourceSessions]);
+  const filteredSurveySessions = React.useMemo(() => {
+    const normalizedQuery = surveySearch.trim().toLowerCase();
+    if (!normalizedQuery) {
+      return allSurveySessions;
+    }
+
+    return allSurveySessions.filter((session) => {
+      const haystack = [
+        session.title,
+        session.companyName,
+        session.templateName || "",
+        sessionStatusLabel(session.status)
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(normalizedQuery);
+    });
+  }, [allSurveySessions, surveySearch]);
 
   const removedQuestionCount = React.useMemo(() => {
     if (!selectedSession || !sessionDraft) return 0;
@@ -502,7 +547,11 @@ export function AdminSurveyManagement() {
 
   const loadSessions = React.useCallback(
     async (companyId: string, preferredSessionId?: string) => {
+      const requestId = latestSessionLoadRef.current + 1;
+      latestSessionLoadRef.current = requestId;
+
       if (!companyId) {
+        setLoadingSessions(false);
         setQuestionBank([]);
         setSurveyTemplates([]);
         setLibraryTemplates([]);
@@ -521,6 +570,9 @@ export function AdminSurveyManagement() {
         const payload = (await res.json()) as SurveyDataPayload;
         if (!res.ok) {
           throw new Error(payload.error || "Failed to load surveys");
+        }
+        if (latestSessionLoadRef.current !== requestId) {
+          return;
         }
 
         const nextQuestionBank = Array.isArray(payload.questionBank) ? payload.questionBank : [];
@@ -545,6 +597,9 @@ export function AdminSurveyManagement() {
           return nextSessions[0]?.id || "";
         });
       } catch (error) {
+        if (latestSessionLoadRef.current !== requestId) {
+          return;
+        }
         setStatus({
           kind: "error",
           text: error instanceof Error ? error.message : "Failed to load surveys"
@@ -557,7 +612,9 @@ export function AdminSurveyManagement() {
         setSelectedSessionId("");
         setLibraryTemplateId("");
       } finally {
-        setLoadingSessions(false);
+        if (latestSessionLoadRef.current === requestId) {
+          setLoadingSessions(false);
+        }
       }
     },
     []
@@ -601,8 +658,9 @@ export function AdminSurveyManagement() {
   }, []);
 
   React.useEffect(() => {
-    if (!selectedCompanyId) return;
-    void loadSessions(selectedCompanyId);
+    const preferredSessionId = preferredSessionIdRef.current;
+    preferredSessionIdRef.current = undefined;
+    void loadSessions(selectedCompanyId, preferredSessionId);
   }, [selectedCompanyId, loadSessions]);
 
   React.useEffect(() => {
@@ -766,10 +824,13 @@ export function AdminSurveyManagement() {
   }
 
   function openAddSurveyModal() {
-    if (!selectedCompanyId) {
-      setStatus({ kind: "error", text: "Select a company first." });
+    const defaultCompanyId =
+      selectedCompanyId || companies.find((entry) => entry.isScreeningStage)?.id || companies[0]?.id || "";
+    if (!defaultCompanyId) {
+      setStatus({ kind: "error", text: "No companies available yet." });
       return;
     }
+    setNewSurveyCompanyId(defaultCompanyId);
     setShowAddSurveyModal(true);
   }
 
@@ -779,7 +840,11 @@ export function AdminSurveyManagement() {
   }
 
   async function createSurvey() {
-    if (!selectedCompanyId) return;
+    const targetCompanyId = newSurveyCompanyId || selectedCompanyId;
+    if (!targetCompanyId) {
+      setStatus({ kind: "error", text: "Select a company for the survey." });
+      return;
+    }
 
     let requestPayload: Record<string, unknown> = {
       title: newSurveyTitle.trim() || undefined,
@@ -821,7 +886,7 @@ export function AdminSurveyManagement() {
     setCreatingSurvey(true);
     setStatus(null);
     try {
-      const res = await fetch(`/api/pipeline/opportunities/${selectedCompanyId}/screening-surveys`, {
+      const res = await fetch(`/api/pipeline/opportunities/${targetCompanyId}/screening-surveys`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestPayload)
@@ -833,7 +898,14 @@ export function AdminSurveyManagement() {
       setNewSurveyTitle("");
       setShowAddSurveyModal(false);
       setStatus({ kind: "ok", text: "Survey created." });
-      await loadSessions(selectedCompanyId, responsePayload.session?.id);
+      if (targetCompanyId === selectedCompanyId) {
+        await loadSessions(targetCompanyId, responsePayload.session?.id);
+        setSelectedSessionId(responsePayload.session?.id || "");
+      } else {
+        preferredSessionIdRef.current = responsePayload.session?.id;
+        setSelectedSessionId("");
+        setSelectedCompanyId(targetCompanyId);
+      }
     } catch (error) {
       setStatus({
         kind: "error",
@@ -1558,6 +1630,29 @@ export function AdminSurveyManagement() {
           return entry;
         })
       );
+      setSourceSessions((current) =>
+        current.map((entry) => {
+          if (entry.id === updatedSession.id) {
+            return {
+              ...entry,
+              title: updatedSession.title,
+              status: updatedSession.status,
+              updatedAt: updatedSession.updatedAt,
+              responseCount: updatedSession.responseCount,
+              templateId: updatedSession.templateId || null,
+              templateName: updatedSession.templateName || null
+            };
+          }
+          if (updatedSession.status === "LIVE" && entry.companyId === selectedCompanyId && entry.status === "LIVE") {
+            return {
+              ...entry,
+              status: "CLOSED",
+              updatedAt: updatedSession.updatedAt
+            };
+          }
+          return entry;
+        })
+      );
 
       setSessionDraft((current) => {
         if (!current || current.id !== sessionId) return current;
@@ -1877,6 +1972,15 @@ export function AdminSurveyManagement() {
 
     return counts;
   }, [results, selectedSession]);
+  function selectSurveyFromList(session: SurveyCopySourceSession) {
+    if (session.companyId === selectedCompanyId) {
+      setSelectedSessionId(session.id);
+      return;
+    }
+    preferredSessionIdRef.current = session.id;
+    setSelectedSessionId("");
+    setSelectedCompanyId(session.companyId);
+  }
   const templateCategoryOrder = templateLibraryDraft ? orderedCategories(templateLibraryDraft.questions) : [];
   const templateLibraryDirty = React.useMemo(() => {
     if (!templateLibraryDraft) return false;
@@ -1927,7 +2031,7 @@ export function AdminSurveyManagement() {
       <div className="grid admin-survey-layout">
         <section className="panel" aria-label="Survey list panel">
           <div className="pipeline-card-head">
-            <strong>Surveys</strong>
+            <strong>Company Surveys</strong>
             <button
               className="ghost small"
               type="button"
@@ -1940,41 +2044,41 @@ export function AdminSurveyManagement() {
             </button>
           </div>
 
-          <label>Company</label>
-          <EntityLookupInput
-            entityKind="COMPANY"
-            value={selectedCompanyId}
-            onChange={handleCompanySelected}
-            initialOptions={companyLookupOptions}
-            placeholder="Search companies"
-            autoOpenCreateOnEnterNoMatch
-            onEntityCreated={handleCompanyCreated}
-            disabled={loadingCompanies}
-          />
-          <p className="muted">{selectedCompany?.phaseLabel || "No company selected"}</p>
-
-          <div className="actions">
+          <div className="admin-survey-sidebar-actions">
             <button
-              className="secondary"
+              className="admin-survey-add-question-link"
               type="button"
               onClick={() => openAddSurveyModal()}
-              disabled={!selectedCompanyId}
+              disabled={loadingCompanies || loadingSessions || companies.length === 0}
             >
-              Add Survey
+              +Add Survey
             </button>
           </div>
 
-          {!selectedCompany?.isScreeningStage && selectedCompany ? (
-            <p className="muted">This company is outside Screening, but surveys can still be prepared.</p>
-          ) : null}
+          <div>
+            <label htmlFor="admin-survey-filter">Filter surveys</label>
+            <input
+              id="admin-survey-filter"
+              value={surveySearch}
+              onChange={(event) => setSurveySearch(event.target.value)}
+              placeholder="Type to filter by survey or company"
+            />
+          </div>
+          <p className="muted">
+            {filteredSurveySessions.length} of {allSurveySessions.length} survey
+            {allSurveySessions.length === 1 ? "" : "s"}
+          </p>
 
           {loadingSessions ? <p className="muted">Loading surveys...</p> : null}
-          {!loadingSessions && sessions.length === 0 ? (
-            <p className="muted">No surveys yet for this company.</p>
+          {!loadingSessions && allSurveySessions.length === 0 ? (
+            <p className="muted">No surveys yet.</p>
+          ) : null}
+          {!loadingSessions && allSurveySessions.length > 0 && filteredSurveySessions.length === 0 ? (
+            <p className="muted">No surveys match this filter.</p>
           ) : null}
 
-          <div className="list-container">
-            {sessions.map((session) => {
+          <div className="list-container admin-survey-session-list">
+            {filteredSurveySessions.map((session) => {
               const active = selectedSessionId === session.id;
               return (
                 <div
@@ -1982,18 +2086,19 @@ export function AdminSurveyManagement() {
                   role="button"
                   tabIndex={0}
                   className={`list-row ${active ? "active" : ""}`}
-                  onClick={() => setSelectedSessionId(session.id)}
+                  onClick={() => selectSurveyFromList(session)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      setSelectedSessionId(session.id);
+                      selectSurveyFromList(session);
                     }
                   }}
                 >
                   <div className="list-row-main">
                     <strong>{session.title}</strong>
                     <span className="muted">
-                      {sessionStatusLabel(session.status)} • {session.responseCount} responses
+                      {session.companyName} • {session.responseCount} response
+                      {session.responseCount === 1 ? "" : "s"}
                     </span>
                   </div>
                   <div className="list-row-meta">
@@ -2041,16 +2146,7 @@ export function AdminSurveyManagement() {
               <div className="detail-grid">
                 <div>
                   <label>Company</label>
-                  <EntityLookupInput
-                    entityKind="COMPANY"
-                    value={selectedCompanyId}
-                    onChange={handleCompanySelected}
-                    initialOptions={companyLookupOptions}
-                    placeholder="Search companies"
-                    autoOpenCreateOnEnterNoMatch
-                    onEntityCreated={handleCompanyCreated}
-                    disabled={loadingCompanies}
-                  />
+                  <input value={selectedCompany?.name || "Not set"} readOnly />
                 </div>
                 <div>
                   <label>Pipeline Stage</label>
@@ -2103,6 +2199,9 @@ export function AdminSurveyManagement() {
               <p className="muted">
                 Responses: {sessionDraft.responseCount} • Question count: {sessionDraft.questions.length}
               </p>
+              {!selectedCompany?.isScreeningStage && selectedCompany ? (
+                <p className="muted">This company is outside Screening, but surveys can still be prepared.</p>
+              ) : null}
               {questionEditingLocked ? (
                 <p className="muted">Set status to Draft to edit questions.</p>
               ) : null}
@@ -2874,7 +2973,17 @@ export function AdminSurveyManagement() {
             <div className="detail-grid admin-survey-category-builder">
               <div>
                 <label>Company</label>
-                <input value={selectedCompany?.name || ""} readOnly />
+                <EntityLookupInput
+                  entityKind="COMPANY"
+                  value={newSurveyCompanyId}
+                  onChange={setNewSurveyCompanyId}
+                  initialOptions={companyLookupOptions}
+                  placeholder="Search companies"
+                  autoOpenCreateOnEnterNoMatch
+                  onEntityCreated={handleNewSurveyCompanyCreated}
+                  disabled={creatingSurvey || loadingCompanies}
+                />
+                <p className="muted">{newSurveyCompany?.phaseLabel || "No company selected"}</p>
               </div>
               <div>
                 <label htmlFor="admin-new-survey-title-modal">Survey title</label>
@@ -2957,7 +3066,8 @@ export function AdminSurveyManagement() {
                 onClick={() => void createSurvey()}
                 disabled={
                   creatingSurvey ||
-                  !selectedCompanyId ||
+                  !newSurveyCompanyId ||
+                  (newSurveySourceMode === "TEMPLATE" && surveyTemplates.length === 0) ||
                   (newSurveySourceMode === "TEMPLATE" && !newSurveyTemplateId && surveyTemplates.length > 0) ||
                   (newSurveySourceMode === "SESSION" && !newSurveySourceSessionId && sourceSessions.length > 0) ||
                   (newSurveySourceMode === "SESSION" && sourceSessions.length === 0)
