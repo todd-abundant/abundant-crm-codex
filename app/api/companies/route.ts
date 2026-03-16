@@ -214,6 +214,8 @@ export async function POST(request: Request) {
           create: input.healthSystemLinks.map((link) => ({
             healthSystemId: link.healthSystemId,
             relationshipType: link.relationshipType,
+            preliminaryInterest: link.preliminaryInterest ?? undefined,
+            currentState: link.currentState ?? undefined,
             notes: toNullableString(link.notes),
             investmentAmountUsd: parseMoney(link.investmentAmountUsd),
             ownershipPercent: parseMoney(link.ownershipPercent)
