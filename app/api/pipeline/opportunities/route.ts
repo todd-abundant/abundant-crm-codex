@@ -160,6 +160,7 @@ export async function GET(request: Request) {
 
         return {
           id: company.id,
+          createdAt: company.createdAt,
           name: company.name,
           website: company.website,
           description: company.description,

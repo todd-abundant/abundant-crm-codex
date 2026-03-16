@@ -65,6 +65,24 @@ type OpportunityCompanyDocumentDraft = {
   uploadedAt: string;
 };
 
+function currentFocusLabel(column: PipelineBoardColumn) {
+  if (column === "INTAKE") return "Intake";
+  if (column === "VENTURE_STUDIO_CONTRACT_EVALUATION") return "Partner Review";
+  if (column === "SCREENING") return "Team Diligence";
+  return "Management Presentation";
+}
+
+function detailedStepLabel(phase: PipelinePhase) {
+  if (phase === "INTAKE") return "Intake triage";
+  if (phase === "DECLINED") return "Closed out";
+  if (phase === "VENTURE_STUDIO_NEGOTIATION") return "Partner alignment";
+  if (phase === "SCREENING") return "Team diligence";
+  if (phase === "LOI_COLLECTION") return "Management presentation prep";
+  if (phase === "COMMERCIAL_NEGOTIATION") return "Commercial negotiation";
+  if (phase === "PORTFOLIO_GROWTH") return "Portfolio handoff";
+  return "Closed";
+}
+
 function emptyOpportunityDocumentDraft() {
   return {
     type: "OTHER" as CompanyDocumentType,
@@ -1326,11 +1344,7 @@ export function PipelineOpportunityDetailView({
       : "-"
     : isClosedLostStatus || isClosedRevisitStatus || item?.phase === "CLOSED"
       ? toDateInputValue(item?.intakeDecisionAt) || "Not set"
-      : "-";
-  const showOutcomeReason = showScreeningPipelineLifecycle
-    ? screeningPipelineStatus === "CLOSED_LOST"
-    : intakeVenturePipelineStatus === "CLOSED_LOST" || intakeVenturePipelineStatus === "CLOSED_REVISIT";
-  const statusSelectOptions = showScreeningPipelineLifecycle
+      : "-";  const statusSelectOptions = showScreeningPipelineLifecycle
     ? [
         { value: "OPEN", label: "Open" },
         { value: "CLOSED_LOST", label: "Closed/Lost" }
@@ -5715,9 +5729,10 @@ function stripCurrencyFormatting(value: string) {
                 ownerName={item.ownerName || ""}
                 createdDate={toDateInputValue(item.createdAt)}
                 activePipelineColumn={activePipelineColumn}
+                currentFocusLabel={activePipelineColumn ? currentFocusLabel(activePipelineColumn) : "Closed / Inactive"}
                 stageOptions={PIPELINE_BOARD_COLUMNS.map((column) => ({
                   value: column.key,
-                  label: column.label
+                  label: currentFocusLabel(column.key)
                 }))}
                 onCurrentStageChange={(nextValue) => {
                   const nextColumn = nextValue as PipelineBoardColumn;
@@ -5725,7 +5740,7 @@ function stripCurrencyFormatting(value: string) {
                     void updateColumn(nextColumn);
                   }
                 }}
-                pipelinePhaseLabel={item.phaseLabel}
+                pipelineStepLabel={detailedStepLabel(item.phase)}
                 showStatusControls={showStatusControls}
                 statusValue={statusSelectValue}
                 statusOptions={statusSelectOptions}
@@ -5740,7 +5755,6 @@ function stripCurrencyFormatting(value: string) {
                   );
                 }}
                 statusReadOnlyLabel={statusDisplayLabel}
-                showOutcomeReason={showOutcomeReason}
                 closedReasonLabel={closedReasonLabel}
                 closedReasonValue={item.declineReasonNotes || ""}
                 closedReasonPlaceholder={

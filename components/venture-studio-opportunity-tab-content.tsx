@@ -20,15 +20,15 @@ type VentureStudioOpportunityTabContentProps = {
   ownerName: string;
   createdDate: string;
   activePipelineColumn: string | null;
+  currentFocusLabel: string;
   stageOptions: StageOption[];
   onCurrentStageChange: (value: string) => void;
-  pipelinePhaseLabel: string;
+  pipelineStepLabel: string;
   showStatusControls: boolean;
   statusValue: string;
   statusOptions: StatusOption[];
   onStatusSave: (value: string) => void;
   statusReadOnlyLabel: string;
-  showOutcomeReason: boolean;
   closedReasonLabel: string;
   closedReasonValue: string;
   closedReasonPlaceholder: string;
@@ -62,15 +62,15 @@ export function VentureStudioOpportunityTabContent({
   ownerName,
   createdDate,
   activePipelineColumn,
+  currentFocusLabel,
   stageOptions,
   onCurrentStageChange,
-  pipelinePhaseLabel,
+  pipelineStepLabel,
   showStatusControls,
   statusValue,
   statusOptions,
   onStatusSave,
   statusReadOnlyLabel,
-  showOutcomeReason,
   closedReasonLabel,
   closedReasonValue,
   closedReasonPlaceholder,
@@ -102,9 +102,24 @@ export function VentureStudioOpportunityTabContent({
   const isClosedStatusValue = statusValue === "CLOSED_LOST" || statusValue === "CLOSED_REVISIT";
   const shouldShowStatusControls = showStatusControls || isClosedStatusValue;
   const showClosedReasonField = Boolean(closedReasonValue.trim());
+  const focusDisplayLabel = activePipelineColumn ? currentFocusLabel : "Closed / Inactive";
 
   return (
     <div className="venture-studio-opportunity-tab-content">
+      <div className="detail-section venture-stage-summary">
+        <div className="venture-stage-summary-card">
+          <p className="detail-label">Current Focus</p>
+          <div className="venture-stage-summary-value">{focusDisplayLabel}</div>
+        </div>
+        <div className="venture-stage-summary-card">
+          <p className="detail-label">Detailed Step</p>
+          <div className="venture-stage-summary-value">{pipelineStepLabel || "Not set"}</div>
+        </div>
+        <div className="venture-stage-summary-card">
+          <p className="detail-label">Status</p>
+          <div className="venture-stage-summary-value">{statusReadOnlyLabel}</div>
+        </div>
+      </div>
       <div className="detail-section company-pipeline-main-section">
         <div className="detail-grid">
           <div className="inline-edit-field pipeline-status-readonly-field">
@@ -118,7 +133,7 @@ export function VentureStudioOpportunityTabContent({
 
           {activePipelineColumn ? (
             <InlineSelectField
-              label="Current Stage"
+              label="Move Company To"
               value={activePipelineColumn}
               options={stageOptions}
               blurOnChange
@@ -126,14 +141,14 @@ export function VentureStudioOpportunityTabContent({
             />
           ) : (
             <div className="inline-edit-field pipeline-status-readonly-field">
-              <label>Current Stage</label>
+              <label>Move Company To</label>
               <div className="pipeline-status-readonly-value">Closed / Inactive</div>
             </div>
           )}
 
           <div className="inline-edit-field pipeline-status-readonly-field">
-            <label>Pipeline Phase</label>
-            <div className="pipeline-status-readonly-value">{pipelinePhaseLabel || "Not set"}</div>
+            <label>Detailed Step</label>
+            <div className="pipeline-status-readonly-value">{pipelineStepLabel || "Not set"}</div>
           </div>
 
           {shouldShowStatusControls ? (

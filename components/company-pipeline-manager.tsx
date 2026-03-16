@@ -84,6 +84,24 @@ type ScreeningPipelineStatus = "OPEN" | "CLOSED_LOST";
 type IntakeVenturePipelineStatus = "OPEN" | "CLOSED_WON" | "CLOSED_LOST" | "CLOSED_REVISIT";
 type IntakeVentureLifecycleSection = "INTAKE" | "VENTURE_STUDIO";
 
+function currentFocusLabel(column: PipelineBoardColumn) {
+  if (column === "INTAKE") return "Intake";
+  if (column === "VENTURE_STUDIO_CONTRACT_EVALUATION") return "Partner Review";
+  if (column === "SCREENING") return "Team Diligence";
+  return "Management Presentation";
+}
+
+function detailedStepLabel(phase: PipelinePhase) {
+  if (phase === "INTAKE") return "Intake triage";
+  if (phase === "DECLINED") return "Closed out";
+  if (phase === "VENTURE_STUDIO_NEGOTIATION") return "Partner alignment";
+  if (phase === "SCREENING") return "Team diligence";
+  if (phase === "LOI_COLLECTION") return "Management presentation prep";
+  if (phase === "COMMERCIAL_NEGOTIATION") return "Commercial negotiation";
+  if (phase === "PORTFOLIO_GROWTH") return "Portfolio handoff";
+  return "Closed";
+}
+
 type HealthSystemOption = {
   id: string;
   name: string;
@@ -207,16 +225,6 @@ type GoogleDocumentDraft = {
   url: string;
 };
 
-const pipelinePhaseOptions: Array<{ value: PipelinePhase; label: string }> = [
-  { value: "INTAKE", label: "Intake" },
-  { value: "DECLINED", label: "Declined" },
-  { value: "VENTURE_STUDIO_NEGOTIATION", label: "Venture Studio Negotiation" },
-  { value: "SCREENING", label: "Screening" },
-  { value: "LOI_COLLECTION", label: "LOI Collection" },
-  { value: "COMMERCIAL_NEGOTIATION", label: "Commercial Negotiation" },
-  { value: "PORTFOLIO_GROWTH", label: "Portfolio Growth" },
-  { value: "CLOSED", label: "Closed" }
-];
 
 const documentTypeOptions: Array<{ value: DocumentType; label: string }> = [
   { value: "INTAKE_REPORT", label: "Intake Report" },
@@ -801,9 +809,6 @@ export function CompanyPipelineManager({
   }, [draft]);
   const showExtendedPipelineSections = false;
   const activePipelineColumn = draft ? mapPhaseToBoardColumn(draft.phase) : null;
-  const phaseDisplayLabel = draft
-    ? pipelinePhaseOptions.find((option) => option.value === draft.phase)?.label || "Not set"
-    : "Not set";
   const isScreeningClosedLost =
     draft?.closedOutcome === "LOST" && (draft.phase === "DECLINED" || draft.phase === "CLOSED");
   const screeningPipelineStatus: ScreeningPipelineStatus = isScreeningClosedLost ? "CLOSED_LOST" : "OPEN";
@@ -1328,7 +1333,6 @@ export function CompanyPipelineManager({
       : isClosedLostStatus
         ? "Closed/Lost"
         : "Open";
-  const showOutcomeReason = isClosedLostStatus || isClosedRevisitStatus;
   const statusSelectOptions = showScreeningPipelineLifecycle
     ? [
         { value: "OPEN", label: "Open" },
@@ -1354,12 +1358,13 @@ export function CompanyPipelineManager({
         ownerName={draft.ownerName}
         createdDate={draft.createdAt}
         activePipelineColumn={activePipelineColumn}
+        currentFocusLabel={activePipelineColumn ? currentFocusLabel(activePipelineColumn) : "Closed / Inactive"}
         stageOptions={PIPELINE_BOARD_COLUMNS.map((column) => ({
           value: column.key,
-          label: column.label
+          label: currentFocusLabel(column.key)
         }))}
         onCurrentStageChange={(nextValue) => updateCurrentStage(nextValue as PipelineBoardColumn)}
-        pipelinePhaseLabel={phaseDisplayLabel}
+        pipelineStepLabel={detailedStepLabel(draft.phase)}
         showStatusControls={showStatusControls}
         statusValue={statusSelectValue}
         statusOptions={statusSelectOptions}
@@ -1374,7 +1379,6 @@ export function CompanyPipelineManager({
           );
         }}
         statusReadOnlyLabel={statusDisplayLabel}
-        showOutcomeReason={showOutcomeReason}
         closedReasonLabel={closedReasonLabel}
         closedReasonValue={draft.declineReasonNotes}
         closedReasonPlaceholder={

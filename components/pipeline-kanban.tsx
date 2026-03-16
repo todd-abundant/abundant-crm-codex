@@ -43,6 +43,7 @@ type PipelineBoardOpportunitySummary = {
 
 type PipelineBoardItem = {
   id: string;
+  createdAt: string;
   name: string;
   website: string | null;
   description: string | null;
@@ -270,6 +271,13 @@ function companyStatusFlagLabel(value: PipelineBoardItem["companyCategory"]) {
   return "Status: " + companyCategoryLabel(value);
 }
 
+function boardColumnDisplayLabel(column: PipelineBoardColumn) {
+  if (column === "INTAKE") return "Intake";
+  if (column === "VENTURE_STUDIO_CONTRACT_EVALUATION") return "Venture Studio Evaluation";
+  if (column === "SCREENING") return "Screening";
+  return "Commercial Acceleration";
+}
+
 function primaryCategoryLabel(value: PipelineBoardItem["primaryCategory"]) {
   return value
     .toLowerCase()
@@ -334,21 +342,21 @@ function toNullableNumber(value: string) {
   return rounded;
 }
 
-type IntakeStageFilter = "ALL" | PipelineBoardItem["intakeStage"];
 type InactiveStatusFilter = "ALL" | Exclude<PipelineBoardItem["companyCategory"], "ACTIVE">;
-
-const INTAKE_STAGE_FILTER_OPTIONS: Array<{ value: IntakeStageFilter; label: string }> = [
-  { value: "ALL", label: "All intake" },
-  { value: "RECEIVED", label: "Received" },
-  { value: "INTRO_CALLS", label: "Intro calls" },
-  { value: "ACTIVE_INTAKE", label: "Active intake" },
-  { value: "MANAGEMENT_PRESENTATION", label: "Management presentation" }
-];
+type FocusFilter = "ALL" | PipelineBoardColumn;
 
 const INACTIVE_STATUS_FILTER_OPTIONS: Array<{ value: InactiveStatusFilter; label: string }> = [
   { value: "ALL", label: "All" },
   { value: "CLOSED", label: "Closed" },
   { value: "RE_ENGAGE_LATER", label: "Re-engage later" }
+];
+
+const FOCUS_FILTER_OPTIONS: Array<{ value: FocusFilter; label: string }> = [
+  { value: "ALL", label: "All active stages" },
+  { value: "INTAKE", label: boardColumnDisplayLabel("INTAKE") },
+  { value: "VENTURE_STUDIO_CONTRACT_EVALUATION", label: boardColumnDisplayLabel("VENTURE_STUDIO_CONTRACT_EVALUATION") },
+  { value: "SCREENING", label: boardColumnDisplayLabel("SCREENING") },
+  { value: "COMMERCIAL_ACCELERATION", label: boardColumnDisplayLabel("COMMERCIAL_ACCELERATION") }
 ];
 
 type PipelineKanbanProps = {
@@ -379,10 +387,11 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
   const [intakeAddLookupValue, setIntakeAddLookupValue] = React.useState("");
   const [intakeAddModalSignal, setIntakeAddModalSignal] = React.useState(0);
   const [intakeNameFilter, setIntakeNameFilter] = React.useState("");
+  const [primaryCategoryFilter, setPrimaryCategoryFilter] = React.useState("ALL");
+  const [focusFilter, setFocusFilter] = React.useState<FocusFilter>("ALL");
   const [highlightedItemId, setHighlightedItemId] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [inactiveQueueExpanded, setInactiveQueueExpanded] = React.useState(false);
-  const [intakeStageFilter, setIntakeStageFilter] = React.useState<IntakeStageFilter>("ALL");
   const [inactiveStatusFilter, setInactiveStatusFilter] = React.useState<InactiveStatusFilter>("ALL");
   const undoTimeoutRef = React.useRef<number | null>(null);
   const highlightTimeoutRef = React.useRef<number | null>(null);
@@ -390,11 +399,6 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
   const suppressLeadSourceBlurRef = React.useRef(false);
   const cardCommitSequenceById = React.useRef<Record<string, number>>({});
   const intakeCommitSequenceById = React.useRef<Record<string, number>>({});
-  const companyTypeView = React.useMemo(
-    () => PIPELINE_COMPANY_TYPE_OPTIONS.find((entry) => entry.value === companyType) || PIPELINE_COMPANY_TYPE_OPTIONS[0],
-    [companyType]
-  );
-
   const loadBoard = React.useCallback(async () => {
     setLoading(true);
     setStatus(null);
@@ -517,10 +521,33 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
     };
   }, [selectedDetailId, closeDetailModal]);
 
+  const primaryCategoryOptions = React.useMemo(
+    () =>
+      Array.from(new Set([...items, ...inactiveItems].map((item) => item.primaryCategory).filter(Boolean))).sort(
+        (left, right) => left.localeCompare(right, undefined, { sensitivity: "base" })
+      ),
+    [inactiveItems, items]
+  );
+
+  const filteredActiveItems = React.useMemo(() => {
+    return items.filter((item) => {
+      if (primaryCategoryFilter !== "ALL" && item.primaryCategory !== primaryCategoryFilter) return false;
+      if (focusFilter !== "ALL" && item.column !== focusFilter) return false;
+      return true;
+    });
+  }, [focusFilter, items, primaryCategoryFilter]);
+
+  const filteredInactiveBaseItems = React.useMemo(() => {
+    return inactiveItems.filter((item) => {
+      if (primaryCategoryFilter !== "ALL" && item.primaryCategory !== primaryCategoryFilter) return false;
+      return true;
+    });
+  }, [inactiveItems, primaryCategoryFilter]);
+
   const groupedItems = React.useMemo(() => {
     return PIPELINE_BOARD_COLUMNS.reduce<Record<PipelineBoardColumn, PipelineBoardItem[]>>(
       (accumulator, column) => {
-        const columnItems = items.filter((item) => item.column === column.key);
+        const columnItems = filteredActiveItems.filter((item) => item.column === column.key);
         if (column.key === "INTAKE") {
           columnItems.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
         }
@@ -534,32 +561,22 @@ export function PipelineKanban({ companyType }: PipelineKanbanProps) {
         COMMERCIAL_ACCELERATION: []
       }
     );
-  }, [intakeStageFilter, items]);
-
-  const intakeFilterCounts = React.useMemo(() => {
-    return INTAKE_STAGE_FILTER_OPTIONS.reduce<Record<IntakeStageFilter, number>>((accumulator, option) => {
-      accumulator[option.value] =
-        option.value === "ALL"
-          ? items.filter((item) => item.column === "INTAKE").length
-          : items.filter((item) => item.column === "INTAKE" && item.intakeStage === option.value).length;
-      return accumulator;
-    }, { ALL: 0, RECEIVED: 0, INTRO_CALLS: 0, ACTIVE_INTAKE: 0, MANAGEMENT_PRESENTATION: 0 });
-  }, [items]);
+  }, [filteredActiveItems]);
 
   const filteredInactiveItems = React.useMemo(() => {
-    if (inactiveStatusFilter === "ALL") return inactiveItems;
-    return inactiveItems.filter((item) => item.companyCategory === inactiveStatusFilter);
-  }, [inactiveItems, inactiveStatusFilter]);
+    if (inactiveStatusFilter === "ALL") return filteredInactiveBaseItems;
+    return filteredInactiveBaseItems.filter((item) => item.companyCategory === inactiveStatusFilter);
+  }, [filteredInactiveBaseItems, inactiveStatusFilter]);
 
   const inactiveFilterCounts = React.useMemo(() => {
     return INACTIVE_STATUS_FILTER_OPTIONS.reduce<Record<InactiveStatusFilter, number>>((accumulator, option) => {
       accumulator[option.value] =
         option.value === "ALL"
-          ? inactiveItems.length
-          : inactiveItems.filter((item) => item.companyCategory === option.value).length;
+          ? filteredInactiveBaseItems.length
+          : filteredInactiveBaseItems.filter((item) => item.companyCategory === option.value).length;
       return accumulator;
     }, { ALL: 0, CLOSED: 0, RE_ENGAGE_LATER: 0 });
-  }, [inactiveItems]);
+  }, [filteredInactiveBaseItems]);
 
   const commitIntakeDraft = React.useCallback(
     async (itemId: string, nextDraft: IntakeDraft, previousDraft: IntakeDraft) => {
@@ -1261,6 +1278,47 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
       {status ? <p className={`status ${status.kind}`}>{status.text}</p> : null}
       {loading ? <p className="status">Loading pipeline board...</p> : null}
 
+      <section className="pipeline-board-controls pipeline-board-controls-standalone">
+        <div className="pipeline-filter-group">
+          <span className="pipeline-filter-label">Pipeline Lens</span>
+          <div className="pipeline-filter-chip-row">
+            {PIPELINE_COMPANY_TYPE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`pipeline-filter-chip ${companyType === option.value ? "active" : ""}`}
+                onClick={() => handleCompanyTypeChange(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="pipeline-filter-grid">
+          <label>
+            <span className="pipeline-filter-label">Company type</span>
+            <select value={primaryCategoryFilter} onChange={(event) => setPrimaryCategoryFilter(event.target.value)}>
+              <option value="ALL">All company types</option>
+              {primaryCategoryOptions.map((option) => (
+                <option key={option} value={option}>
+                  {primaryCategoryLabel(option)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="pipeline-filter-label">Current focus</span>
+            <select value={focusFilter} onChange={(event) => setFocusFilter(event.target.value as FocusFilter)}>
+              {FOCUS_FILTER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </section>
+
       <div className="pipeline-board-shell">
         <section className="pipeline-kanban" aria-label="Venture Studio pipeline board">
           {PIPELINE_BOARD_COLUMNS.map((column) => {
@@ -1294,8 +1352,38 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                   }
                 }}
               >
-                <header className="pipeline-column-head">
-                  <h2>{column.label}</h2>
+                <header
+                  className={`pipeline-column-head ${isIntakeColumn ? "pipeline-column-head-clickable" : ""}`}
+                  role={isIntakeColumn ? "button" : undefined}
+                  tabIndex={isIntakeColumn ? 0 : undefined}
+                  onClick={
+                    isIntakeColumn
+                      ? () => {
+                          const params = new URLSearchParams();
+                          if (companyType !== "STARTUP") params.set("companyType", companyType);
+                          const query = params.toString();
+                          router.push(query ? `/pipeline/intake?${query}` : "/pipeline/intake");
+                        }
+                      : undefined
+                  }
+                  onKeyDown={
+                    isIntakeColumn
+                      ? (event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            const params = new URLSearchParams();
+                            if (companyType !== "STARTUP") params.set("companyType", companyType);
+                            const query = params.toString();
+                            router.push(query ? `/pipeline/intake?${query}` : "/pipeline/intake");
+                          }
+                        }
+                      : undefined
+                  }
+                >
+                  <div className="pipeline-column-head-main">
+                    <h2>{boardColumnDisplayLabel(column.key)}</h2>
+                    {isIntakeColumn ? <span className="pipeline-column-entry-pill">View intake deep dive</span> : null}
+                  </div>
                   <span className="status-pill draft">{countLabel}</span>
                 </header>
 
@@ -1962,11 +2050,25 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
             </div>
           </button>
           {inactiveQueueExpanded ? (
-            inactiveItems.length === 0 ? (
+            filteredInactiveItems.length === 0 ? (
               <p className="muted">No closed or revisit-later companies right now.</p>
             ) : (
-              <div className="pipeline-inactive-grid">
-                {inactiveItems.map((item) => (
+              <>
+                <div className="pipeline-filter-chip-row pipeline-filter-chip-row-section">
+                  {INACTIVE_STATUS_FILTER_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`pipeline-filter-chip ${inactiveStatusFilter === option.value ? "active" : ""}`}
+                      onClick={() => setInactiveStatusFilter(option.value)}
+                    >
+                      {option.label}
+                      <span>{inactiveFilterCounts[option.value]}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="pipeline-inactive-grid">
+                  {filteredInactiveItems.map((item) => (
                   <button
                     key={`inactive-${item.id}`}
                     type="button"
@@ -1992,8 +2094,9 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
                       <span><strong>Last activity:</strong> {formatTimestamp(item.lastMeaningfulActivityAt)}</span>
                     </div>
                   </button>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </>
             )
           ) : null}
         </section>
@@ -2080,6 +2183,7 @@ function pipelinePhasePillClass(column: PipelineBoardColumn) {
           </div>
         </div>
       ) : null}
+
 
       {selectedDetailId ? (
         <div className="pipeline-detail-backdrop" onMouseDown={closeDetailModal}>
