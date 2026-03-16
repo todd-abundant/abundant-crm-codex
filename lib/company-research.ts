@@ -756,6 +756,108 @@ export async function enrichCompanyFromWeb(seed: MinimalCompany): Promise<Compan
   });
 }
 
+type CompanyDescriptionDocumentInput = {
+  type?: string | null;
+  title: string;
+  url: string;
+  notes?: string | null;
+};
+
+export async function generateCompanyDescription(input: {
+  name: string;
+  website?: string | null;
+  googleTranscriptUrl?: string | null;
+  providedContext?: string | null;
+  documents?: CompanyDescriptionDocumentInput[];
+}): Promise<string> {
+  const client = getOpenAIClient();
+  if (!client) {
+    throw new Error("OPENAI_API_KEY missing. Description generation is unavailable.");
+  }
+
+  const name = compactText(input.name);
+  if (!name) {
+    throw new Error("Company name is required to generate a description.");
+  }
+
+  const website = compactText(input.website);
+  const transcriptUrl = compactText(input.googleTranscriptUrl);
+  const providedContext = compactText(input.providedContext);
+  const documents = (input.documents || [])
+    .map((document) => ({
+      type: compactText(document.type),
+      title: compactText(document.title),
+      url: compactText(document.url),
+      notes: compactText(document.notes)
+    }))
+    .filter((document) => document.title || document.url || document.notes)
+    .slice(0, 6);
+
+  const documentContext = documents.length
+    ? documents
+        .map((document, index) => {
+          const parts = [
+            document.type ? `Type: ${document.type}` : "",
+            document.title ? `Title: ${document.title}` : "",
+            document.url ? `URL: ${document.url}` : "",
+            document.notes ? `Notes: ${document.notes}` : ""
+          ].filter(Boolean);
+          return `${index + 1}. ${parts.join(" | ")}`;
+        })
+        .join("\n")
+    : "";
+
+  const sourceSummary = [
+    website ? `Website: ${website}` : "",
+    transcriptUrl ? `Transcript or deck URL: ${transcriptUrl}` : "",
+    providedContext ? `Provided deck/context: ${providedContext}` : "",
+    documentContext ? `Attached materials:\n${documentContext}` : ""
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+  const shouldUseWebSearch = Boolean(website || transcriptUrl || documents.some((document) => document.url));
+  const response = await client.responses.create({
+    model,
+    ...(shouldUseWebSearch ? { tools: [{ type: "web_search_preview" as const }] } : {}),
+    input: [
+      {
+        role: "system",
+        content: [
+          {
+            type: "input_text",
+            text:
+              "You write concise CRM company descriptions for a venture pipeline. " +
+              "Return plain text only. Write 2-3 sentences that explain what the company does, who it serves, and the core wedge or value proposition. " +
+              "Use the company website as the primary source when available. Supplement with provided deck or transcript context when it is clearly consistent. " +
+              "Do not invent traction, customers, or claims that are not well supported."
+          }
+        ]
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text:
+              `Generate a CRM-ready description for ${name}.\n\n` +
+              `${sourceSummary || "No supplemental source context provided."}\n\n` +
+              "Output plain text only, no bullets, no heading."
+          }
+        ]
+      }
+    ]
+  } as any);
+
+  const description = cleanText(response.output_text || "");
+  if (!description) {
+    throw new Error("OpenAI returned an empty company description.");
+  }
+
+  return description;
+}
+
 export async function prefillCompanyFromNaturalLanguage(
   prompt: string
 ): Promise<{ draft: CompanyInput; researchUsed: boolean }> {
