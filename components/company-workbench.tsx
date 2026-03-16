@@ -659,7 +659,6 @@ export function CompanyWorkbench() {
   const [selectedRecordId, setSelectedRecordId] = React.useState<string | null>(null);
   const [draftRecordId, setDraftRecordId] = React.useState<string | null>(null);
   const [detailDraft, setDetailDraft] = React.useState<DetailDraft | null>(null);
-  const [, setRunningAgent] = React.useState(false);
   const [creatingFromSearch, setCreatingFromSearch] = React.useState(false);
   const [deletingRecordId, setDeletingRecordId] = React.useState<string | null>(null);
   const [searchCandidates, setSearchCandidates] = React.useState<SearchCandidate[]>([]);
@@ -1083,7 +1082,6 @@ export function CompanyWorkbench() {
   }
 
   async function runQueuedAgent(maxJobs = 2) {
-    setRunningAgent(true);
     try {
       await fetch("/api/companies/research-jobs/process", {
         method: "POST",
@@ -1091,7 +1089,6 @@ export function CompanyWorkbench() {
         body: JSON.stringify({ maxJobs })
       });
     } finally {
-      setRunningAgent(false);
       await loadRecords();
     }
   }

@@ -333,7 +333,6 @@ export function CoInvestorWorkbench() {
   const [selectedRecordId, setSelectedRecordId] = React.useState<string | null>(null);
   const [detailDraft, setDetailDraft] = React.useState<DetailDraft | null>(null);
   const [draftRecordId, setDraftRecordId] = React.useState<string | null>(null);
-  const [, setRunningAgent] = React.useState(false);
   const [creatingFromSearch, setCreatingFromSearch] = React.useState(false);
   const [deletingRecordId, setDeletingRecordId] = React.useState<string | null>(null);
   const [searchCandidates, setSearchCandidates] = React.useState<SearchCandidate[]>([]);
@@ -527,7 +526,6 @@ export function CoInvestorWorkbench() {
   }
 
   async function runQueuedAgent(maxJobs = 2) {
-    setRunningAgent(true);
     try {
       await fetch("/api/co-investors/research-jobs/process", {
         method: "POST",
@@ -535,7 +533,6 @@ export function CoInvestorWorkbench() {
         body: JSON.stringify({ maxJobs })
       });
     } finally {
-      setRunningAgent(false);
       await loadRecords();
     }
   }
