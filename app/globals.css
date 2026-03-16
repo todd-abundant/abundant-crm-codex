@@ -8195,8 +8195,14 @@ select {
 }
 
 .intake-deep-dive-page {
+  height: auto;
+  min-height: calc(100dvh - 74px);
   display: grid;
+  align-content: start;
   gap: 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 24px;
 }
 
 .intake-deep-dive-hero {
