@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HomeNarrativeChanges } from "@/components/home-narrative-changes";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/server";
 import {
@@ -12,6 +13,11 @@ import {
 const LOOKBACK_DAYS = 14;
 const MAX_TIMELINE_EVENTS = 90;
 const DISPLAY_TIME_ZONE = "America/Denver";
+const STALE_STAGE_DAYS = 30;
+const DUE_SOON_DAYS = 7;
+const FORECAST_LOOKAHEAD_DAYS = 60;
+const HIGH_CONFIDENCE_LIKELIHOOD = 70;
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 const SECTION_ORDER: Array<{ type: PipelineCompanyType; label: string }> = [
   { type: "STARTUP", label: "Startup" },
@@ -64,10 +70,15 @@ const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-US", {
 type ActivityEvent = {
   id: string;
   timestamp: Date;
-  actorName: string | null;
+  actorNames: string[];
   narrative: string;
   kind: "ENTRY" | "MOMENTUM" | "OPPORTUNITY" | "NOTE" | "SCREENING";
   pipelineType: PipelineCompanyType;
+  shouldPrefixActor: boolean;
+  opportunityTarget: {
+    companyId: string;
+    opportunityId: string;
+  } | null;
 };
 
 type StageSummary = Record<PipelineBoardColumn, number>;
@@ -77,14 +88,26 @@ type PipelineSectionData = {
   events: ActivityEvent[];
 };
 
-type OpportunityEventGroup = {
+type CompanyOpportunitySummary = {
+  id: string;
   companyId: string;
-  companyType: PipelineCompanyType;
-  companyName: string;
-  bucket: string;
-  count: number;
-  latestAt: Date;
-  latestTitle: string;
+  title: string;
+  type: string;
+  healthSystemId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type ActiveCompanySnapshot = {
+  id: string;
+  name: string;
+  pipelineType: PipelineCompanyType;
+  boardColumn: PipelineBoardColumn;
+  stageChangedAt: Date | null;
+  ownerName: string | null;
+  nextStepDueAt: Date | null;
+  ventureLikelihoodPercent: number | null;
+  ventureExpectedCloseDate: Date | null;
 };
 
 function displayRoles(roles: string[]) {
@@ -150,47 +173,55 @@ function stageNameForPhase(phase: PipelinePhase) {
   return STAGE_LABELS[boardColumn];
 }
 
-function opportunityBucketLabel(opportunityType: string) {
-  if (opportunityType === "SCREENING_LOI") return "screening";
-  if (opportunityType === "COMMERCIAL_CONTRACT") return "commercial acceleration";
+function opportunityNarrativeLabel(opportunityType: string) {
   if (opportunityType === "VENTURE_STUDIO_SERVICES" || opportunityType === "S1_TERM_SHEET") {
-    return "venture studio evaluation";
+    return "venture studio opportunity";
   }
-  if (opportunityType === "PROSPECT_PURSUIT") return "intake";
-  return "pipeline";
+  return "health system opportunity";
 }
 
-function upsertOpportunityEventGroup(
-  groups: Map<string, OpportunityEventGroup>,
-  input: {
-    companyId: string;
-    companyType: PipelineCompanyType;
-    companyName: string;
-    bucket: string;
-    eventAt: Date;
-    title: string;
-  }
-) {
-  const groupKey = `${input.companyId}:${input.bucket}`;
-  const existing = groups.get(groupKey);
-  if (existing) {
-    existing.count += 1;
-    if (input.eventAt > existing.latestAt) {
-      existing.latestAt = input.eventAt;
-      existing.latestTitle = input.title;
+function parseNoteAffiliations(raw: unknown) {
+  if (!Array.isArray(raw)) return [];
+
+  const affiliations: Array<{ kind: "company" | "healthSystem" | "contact" | "opportunity"; id: string; label: string }> = [];
+  const seen = new Set<string>();
+
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const typed = entry as { kind?: unknown; id?: unknown; label?: unknown };
+    const kind = typeof typed.kind === "string" ? typed.kind : "";
+    const id = typeof typed.id === "string" ? typed.id.trim() : "";
+    const label = typeof typed.label === "string" ? typed.label.trim() : "";
+    if (!id || !label) continue;
+    if (kind !== "company" && kind !== "healthSystem" && kind !== "contact" && kind !== "opportunity") {
+      continue;
     }
-    return;
+    const key = `${kind}:${id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    affiliations.push({
+      kind,
+      id,
+      label
+    });
   }
 
-  groups.set(groupKey, {
-    companyId: input.companyId,
-    companyType: input.companyType,
-    companyName: input.companyName,
-    bucket: input.bucket,
-    count: 1,
-    latestAt: input.eventAt,
-    latestTitle: input.title
-  });
+  return affiliations;
+}
+
+function addActorName(activityMap: Map<string, Set<string>>, activityKey: string, actorName: string | null) {
+  if (!actorName) return;
+  const existing = activityMap.get(activityKey);
+  if (existing) {
+    existing.add(actorName);
+    return;
+  }
+  activityMap.set(activityKey, new Set([actorName]));
+}
+
+function sortedActorNames(actorNames: Set<string> | undefined) {
+  if (!actorNames) return [];
+  return Array.from(actorNames).sort((left, right) => left.localeCompare(right));
 }
 
 function progressPercentForSection(summary: StageSummary) {
@@ -205,10 +236,28 @@ function pacePerDay(value: number) {
   return (value / LOOKBACK_DAYS).toFixed(1);
 }
 
+function pluralize(value: number, singular: string, plural = `${singular}s`) {
+  return `${value} ${value === 1 ? singular : plural}`;
+}
+
+function daysSince(date: Date, now: Date) {
+  return Math.max(0, Math.floor((now.getTime() - date.getTime()) / MS_PER_DAY));
+}
+
+function isDueWithinDays(target: Date | null | undefined, now: Date, days: number) {
+  if (!target) return false;
+  const delta = target.getTime() - now.getTime();
+  return delta >= 0 && delta <= days * MS_PER_DAY;
+}
+
+function isOverdue(target: Date | null | undefined, now: Date) {
+  return Boolean(target && target.getTime() < now.getTime());
+}
+
 function kindLabel(kind: ActivityEvent["kind"]) {
   if (kind === "ENTRY") return "New Entrant";
   if (kind === "MOMENTUM") return "Momentum";
-  if (kind === "OPPORTUNITY") return "Health System Opportunity";
+  if (kind === "OPPORTUNITY") return "Opportunity";
   if (kind === "NOTE") return "Narrative";
   return "Screening";
 }
@@ -216,7 +265,7 @@ function kindLabel(kind: ActivityEvent["kind"]) {
 function kindClass(kind: ActivityEvent["kind"]) {
   if (kind === "ENTRY") return "entry";
   if (kind === "MOMENTUM") return "momentum";
-  if (kind === "OPPORTUNITY") return "health system opportunity";
+  if (kind === "OPPORTUNITY") return "opportunity";
   if (kind === "NOTE") return "note";
   return "screening";
 }
@@ -239,21 +288,11 @@ export default async function HomePage() {
         pipeline: {
           select: {
             phase: true,
-            createdAt: true,
-            updatedAt: true
-          }
-        },
-        opportunities: {
-          where: {
-            OR: [
-              { createdAt: { gte: lookbackStart } },
-              { updatedAt: { gte: lookbackStart } }
-            ]
-          },
-          select: {
-            id: true,
-            title: true,
-            type: true,
+            stageChangedAt: true,
+            ownerName: true,
+            nextStepDueAt: true,
+            ventureLikelihoodPercent: true,
+            ventureExpectedCloseDate: true,
             createdAt: true,
             updatedAt: true
           }
@@ -266,8 +305,23 @@ export default async function HomePage() {
   const companyById = new Map(companies.map((company) => [company.id, company] as const));
   const companyIds = companies.map((company) => company.id);
 
-  const [recentNotes, recentScreeningChanges] = companyIds.length
+  const [rawCompanyOpportunities, recentNotes, recentScreeningChanges] = companyIds.length
     ? await Promise.all([
+        prisma.companyOpportunity.findMany({
+          where: {
+            companyId: { in: companyIds }
+          },
+          select: {
+            id: true,
+            companyId: true,
+            title: true,
+            type: true,
+            healthSystemId: true,
+            createdAt: true,
+            updatedAt: true
+          },
+          orderBy: [{ updatedAt: "desc" }, { id: "desc" }]
+        }),
         prisma.entityNote.findMany({
           where: {
             entityKind: "COMPANY",
@@ -278,6 +332,7 @@ export default async function HomePage() {
             id: true,
             entityId: true,
             note: true,
+            affiliations: true,
             createdAt: true,
             createdByName: true,
             createdByUser: {
@@ -297,6 +352,7 @@ export default async function HomePage() {
           select: {
             id: true,
             companyId: true,
+            healthSystemId: true,
             field: true,
             value: true,
             createdAt: true,
@@ -309,6 +365,7 @@ export default async function HomePage() {
             },
             healthSystem: {
               select: {
+                id: true,
                 name: true
               }
             }
@@ -316,7 +373,9 @@ export default async function HomePage() {
           orderBy: [{ createdAt: "desc" }, { id: "desc" }]
         })
       ])
-    : [[], []];
+    : [[], [], []];
+
+  const companyOpportunities: CompanyOpportunitySummary[] = rawCompanyOpportunities;
 
   const sectionDataByType: Record<PipelineCompanyType, PipelineSectionData> = {
     STARTUP: createEmptySectionData(),
@@ -324,8 +383,29 @@ export default async function HomePage() {
     DENOVO: createEmptySectionData()
   };
 
-  const opportunityCreateGroups = new Map<string, OpportunityEventGroup>();
-  const opportunityMomentumGroups = new Map<string, OpportunityEventGroup>();
+  const opportunitiesByCompanyId = new Map<string, CompanyOpportunitySummary[]>();
+  const opportunityById = new Map<string, CompanyOpportunitySummary>();
+  const latestScreeningOpportunityByCompanyHealthSystem = new Map<string, CompanyOpportunitySummary>();
+  const activeCompanySnapshots: ActiveCompanySnapshot[] = [];
+
+  for (const opportunity of companyOpportunities) {
+    const existing = opportunitiesByCompanyId.get(opportunity.companyId);
+    if (existing) {
+      existing.push(opportunity);
+    } else {
+      opportunitiesByCompanyId.set(opportunity.companyId, [opportunity]);
+    }
+    opportunityById.set(opportunity.id, opportunity);
+
+    if (!opportunity.healthSystemId || opportunity.type !== "SCREENING_LOI") continue;
+    const key = `${opportunity.companyId}:${opportunity.healthSystemId}`;
+    const current = latestScreeningOpportunityByCompanyHealthSystem.get(key);
+    if (!current || opportunity.updatedAt > current.updatedAt) {
+      latestScreeningOpportunityByCompanyHealthSystem.set(key, opportunity);
+    }
+  }
+
+  const opportunityActorNamesById = new Map<string, Set<string>>();
 
   for (const company of companies) {
     const companyType = normalizeCompanyType(company.companyType);
@@ -336,16 +416,29 @@ export default async function HomePage() {
 
     if (boardColumn) {
       section.summary[boardColumn] += 1;
+      activeCompanySnapshots.push({
+        id: company.id,
+        name: company.name,
+        pipelineType: companyType,
+        boardColumn,
+        stageChangedAt: company.pipeline?.stageChangedAt ?? null,
+        ownerName: company.pipeline?.ownerName ?? null,
+        nextStepDueAt: company.pipeline?.nextStepDueAt ?? null,
+        ventureLikelihoodPercent: company.pipeline?.ventureLikelihoodPercent ?? null,
+        ventureExpectedCloseDate: company.pipeline?.ventureExpectedCloseDate ?? null
+      });
     }
 
     if (company.createdAt >= lookbackStart) {
       section.events.push({
         id: `company-created-${company.id}`,
         timestamp: company.createdAt,
-        actorName: null,
+        actorNames: [],
         narrative: `${company.name} entered the pipeline in ${currentStageName}.`,
         kind: "ENTRY",
-        pipelineType: companyType
+        pipelineType: companyType,
+        shouldPrefixActor: false,
+        opportunityTarget: null
       });
     }
 
@@ -355,87 +448,16 @@ export default async function HomePage() {
         section.events.push({
           id: `pipeline-updated-${company.id}`,
           timestamp: company.pipeline.updatedAt,
-          actorName: null,
+          actorNames: [],
           narrative: `${company.name} showed pipeline momentum and is currently in ${currentStageName}.`,
           kind: "MOMENTUM",
-          pipelineType: companyType
+          pipelineType: companyType,
+          shouldPrefixActor: false,
+          opportunityTarget: null
         });
       }
     }
 
-    for (const opportunity of company.opportunities) {
-      const bucket = opportunityBucketLabel(opportunity.type);
-      if (opportunity.createdAt >= lookbackStart) {
-        upsertOpportunityEventGroup(opportunityCreateGroups, {
-          companyId: company.id,
-          companyType,
-          companyName: company.name,
-          bucket,
-          eventAt: opportunity.createdAt,
-          title: opportunity.title
-        });
-        continue;
-      }
-
-      if (opportunity.updatedAt >= lookbackStart) {
-        upsertOpportunityEventGroup(opportunityMomentumGroups, {
-          companyId: company.id,
-          companyType,
-          companyName: company.name,
-          bucket,
-          eventAt: opportunity.updatedAt,
-          title: opportunity.title
-        });
-      }
-    }
-  }
-
-  for (const group of opportunityCreateGroups.values()) {
-    const section = sectionDataByType[group.companyType];
-    if (group.count === 1) {
-      section.events.push({
-        id: `opportunity-created-${group.companyId}-${group.bucket}`,
-        timestamp: group.latestAt,
-        actorName: null,
-        narrative: `A new  health system opportunity was added for ${group.companyName} (${group.latestTitle}).`,
-        kind: "OPPORTUNITY",
-        pipelineType: group.companyType
-      });
-      continue;
-    }
-
-    section.events.push({
-      id: `opportunity-created-${group.companyId}-${group.bucket}`,
-      timestamp: group.latestAt,
-      actorName: null,
-      narrative: `${group.count} new ${group.bucket} opportunities were added for ${group.companyName}.`,
-      kind: "OPPORTUNITY",
-      pipelineType: group.companyType
-    });
-  }
-
-  for (const group of opportunityMomentumGroups.values()) {
-    const section = sectionDataByType[group.companyType];
-    if (group.count === 1) {
-      section.events.push({
-        id: `opportunity-momentum-${group.companyId}-${group.bucket}`,
-        timestamp: group.latestAt,
-        actorName: null,
-        narrative: `${group.companyName} advanced or updated one  health system opportunity (${group.latestTitle}).`,
-        kind: "OPPORTUNITY",
-        pipelineType: group.companyType
-      });
-      continue;
-    }
-
-    section.events.push({
-      id: `opportunity-momentum-${group.companyId}-${group.bucket}`,
-      timestamp: group.latestAt,
-      actorName: null,
-      narrative: `${group.companyName} advanced or updated ${group.count} ${group.bucket} opportunities.`,
-      kind: "OPPORTUNITY",
-      pipelineType: group.companyType
-    });
   }
 
   for (const note of recentNotes) {
@@ -443,17 +465,34 @@ export default async function HomePage() {
     if (!company) continue;
     const companyType = normalizeCompanyType(company.companyType);
     const actorName = resolveActorName(note.createdByName, note.createdByUser);
+    const noteAffiliations = parseNoteAffiliations(note.affiliations);
+    const opportunityAffiliations = noteAffiliations
+      .filter((entry) => entry.kind === "opportunity")
+      .map((entry) => opportunityById.get(entry.id))
+      .filter((entry): entry is CompanyOpportunitySummary => Boolean(entry));
+    for (const opportunity of opportunityAffiliations) {
+      addActorName(opportunityActorNamesById, opportunity.id, actorName);
+    }
     const noteSnippet = truncate(stripRichText(note.note));
     const narrative = noteSnippet
       ? `captured a note on ${company.name}: "${noteSnippet}".`
       : `captured a note on ${company.name}.`;
+    const noteOpportunity =
+      opportunityAffiliations.length === 1
+        ? {
+            companyId: opportunityAffiliations[0].companyId,
+            opportunityId: opportunityAffiliations[0].id
+          }
+        : null;
     sectionDataByType[companyType].events.push({
       id: `note-${note.id}`,
       timestamp: note.createdAt,
-      actorName,
+      actorNames: actorName ? [actorName] : [],
       narrative,
       kind: "NOTE",
-      pipelineType: companyType
+      pipelineType: companyType,
+      shouldPrefixActor: true,
+      opportunityTarget: noteOpportunity
     });
   }
 
@@ -462,6 +501,12 @@ export default async function HomePage() {
     if (!company) continue;
     const companyType = normalizeCompanyType(company.companyType);
     const actorName = resolveActorName(change.changedByName, change.changedByUser);
+    const screeningOpportunity = change.healthSystemId
+      ? latestScreeningOpportunityByCompanyHealthSystem.get(`${change.companyId}:${change.healthSystemId}`)
+      : null;
+    if (screeningOpportunity) {
+      addActorName(opportunityActorNamesById, screeningOpportunity.id, actorName);
+    }
     const fieldLabel =
       change.field === "STATUS_UPDATE"
         ? "status update"
@@ -476,13 +521,62 @@ export default async function HomePage() {
     sectionDataByType[companyType].events.push({
       id: `screening-change-${change.id}`,
       timestamp: change.createdAt,
-      actorName,
+      actorNames: actorName ? [actorName] : [],
       narrative: valueSnippet
         ? `updated ${fieldLabel} for ${scopeLabel}: "${valueSnippet}".`
         : `updated ${fieldLabel} for ${scopeLabel}.`,
       kind: "SCREENING",
-      pipelineType: companyType
+      pipelineType: companyType,
+      shouldPrefixActor: true,
+      opportunityTarget: screeningOpportunity
+        ? {
+            companyId: change.companyId,
+            opportunityId: screeningOpportunity.id
+          }
+        : null
     });
+  }
+
+  for (const company of companies) {
+    const companyType = normalizeCompanyType(company.companyType);
+    const section = sectionDataByType[companyType];
+
+    for (const opportunity of opportunitiesByCompanyId.get(company.id) || []) {
+      if (opportunity.createdAt >= lookbackStart) {
+        const label = opportunityNarrativeLabel(opportunity.type);
+        section.events.push({
+          id: `opportunity-created-${opportunity.id}`,
+          timestamp: opportunity.createdAt,
+          actorNames: sortedActorNames(opportunityActorNamesById.get(opportunity.id)),
+          narrative: `A new ${label} was added for ${company.name} (${opportunity.title}).`,
+          kind: "OPPORTUNITY",
+          pipelineType: companyType,
+          shouldPrefixActor: false,
+          opportunityTarget: {
+            companyId: company.id,
+            opportunityId: opportunity.id
+          }
+        });
+        continue;
+      }
+
+      if (opportunity.updatedAt >= lookbackStart) {
+        const label = opportunityNarrativeLabel(opportunity.type);
+        section.events.push({
+          id: `opportunity-updated-${opportunity.id}`,
+          timestamp: opportunity.updatedAt,
+          actorNames: sortedActorNames(opportunityActorNamesById.get(opportunity.id)),
+          narrative: `${company.name} advanced or updated one ${label} (${opportunity.title}).`,
+          kind: "OPPORTUNITY",
+          pipelineType: companyType,
+          shouldPrefixActor: false,
+          opportunityTarget: {
+            companyId: company.id,
+            opportunityId: opportunity.id
+          }
+        });
+      }
+    }
   }
 
   const sections = SECTION_ORDER.map((sectionMeta) => {
@@ -495,8 +589,9 @@ export default async function HomePage() {
 
     const contributorCounts = new Map<string, number>();
     for (const event of sortedEvents) {
-      if (!event.actorName) continue;
-      contributorCounts.set(event.actorName, (contributorCounts.get(event.actorName) || 0) + 1);
+      for (const actorName of event.actorNames) {
+        contributorCounts.set(actorName, (contributorCounts.get(actorName) || 0) + 1);
+      }
     }
 
     const contributors = Array.from(contributorCounts.entries())
@@ -512,7 +607,7 @@ export default async function HomePage() {
     const momentumEvents = sortedEvents.filter((event) =>
       event.kind === "MOMENTUM" || event.kind === "OPPORTUNITY" || event.kind === "SCREENING"
     ).length;
-    const attributedActions = sortedEvents.filter((event) => Boolean(event.actorName)).length;
+    const attributedActions = sortedEvents.filter((event) => event.actorNames.length > 0).length;
     const notesCaptured = sortedEvents.filter((event) => event.kind === "NOTE").length;
     const progressPercent = progressPercentForSection(data.summary);
     const momentumScore = newEntrants * 4 + momentumEvents * 2 + attributedActions;
@@ -579,6 +674,97 @@ export default async function HomePage() {
 
   const overallProgressPercent = progressPercentForSection(aggregateSummary);
   const productivityPace = pacePerDay(totals.newEntrants + totals.momentum);
+  const leadingSection = sections.reduce((best, section) => {
+    if (section.momentumScore !== best.momentumScore) {
+      return section.momentumScore > best.momentumScore ? section : best;
+    }
+    if (section.totalEvents !== best.totalEvents) {
+      return section.totalEvents > best.totalEvents ? section : best;
+    }
+    return section.activeOpportunityCount > best.activeOpportunityCount ? section : best;
+  }, sections[0]!);
+  const largestStage = STAGE_ORDER.reduce(
+    (best, stage) => {
+      const count = aggregateSummary[stage];
+      if (count > best.count) return { stage, count };
+      return best;
+    },
+    { stage: STAGE_ORDER[0], count: aggregateSummary[STAGE_ORDER[0]] }
+  );
+  const maxAggregateStageCount = Math.max(1, ...STAGE_ORDER.map((stage) => aggregateSummary[stage]));
+  const activeCompanyCount = activeCompanySnapshots.length;
+  const lateStageCount = aggregateSummary.SCREENING + aggregateSummary.COMMERCIAL_ACCELERATION;
+  const lateStageShare = activeCompanyCount > 0 ? Math.round((lateStageCount / activeCompanyCount) * 100) : 0;
+  const ownerCoverageCount = activeCompanySnapshots.filter((company) => company.ownerName?.trim()).length;
+  const ownerCoveragePercent = activeCompanyCount > 0 ? Math.round((ownerCoverageCount / activeCompanyCount) * 100) : 0;
+  const staleCompanyCount = activeCompanySnapshots.filter(
+    (company) => company.stageChangedAt && daysSince(company.stageChangedAt, now) >= STALE_STAGE_DAYS
+  ).length;
+  const overdueNextStepCount = activeCompanySnapshots.filter((company) => isOverdue(company.nextStepDueAt, now)).length;
+  const dueSoonNextStepCount = activeCompanySnapshots.filter((company) =>
+    isDueWithinDays(company.nextStepDueAt, now, DUE_SOON_DAYS)
+  ).length;
+  const averageStageAgeDays =
+    activeCompanySnapshots.length > 0
+      ? Math.round(
+          activeCompanySnapshots.reduce(
+            (total, company) => total + (company.stageChangedAt ? daysSince(company.stageChangedAt, now) : 0),
+            0
+          ) / activeCompanySnapshots.length
+        )
+      : 0;
+  const scoredCompanyLikelihoods = activeCompanySnapshots
+    .map((company) => company.ventureLikelihoodPercent)
+    .filter((value): value is number => typeof value === "number");
+  const averageLikelihoodPercent =
+    scoredCompanyLikelihoods.length > 0
+      ? Math.round(scoredCompanyLikelihoods.reduce((sum, value) => sum + value, 0) / scoredCompanyLikelihoods.length)
+      : null;
+  const nearTermPipelineCompanies = activeCompanySnapshots.filter((company) =>
+    isDueWithinDays(company.ventureExpectedCloseDate, now, FORECAST_LOOKAHEAD_DAYS)
+  );
+  const highConfidenceNearTermPipelineCompanies = nearTermPipelineCompanies.filter(
+    (company) => (company.ventureLikelihoodPercent ?? 0) >= HIGH_CONFIDENCE_LIKELIHOOD
+  );
+  const executiveNarrative =
+    activeCompanyCount === 0
+      ? `No active companies are sitting in the tracked venture pipeline stages for this ${LOOKBACK_DAYS}-day window yet.`
+      : `${pluralize(totals.newEntrants, "new company")} entered the pipeline and ${pluralize(
+          totals.momentum,
+          "momentum event"
+        )} were captured over the last ${LOOKBACK_DAYS} days. ${overallProgressPercent}% of ${pluralize(
+          activeCompanyCount,
+          "active company",
+          "active companies"
+        )} are beyond Intake, with ${leadingSection.label} generating the most recent movement and ${
+          STAGE_LABELS[largestStage.stage]
+        } holding the deepest concentration of active work (${largestStage.count}).`;
+  const executiveHighlights = [
+    {
+      label: "Pipeline mix",
+      value: `${largestStage.count} in ${STAGE_LABELS[largestStage.stage]}`,
+      description: `${lateStageCount} companies are already in Screening or Commercial Acceleration (${lateStageShare}% of the active pipeline).`
+    },
+    {
+      label: "Pipeline Hygiene",
+      value: `${ownerCoveragePercent}% owner coverage`,
+      description:
+        overdueNextStepCount > 0 || staleCompanyCount > 0
+          ? `${overdueNextStepCount} overdue next steps and ${staleCompanyCount} companies sitting in the same stage for ${STALE_STAGE_DAYS}+ days.`
+          : `No overdue next steps and no companies stalled in the same stage for ${STALE_STAGE_DAYS}+ days.`
+    },
+    {
+      label: "Forecast readiness",
+      value:
+        averageLikelihoodPercent === null
+          ? "No forecast scores"
+          : `${averageLikelihoodPercent}% avg likelihood`,
+      description:
+        nearTermPipelineCompanies.length > 0
+          ? `${highConfidenceNearTermPipelineCompanies.length} of ${nearTermPipelineCompanies.length} companies forecasted inside ${FORECAST_LOOKAHEAD_DAYS} days are at ${HIGH_CONFIDENCE_LIKELIHOOD}%+ likelihood.`
+          : `No venture expected-close dates are populated inside the next ${FORECAST_LOOKAHEAD_DAYS} days yet.`
+    }
+  ];
 
   return (
     <main className="home-pipeline-page">
@@ -608,7 +794,7 @@ export default async function HomePage() {
             <div className="home-progress-track">
               <span style={{ width: `${overallProgressPercent}%` }} />
             </div>
-            <p className="muted">{totals.active} active health system opportunities currently in venture studio pipeline stages.</p>
+            <p className="muted">{totals.active} active pipeline companies currently in venture studio stages.</p>
           </div>
         </div>
 
@@ -638,6 +824,48 @@ export default async function HomePage() {
         </div>
       </section>
 
+      <section className="home-executive-grid">
+        <article className="panel home-executive-brief">
+          <header className="home-executive-header">
+            <div>
+              <p className="home-progress-caption">Executive Snapshot</p>
+              <h2>Pipeline narrative, stage health, and forecast readiness</h2>
+            </div>
+            <p className="muted">Designed to read like the summary you would send manually, but generated directly from live pipeline data.</p>
+          </header>
+
+          <p className="home-executive-summary">{executiveNarrative}</p>
+
+          <div className="home-executive-callout-grid">
+            {executiveHighlights.map((highlight) => (
+              <article key={highlight.label} className="home-executive-callout">
+                <p className="home-kpi-label">{highlight.label}</p>
+                <p className="home-executive-callout-value">{highlight.value}</p>
+                <p className="muted">{highlight.description}</p>
+              </article>
+            ))}
+          </div>
+
+          <div className="home-executive-stage-band">
+            {STAGE_ORDER.map((stage) => (
+              <article key={stage} className="home-executive-stage-card">
+                <div className="home-executive-stage-head">
+                  <p className="home-executive-stage-label">{STAGE_LABELS[stage]}</p>
+                  <p className="home-executive-stage-value">{aggregateSummary[stage]}</p>
+                </div>
+                <div className="home-executive-stage-meter">
+                  <span style={{ width: `${(aggregateSummary[stage] / maxAggregateStageCount) * 100}%` }} />
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <p className="muted home-executive-footer">
+            Average stage age: {averageStageAgeDays} days. Next steps due within {DUE_SOON_DAYS} days: {dueSoonNextStepCount}.
+          </p>
+        </article>
+      </section>
+
       <div className="home-pipeline-shell">
         <section className="home-pipeline-left">
           {sections.map((section) => (
@@ -655,7 +883,7 @@ export default async function HomePage() {
                   <div>
                     <h2>{section.label}</h2>
                     <p className="muted">
-                      {section.activeOpportunityCount} active health system opportunities, {section.totalEvents} tracked updates
+                      {section.activeOpportunityCount} active pipeline companies, {section.totalEvents} tracked updates
                     </p>
                   </div>
 
@@ -698,49 +926,22 @@ export default async function HomePage() {
           ))}
         </section>
 
-        <aside className="panel home-pipeline-activity-panel">
-          <header className="home-pipeline-activity-header">
-            <h2>Narrative Changes</h2>
-            <p className="muted">
-              Reverse chronological activity stream across all three pipelines.
-            </p>
-          </header>
-
-          <div className="home-pipeline-activity-scroll">
-            {visibleGlobalEvents.length === 0 ? (
-              <p className="muted">No tracked changes in the last two weeks.</p>
-            ) : (
-              <ol className="home-pipeline-activity-list">
-                {visibleGlobalEvents.map((event) => (
-                  <li key={event.id} className="home-pipeline-activity-item">
-                    <div className="home-activity-badges">
-                      <span className={`home-activity-kind home-activity-kind-${kindClass(event.kind)}`}>
-                        {kindLabel(event.kind)}
-                      </span>
-                      <span
-                        className={`home-activity-pipeline home-activity-pipeline-${PIPELINE_BADGE_CLASS[event.pipelineType]}`}
-                      >
-                        {PIPELINE_LABELS[event.pipelineType]}
-                      </span>
-                    </div>
-                    <p className="home-activity-narrative">
-                      {event.actorName ? `${event.actorName} ${event.narrative}` : event.narrative}
-                    </p>
-                    <div className="home-pipeline-activity-meta">
-                      <span>{event.actorName || "System"}</span>
-                      <time dateTime={event.timestamp.toISOString()}>
-                        {TIMESTAMP_FORMATTER.format(event.timestamp)}
-                      </time>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
-          {globalEvents.length > visibleGlobalEvents.length ? (
-            <p className="muted">Showing latest {visibleGlobalEvents.length} of {globalEvents.length} events.</p>
-          ) : null}
-        </aside>
+        <HomeNarrativeChanges
+          events={visibleGlobalEvents.map((event) => ({
+            id: event.id,
+            actorNames: event.actorNames,
+            kindLabel: kindLabel(event.kind),
+            kindClass: kindClass(event.kind),
+            narrative: event.narrative,
+            pipelineBadgeClass: PIPELINE_BADGE_CLASS[event.pipelineType],
+            pipelineLabel: PIPELINE_LABELS[event.pipelineType],
+            shouldPrefixActor: event.shouldPrefixActor,
+            timestampIso: event.timestamp.toISOString(),
+            timestampLabel: TIMESTAMP_FORMATTER.format(event.timestamp),
+            opportunityTarget: event.opportunityTarget
+          }))}
+          totalCount={globalEvents.length}
+        />
       </div>
     </main>
   );

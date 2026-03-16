@@ -32,6 +32,26 @@ const patchSessionSchema = z
     }
   });
 
+function normalizeComparableQuestions(
+  questions: Array<{
+    questionId: string;
+    category: string;
+    prompt: string;
+    instructions: string | null;
+    drivesScreeningOpportunity: boolean;
+  }>
+) {
+  return [...questions]
+    .map((entry) => ({
+      questionId: entry.questionId,
+      category: entry.category.trim(),
+      prompt: entry.prompt.trim(),
+      instructions: entry.instructions?.trim() || null,
+      drivesScreeningOpportunity: Boolean(entry.drivesScreeningOpportunity)
+    }))
+    .sort((a, b) => a.questionId.localeCompare(b.questionId));
+}
+
 function toSessionResponse(
   session: {
     id: string;
@@ -208,11 +228,14 @@ export async function PATCH(
         const questionSetChanged =
           JSON.stringify(normalizedIncomingQuestions) !==
           JSON.stringify(normalizedExistingQuestions);
+        const questionContentChanged =
+          JSON.stringify(normalizeComparableQuestions(normalizedIncomingQuestions)) !==
+          JSON.stringify(normalizeComparableQuestions(normalizedExistingQuestions));
 
         if (questionSetChanged) {
           const nextStatus = input.status || existing.status;
-          if (nextStatus === "LIVE") {
-            throw new Error("Set survey status to Draft before editing questions.");
+          if (nextStatus === "LIVE" && questionContentChanged) {
+            throw new Error("Set survey status to Draft before editing question text or membership.");
           }
           questionsToSave = normalizedIncomingQuestions;
         }

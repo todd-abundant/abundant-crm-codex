@@ -127,15 +127,33 @@ export const processResearchJobsRequestSchema = z.object({
   maxJobs: z.number().int().positive().max(10).optional().default(1)
 });
 
-export const coInvestorSignalsProcessRequestSchema = z.object({
-  maxCoInvestors: z.number().int().positive().max(100).optional().default(10),
-  maxSignalsPerCoInvestor: z.number().int().positive().max(10).optional().default(4),
+export const stakeholderSignalsProcessRequestSchema = z.object({
+  maxEntities: z.number().int().positive().max(100).optional().default(10),
+  maxSignalsPerEntity: z.number().int().positive().max(10).optional().default(4),
   lookbackDays: z.number().int().positive().max(30).optional().default(14)
 });
 
-export const coInvestorSignalsListQuerySchema = z.object({
+export const coInvestorSignalsProcessRequestSchema = stakeholderSignalsProcessRequestSchema.transform((input) => ({
+  maxCoInvestors: input.maxEntities,
+  maxSignalsPerCoInvestor: input.maxSignalsPerEntity,
+  lookbackDays: input.lookbackDays
+}));
+
+export const stakeholderSignalsListQuerySchema = z.object({
   limit: z.number().int().positive().max(200).optional().default(50),
   days: z.number().int().positive().max(60).optional().default(7)
+});
+
+export const coInvestorSignalsListQuerySchema = stakeholderSignalsListQuerySchema;
+
+export const weeklyStakeholderDigestDispatchRequestSchema = z.object({
+  dryRun: z.boolean().optional().default(false),
+  force: z.boolean().optional().default(false),
+  runSweeps: z.boolean().optional().default(true),
+  topItemsPerKind: z.number().int().positive().max(10).optional().default(3),
+  maxEntitiesPerKind: z.number().int().positive().max(100).optional().default(50),
+  maxSignalsPerEntity: z.number().int().positive().max(10).optional().default(3),
+  lookbackDays: z.number().int().positive().max(14).optional().default(8)
 });
 
 export const prefillRequestSchema = z.object({

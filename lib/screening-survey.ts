@@ -7,6 +7,7 @@ type SurveySeedQuestion = {
   category: string;
   prompt: string;
   instructions?: string;
+  drivesScreeningOpportunity?: boolean;
   scaleMin?: number;
   scaleMax?: number;
 };
@@ -50,7 +51,8 @@ export const standardScreeningSurveyQuestions: SurveySeedQuestion[] = [
   },
   {
     category: "Co-Development",
-    prompt: "How interested is your organization in co-development participation?"
+    prompt: "How interested is your organization in co-development participation?",
+    drivesScreeningOpportunity: true
   },
   {
     category: "Co-Development",
@@ -266,6 +268,7 @@ export async function ensureDefaultScreeningSurveyLibrary(client: SurveyWriteCli
       categoryOverride: string;
       promptOverride: string;
       instructionsOverride: string | null;
+      drivesScreeningOpportunity: boolean;
     }> = [];
 
     for (const [index, entry] of template.questions.entries()) {
@@ -276,7 +279,8 @@ export async function ensureDefaultScreeningSurveyLibrary(client: SurveyWriteCli
         displayOrder: index,
         categoryOverride: entry.category.trim(),
         promptOverride: entry.prompt.trim(),
-        instructionsOverride: entry.instructions?.trim() || null
+        instructionsOverride: entry.instructions?.trim() || null,
+        drivesScreeningOpportunity: Boolean(entry.drivesScreeningOpportunity)
       });
     }
 
@@ -315,7 +319,8 @@ export async function ensureDefaultScreeningSurveyLibrary(client: SurveyWriteCli
             displayOrder: entry.displayOrder,
             categoryOverride: entry.categoryOverride,
             promptOverride: entry.promptOverride,
-            instructionsOverride: entry.instructionsOverride
+            instructionsOverride: entry.instructionsOverride,
+            drivesScreeningOpportunity: entry.drivesScreeningOpportunity
           }
         });
         continue;
@@ -328,7 +333,8 @@ export async function ensureDefaultScreeningSurveyLibrary(client: SurveyWriteCli
           displayOrder: entry.displayOrder,
           categoryOverride: entry.categoryOverride,
           promptOverride: entry.promptOverride,
-          instructionsOverride: entry.instructionsOverride
+          instructionsOverride: entry.instructionsOverride,
+          drivesScreeningOpportunity: entry.drivesScreeningOpportunity
         }
       });
     }

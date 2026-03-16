@@ -14,6 +14,7 @@ const templateQuestionSchema = z.object({
   category: z.string().trim().min(1).max(80),
   prompt: z.string().trim().min(1).max(360),
   instructions: z.string().trim().max(600).optional().nullable().or(z.literal("")),
+  drivesScreeningOpportunity: z.boolean().default(false),
   displayOrder: z.number().int().min(0)
 });
 
@@ -87,13 +88,14 @@ export async function PATCH(
         const normalizedQuestions = await validateTemplateQuestionSet(
           tx,
           input.questions.map((entry) => ({
-            questionId: entry.questionId,
-            category: entry.category,
-            prompt: entry.prompt,
-            instructions: entry.instructions?.trim() || null,
-            displayOrder: entry.displayOrder
-          }))
-        );
+          questionId: entry.questionId,
+          category: entry.category,
+          prompt: entry.prompt,
+          instructions: entry.instructions?.trim() || null,
+          drivesScreeningOpportunity: Boolean(entry.drivesScreeningOpportunity),
+          displayOrder: entry.displayOrder
+        }))
+      );
         await syncTemplateQuestions(tx, templateId, normalizedQuestions);
       }
 

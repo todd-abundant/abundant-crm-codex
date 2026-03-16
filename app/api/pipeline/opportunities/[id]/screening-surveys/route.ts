@@ -312,6 +312,7 @@ export async function GET(
           category: entry.categoryOverride || entry.question.category,
           prompt: entry.promptOverride || entry.question.prompt,
           instructions: entry.instructionsOverride || entry.question.instructions,
+          drivesScreeningOpportunity: entry.drivesScreeningOpportunity,
           scaleMin: entry.question.scaleMin,
           scaleMax: entry.question.scaleMax
         }))
@@ -432,7 +433,7 @@ export async function POST(
           categoryOverride: entry.categoryOverride || entry.question.category,
           promptOverride: entry.promptOverride || entry.question.prompt,
           instructionsOverride: entry.instructionsOverride || entry.question.instructions || null,
-          drivesScreeningOpportunity: false
+          drivesScreeningOpportunity: entry.drivesScreeningOpportunity
         }));
       } else if (input.sourceSessionId) {
         const sourceSession = await tx.companyScreeningSurveySession.findUnique({

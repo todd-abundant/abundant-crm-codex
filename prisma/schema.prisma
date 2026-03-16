@@ -255,6 +255,13 @@ enum AllianceMemberStatus {
   PROSPECT
 }
 
+enum StakeholderSignalsDigestDispatchStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
 model HealthSystem {
   id                          String         @id @default(cuid())
   name                        String
@@ -294,6 +301,7 @@ model HealthSystem {
   companyScreeningQualitativeFeedback  CompanyScreeningQualitativeFeedback[]
   companyScreeningCellChanges          CompanyScreeningCellChange[]
   companyScreeningSurveySubmissions    CompanyScreeningSurveySubmission[]
+  signalEvents                         HealthSystemSignalEvent[]
 
   @@index([name])
   @@index([isAllianceMember])
@@ -465,6 +473,33 @@ model CoInvestorSignalEvent {
   @@index([sourcePublishedAt])
 }
 
+model HealthSystemSignalEvent {
+  id                String   @id @default(cuid())
+  healthSystemId    String
+  eventType         String
+  headline          String
+  summary           String
+  suggestedOutreach String?
+  confidenceScore   Float?
+  relevanceScore    Int?
+  signalDate        DateTime?
+  sourceUrl         String
+  sourceDomain      String?
+  sourceTitle       String?
+  sourcePublishedAt DateTime?
+  dedupeKey         String
+  metadataJson      Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+
+  @@unique([healthSystemId, dedupeKey])
+  @@index([healthSystemId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([sourcePublishedAt])
+}
+
 model CoInvestorResearchJob {
   id              String                   @id @default(cuid())
   coInvestorId    String
@@ -578,6 +613,7 @@ model Company {
   fundraises                    CompanyFundraise[]
   marketLandscape               CompanyMarketLandscape?
   reports                       CompanyReport[]
+  signalEvents                  CompanySignalEvent[]
 
   @@index([name])
   @@index([companyType])
@@ -586,6 +622,33 @@ model Company {
   @@index([leadSourceHealthSystemId])
   @@index([intakeStatus])
   @@index([researchStatus])
+}
+
+model CompanySignalEvent {
+  id                String   @id @default(cuid())
+  companyId         String
+  eventType         String
+  headline          String
+  summary           String
+  suggestedOutreach String?
+  confidenceScore   Float?
+  relevanceScore    Int?
+  signalDate        DateTime?
+  sourceUrl         String
+  sourceDomain      String?
+  sourceTitle       String?
+  sourcePublishedAt DateTime?
+  dedupeKey         String
+  metadataJson      Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, dedupeKey])
+  @@index([companyId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([sourcePublishedAt])
 }
 
 model CompanyHealthSystemLink {
@@ -1104,6 +1167,7 @@ model CompanyScreeningSurveyTemplateQuestion {
   categoryOverride     String?
   promptOverride       String?
   instructionsOverride String?
+  drivesScreeningOpportunity Boolean @default(false)
   createdAt            DateTime @default(now())
 
   template         CompanyScreeningSurveyTemplate          @relation(fields: [templateId], references: [id], onDelete: Cascade)
@@ -1291,10 +1355,38 @@ model Contact {
   companyScreeningQuantitativeFeedback CompanyScreeningQuantitativeFeedback[]
   companyScreeningQualitativeFeedback  CompanyScreeningQualitativeFeedback[]
   companyScreeningSurveySubmissions    CompanyScreeningSurveySubmission[]
+  signalEvents                         ContactSignalEvent[]
 
   @@index([name])
   @@index([email])
   @@index([principalEntityType, principalEntityId])
+}
+
+model ContactSignalEvent {
+  id                String   @id @default(cuid())
+  contactId         String
+  eventType         String
+  headline          String
+  summary           String
+  suggestedOutreach String?
+  confidenceScore   Float?
+  relevanceScore    Int?
+  signalDate        DateTime?
+  sourceUrl         String
+  sourceDomain      String?
+  sourceTitle       String?
+  sourcePublishedAt DateTime?
+  dedupeKey         String
+  metadataJson      Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, dedupeKey])
+  @@index([contactId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([sourcePublishedAt])
 }
 
 model User {
@@ -1303,6 +1395,7 @@ model User {
   name                            String?
   image                           String?
   isActive                        Boolean                          @default(true)
+  stakeholderDigestSubscribed     Boolean                          @default(false)
   googleSub                       String?                          @unique
   lastLoginAt                     DateTime?
   createdAt                       DateTime                         @default(now())
@@ -1330,6 +1423,26 @@ model UserRoleAssignment {
   @@unique([userId, role])
   @@index([role])
   @@index([userId])
+}
+
+model StakeholderSignalsDigestDispatch {
+  id              String                                 @id @default(cuid())
+  digestKey       String                                 @unique
+  weekStart       DateTime
+  weekEnd         DateTime
+  status          StakeholderSignalsDigestDispatchStatus @default(PENDING)
+  topItemsPerKind Int                                    @default(3)
+  subscriberCount Int                                    @default(0)
+  sentCount       Int                                    @default(0)
+  homeUrl         String?
+  summaryJson     Json?
+  sentAt          DateTime?
+  error           String?
+  createdAt       DateTime                               @default(now())
+  updatedAt       DateTime                               @updatedAt
+
+  @@index([weekStart, weekEnd])
+  @@index([status, createdAt])
 }
 
 model ContactHealthSystem {

@@ -4,7 +4,8 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/server";
 
 const updateMyUserSchema = z.object({
-  name: z.string().trim().max(80).optional()
+  name: z.string().trim().max(80).optional(),
+  stakeholderDigestSubscribed: z.boolean().optional()
 });
 
 export async function PATCH(request: Request) {
@@ -20,12 +21,17 @@ export async function PATCH(request: Request) {
     const updatedUser = await prisma.user.update({
       where: { id: user.id },
       data: {
-        name: input.name === undefined ? user.name : input.name || null
+        name: input.name === undefined ? user.name : input.name || null,
+        stakeholderDigestSubscribed:
+          input.stakeholderDigestSubscribed === undefined
+            ? user.stakeholderDigestSubscribed
+            : input.stakeholderDigestSubscribed
       },
       select: {
         id: true,
         email: true,
-        name: true
+        name: true,
+        stakeholderDigestSubscribed: true
       }
     });
 

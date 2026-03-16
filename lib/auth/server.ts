@@ -26,6 +26,7 @@ type AuthenticatedUser = {
   image: string | null;
   roles: UserRole[];
   isActive: boolean;
+  stakeholderDigestSubscribed: boolean;
 };
 
 export type GoogleApiSession = {
@@ -248,6 +249,7 @@ export async function getCurrentUser() {
         name: true,
         image: true,
         isActive: true,
+        stakeholderDigestSubscribed: true,
         roles: {
           select: { role: true }
         }
@@ -261,6 +263,7 @@ export async function getCurrentUser() {
       name: user.name,
       image: user.image,
       isActive: user.isActive,
+      stakeholderDigestSubscribed: user.stakeholderDigestSubscribed,
       roles: user.roles.map((item) => item.role)
     };
   } catch (error) {
@@ -378,6 +381,7 @@ export async function upsertGoogleUser(profile: GoogleUserProfile) {
           name: true,
           image: true,
           isActive: true,
+          stakeholderDigestSubscribed: true,
           roles: {
             select: { role: true }
           }
@@ -402,16 +406,17 @@ export async function upsertGoogleUser(profile: GoogleUserProfile) {
           }
         }
       },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        image: true,
-        isActive: true,
-        roles: {
-          select: { role: true }
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          image: true,
+          isActive: true,
+          stakeholderDigestSubscribed: true,
+          roles: {
+            select: { role: true }
+          }
         }
-      }
     });
   });
 
@@ -423,6 +428,7 @@ export async function upsertGoogleUser(profile: GoogleUserProfile) {
     name: result.name,
     image: result.image,
     isActive: result.isActive,
+    stakeholderDigestSubscribed: result.stakeholderDigestSubscribed,
     roles: result.roles.map((item) => item.role)
   };
 }

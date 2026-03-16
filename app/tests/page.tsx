@@ -25,9 +25,9 @@ export default function TestsHomePage() {
           </Link>
           <Link className="list-row" href="/tests/co-investor-signals-digest">
             <div className="list-row-main">
-              <strong>Co-Investor Signals Digest</strong>
+              <strong>Stakeholder Signals Digest</strong>
               <span className="muted">
-                Run a signal sweep and review recent co-investor congrats + strategic insight items in one table.
+                Review investor, contact, company, and health system news digests from one shared beta view.
               </span>
             </div>
           </Link>

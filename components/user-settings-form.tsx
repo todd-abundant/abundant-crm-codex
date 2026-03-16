@@ -5,10 +5,16 @@ import { useState } from "react";
 type UserSettingsFormProps = {
   initialName: string;
   email: string;
+  initialStakeholderDigestSubscribed: boolean;
 };
 
-export function UserSettingsForm({ initialName, email }: UserSettingsFormProps) {
+export function UserSettingsForm({
+  initialName,
+  email,
+  initialStakeholderDigestSubscribed
+}: UserSettingsFormProps) {
   const [name, setName] = useState(initialName);
+  const [stakeholderDigestSubscribed, setStakeholderDigestSubscribed] = useState(initialStakeholderDigestSubscribed);
   const [isSaving, setIsSaving] = useState(false);
   const [status, setStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
@@ -21,7 +27,7 @@ export function UserSettingsForm({ initialName, email }: UserSettingsFormProps) 
       const response = await fetch("/api/users/me", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ name, stakeholderDigestSubscribed })
       });
       const payload = await response.json();
 
@@ -30,7 +36,8 @@ export function UserSettingsForm({ initialName, email }: UserSettingsFormProps) 
       }
 
       setName(payload.user?.name || "");
-      setStatus({ kind: "ok", text: "Profile updated." });
+      setStakeholderDigestSubscribed(Boolean(payload.user?.stakeholderDigestSubscribed));
+      setStatus({ kind: "ok", text: "Settings updated." });
     } catch (error) {
       setStatus({
         kind: "error",
@@ -54,6 +61,32 @@ export function UserSettingsForm({ initialName, email }: UserSettingsFormProps) 
         placeholder="How your name appears"
         maxLength={80}
       />
+
+      <label htmlFor="settings-stakeholder-digest">Weekly stakeholder digest</label>
+      <label
+        htmlFor="settings-stakeholder-digest"
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 10,
+          padding: "10px 12px",
+          border: "1px solid #d4e1ef",
+          borderRadius: 12,
+          background: "#f8fbfe"
+        }}
+      >
+        <input
+          id="settings-stakeholder-digest"
+          type="checkbox"
+          checked={stakeholderDigestSubscribed}
+          onChange={(event) => setStakeholderDigestSubscribed(event.target.checked)}
+          style={{ marginTop: 2 }}
+        />
+        <span>
+          Receive the weekly stakeholder signals digest every Monday morning with top items across co-investors,
+          contacts, companies, and health systems.
+        </span>
+      </label>
 
       <div className="settings-actions">
         <button type="submit" disabled={isSaving}>

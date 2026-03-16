@@ -8,6 +8,7 @@ export type ScreeningSurveyTemplateQuestionInput = {
   category: string;
   prompt: string;
   instructions: string | null;
+  drivesScreeningOpportunity: boolean;
   displayOrder: number;
 };
 
@@ -62,6 +63,7 @@ export function toScreeningSurveyTemplateResponse(template: ScreeningSurveyTempl
       category: entry.categoryOverride || entry.question.category,
       prompt: entry.promptOverride || entry.question.prompt,
       instructions: entry.instructionsOverride || entry.question.instructions,
+      drivesScreeningOpportunity: entry.drivesScreeningOpportunity,
       scaleMin: entry.question.scaleMin,
       scaleMax: entry.question.scaleMax
     }))
@@ -104,6 +106,7 @@ export async function validateTemplateQuestionSet(
       category: entry.category.trim(),
       prompt: entry.prompt.trim(),
       instructions: entry.instructions?.trim() || null,
+      drivesScreeningOpportunity: Boolean(entry.drivesScreeningOpportunity),
       displayOrder: index
     }));
 
@@ -159,7 +162,8 @@ export async function syncTemplateQuestions(
           displayOrder: question.displayOrder,
           categoryOverride: question.category,
           promptOverride: question.prompt,
-          instructionsOverride: question.instructions
+          instructionsOverride: question.instructions,
+          drivesScreeningOpportunity: question.drivesScreeningOpportunity
         }
       });
       continue;
@@ -172,7 +176,8 @@ export async function syncTemplateQuestions(
         displayOrder: question.displayOrder,
         categoryOverride: question.category,
         promptOverride: question.prompt,
-        instructionsOverride: question.instructions
+        instructionsOverride: question.instructions,
+        drivesScreeningOpportunity: question.drivesScreeningOpportunity
       }
     });
   }

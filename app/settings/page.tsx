@@ -12,8 +12,12 @@ export default async function SettingsPage() {
     <main>
       <section className="panel settings-panel">
         <h2>Your settings</h2>
-        <p className="muted">Update your profile details. We can add more settings here over time.</p>
-        <UserSettingsForm initialName={user.name || ""} email={user.email} />
+        <p className="muted">Update your profile details and weekly digest preferences.</p>
+        <UserSettingsForm
+          initialName={user.name || ""}
+          email={user.email}
+          initialStakeholderDigestSubscribed={user.stakeholderDigestSubscribed}
+        />
       </section>
     </main>
   );
