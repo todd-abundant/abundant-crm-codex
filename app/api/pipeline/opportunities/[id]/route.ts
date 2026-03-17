@@ -39,6 +39,13 @@ function computeDurationDays(createdAt: Date, closedAt: Date | null) {
   return Math.floor((endMs - startMs) / (1000 * 60 * 60 * 24));
 }
 
+function daysSince(value: Date | null | undefined) {
+  if (!value) return null;
+  const diffMs = Date.now() - value.getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) return 0;
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+}
+
 function normalizeQuantitativeQuestionKey(value: string | null | undefined) {
   return (value || "")
     .trim()
@@ -770,6 +777,8 @@ export async function GET(
     const screeningMemberFeedbackStatusByHealthSystemId = new Map(
       screeningHealthSystems.map((entry) => [entry.healthSystemId, entry.memberFeedbackStatus] as const)
     );
+    const stageChangedAt = company.pipeline?.stageChangedAt ?? company.createdAt;
+    const timeInStageDays = daysSince(stageChangedAt);
 
     return NextResponse.json({
       item: {
@@ -799,6 +808,11 @@ export async function GET(
         ventureLikelihoodPercent: company.pipeline?.ventureLikelihoodPercent ?? null,
         ventureExpectedCloseDate: company.pipeline?.ventureExpectedCloseDate ?? null,
         ownerName: company.pipeline?.ownerName ?? null,
+        nextStep: company.pipeline?.nextStep ?? null,
+        nextStepDueAt: company.pipeline?.nextStepDueAt ?? null,
+        lastMeaningfulActivityAt: company.pipeline?.lastMeaningfulActivityAt ?? null,
+        stageChangedAt: stageChangedAt.toISOString(),
+        timeInStageDays,
         createdAt: company.createdAt.toISOString(),
         updatedAt: (company.pipeline?.updatedAt || company.updatedAt).toISOString(),
         opportunities: company.opportunities.map((opportunity) => {
