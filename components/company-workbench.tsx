@@ -460,22 +460,6 @@ function isResearchInProgress(status: ResearchStatus) {
   return status === "QUEUED" || status === "RUNNING";
 }
 
-function intakeStatusClass(status: IntakeStatus, intakeScheduledAt?: string | null) {
-  if (status === "SCREENING_EVALUATION") return "done";
-  if (status === "COMPLETED") return "done";
-  if (status === "SCHEDULED" && intakeScheduledAt) return "queued";
-  return "draft";
-}
-
-function intakeStatusLabel(status: IntakeStatus, intakeScheduledAt: string) {
-  const scheduledLabel = toDateInputValue(intakeScheduledAt);
-
-  if (status === "SCREENING_EVALUATION") return "Screening Evaluation";
-  if (status === "COMPLETED") return "Completed";
-  if (status === "SCHEDULED" && scheduledLabel) return scheduledLabel;
-  return "Not Scheduled";
-}
-
 function pipelinePhaseLabel(column: PipelineBoardColumn | null) {
   if (column === "INTAKE") return "Intake";
   if (column === "VENTURE_STUDIO_CONTRACT_EVALUATION") return "VS Evaluation";

@@ -368,7 +368,7 @@ export function EntityLookupInput(props: EntityLookupInputProps) {
     onEntitySelected?.(option.id);
   }
 
-  function openAddModal() {
+  const openAddModal = React.useCallback(() => {
     const seedName = query.trim() || selectedOption?.name || "";
     setAddOpen(true);
     setAddMode(supportsWebLookup ? "WEB" : "MANUAL");
@@ -385,7 +385,7 @@ export function EntityLookupInput(props: EntityLookupInputProps) {
     setAddLinkedin("");
     setWebCandidates([]);
     setSelectedWebCandidateIndex(null);
-  }
+  }, [query, selectedOption?.name, supportsWebLookup]);
 
   React.useEffect(() => {
     if (openAddModalSignal === undefined) return;
@@ -393,7 +393,7 @@ export function EntityLookupInput(props: EntityLookupInputProps) {
     lastOpenAddModalSignalRef.current = openAddModalSignal;
     if (disabled) return;
     openAddModal();
-  }, [openAddModalSignal, disabled]);
+  }, [openAddModalSignal, disabled, openAddModal]);
 
   async function lookupWebCandidates() {
     const searchEndpoint = webSearchEndpointForKind(entityKind);

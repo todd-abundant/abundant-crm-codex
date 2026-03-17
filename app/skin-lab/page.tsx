@@ -727,7 +727,7 @@ function chatPreviewShell(skinId: SkinId) {
   return <ChatPreview />;
 }
 
-function searchAndEditPreviewShell(skinId: SkinId) {
+function searchAndEditPreviewShell() {
   function SearchAndEditPreview() {
     const [records, setRecords] = useState<SearchRecord[]>(INITIAL_RECORDS);
     const [query, setQuery] = useState("acme");
@@ -884,7 +884,7 @@ function searchAndEditPreviewShell(skinId: SkinId) {
   return <SearchAndEditPreview />;
 }
 
-function executionBoardPreviewShell(skinId: SkinId) {
+function executionBoardPreviewShell() {
   function ExecutionBoardPreview() {
     const [steps, setSteps] = useState<PlanStep[]>(INITIAL_PLAN);
     const [activeStepId, setActiveStepId] = useState<string>(INITIAL_PLAN[0].id);
@@ -984,8 +984,8 @@ function executionBoardPreviewShell(skinId: SkinId) {
 
 function renderSkinInteraction(skinId: SkinId) {
   if (skinId === "default") return chatPreviewShell(skinId);
-  if (skinId === "glass-aurora") return searchAndEditPreviewShell(skinId);
-  return executionBoardPreviewShell(skinId);
+  if (skinId === "glass-aurora") return searchAndEditPreviewShell();
+  return executionBoardPreviewShell();
 }
 
 function SkinPreviewCard({ skin }: { skin: SkinDefinition }) {

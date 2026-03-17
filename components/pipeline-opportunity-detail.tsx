@@ -1885,7 +1885,12 @@ export function PipelineOpportunityDetailView({
       )
     );
     setQuantitativeQuestionsReady(true);
-  }, [item?.id, item?.isScreeningStage, item?.screening.healthSystems]);
+  }, [
+    item?.id,
+    item?.isScreeningStage,
+    item?.screening.healthSystems,
+    item?.screening.supplementalQuantitativeResponses
+  ]);
 
   React.useEffect(() => {
     if (!item?.isScreeningStage || !quantitativeQuestionsReady || typeof window === "undefined") return;
@@ -2109,6 +2114,7 @@ export function PipelineOpportunityDetailView({
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function openVentureStudioCriteriaPreview() {
     if (!item) return;
 
@@ -2637,6 +2643,7 @@ export function PipelineOpportunityDetailView({
     previewWindow.document.close();
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function openAtAGlancePreview() {
     if (!item) return;
 
@@ -4362,6 +4369,7 @@ function stripCurrencyFormatting(value: string) {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function openAddNoteForOpportunity(opportunityId: string) {
     setNewNoteOpportunityId(opportunityId);
     setShowAddNoteModal(true);

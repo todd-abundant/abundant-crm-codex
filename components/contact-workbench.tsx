@@ -623,7 +623,7 @@ export function ContactWorkbench() {
     }, 450);
 
     return () => window.clearTimeout(timeout);
-  }, [activeDetailTab, detailDraft, overviewDirty, savingOverview, selectedRecord]);
+  }, [activeDetailTab, detailDraft, overviewDirty, savingOverview, saveOverview, selectedRecord]);
 
   React.useEffect(() => {
     setCreatePrincipalRoleType(defaultRoleTypeForAssociation(createPrincipalType));
@@ -733,7 +733,7 @@ export function ContactWorkbench() {
     }
   }
 
-  async function saveOverview(draftOverride?: DetailDraft) {
+  const saveOverview = React.useCallback(async (draftOverride?: DetailDraft) => {
     const draft = draftOverride ?? detailDraft;
     if (!selectedRecord || !draft) return;
 
@@ -779,7 +779,7 @@ export function ContactWorkbench() {
     } finally {
       setSavingOverview(false);
     }
-  }
+  }, [detailDraft, loadRecords, selectedRecord]);
 
   async function deleteSelectedContact() {
     if (!selectedRecord) return;
