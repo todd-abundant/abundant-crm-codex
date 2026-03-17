@@ -75,15 +75,21 @@ type DiffCardProps = {
 export function DiffCard({ change, checked, onChange, disabled }: DiffCardProps) {
   const isSkip = change.operation === "SKIP";
   const isLow = change.confidence === "LOW";
+  const candidate = change._candidate;
+  const contactEntity =
+    candidate?.kind === "Contact"
+      ? candidate.principalEntityName || candidate.affiliations?.[0]?.entityName
+      : null;
 
   return (
     <div
       style={{
-        border: `1px solid ${isLow ? "#fca5a5" : "var(--color-border, #e5e7eb)"}`,
+        border: `1px solid ${!checked && !isSkip ? "#d1d5db" : isLow ? "#fca5a5" : checked ? "#a7f3d0" : "var(--color-border, #e5e7eb)"}`,
         borderRadius: "8px",
         padding: "14px 16px",
-        background: isSkip ? "#f9fafb" : "#fff",
+        background: isSkip ? "#f9fafb" : !checked ? "#fafafa" : "#fff",
         opacity: isSkip ? 0.65 : 1,
+        transition: "border-color 0.1s, background 0.1s",
       }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
@@ -92,7 +98,7 @@ export function DiffCard({ change, checked, onChange, disabled }: DiffCardProps)
           checked={checked}
           onChange={(e) => onChange(change.id, e.target.checked)}
           disabled={disabled || isSkip}
-          style={{ marginTop: "3px", cursor: isSkip ? "not-allowed" : "pointer", flexShrink: 0 }}
+          style={{ marginTop: "3px", cursor: isSkip ? "not-allowed" : "pointer", flexShrink: 0, width: 16, height: 16 }}
         />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "6px" }}>
@@ -102,7 +108,35 @@ export function DiffCard({ change, checked, onChange, disabled }: DiffCardProps)
             </span>
             <span style={{ fontSize: "13px", color: "#374151" }}>{change.label}</span>
             <ConfidenceBadge level={change.confidence} />
+            {/* Explicit skip/restore button */}
+            {!isSkip && !disabled && (
+              <button
+                type="button"
+                onClick={() => onChange(change.id, !checked)}
+                style={{
+                  marginLeft: "auto",
+                  fontSize: "11px",
+                  cursor: "pointer",
+                  padding: "2px 8px",
+                  border: "1px solid #d1d5db",
+                  borderRadius: "4px",
+                  background: checked ? "#fee2e2" : "#f0fdf4",
+                  color: checked ? "#b91c1c" : "#166534",
+                  fontWeight: 600,
+                  flexShrink: 0,
+                }}
+              >
+                {checked ? "✕ Remove" : "↩ Include"}
+              </button>
+            )}
           </div>
+
+          {/* Contact: show which entity this will link to */}
+          {contactEntity && (
+            <p style={{ fontSize: "12px", color: "#1e40af", margin: "0 0 6px 0", fontWeight: 500 }}>
+              ↳ Will be linked to: {contactEntity}
+            </p>
+          )}
 
           {isLow && (
             <p style={{ fontSize: "12px", color: "#b91c1c", margin: "0 0 8px 0" }}>

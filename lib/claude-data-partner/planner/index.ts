@@ -90,7 +90,11 @@ function getConfidence(candidate: CandidateRecord): ConfidenceLevel {
 }
 
 function getLabelForRecord(candidate: CandidateRecord): string {
-  if (candidate.kind === 'Contact') return `${candidate.name} (Contact)`;
+  if (candidate.kind === 'Contact') {
+    const entityName = candidate.principalEntityName || candidate.affiliations[0]?.entityName;
+    const at = entityName ? ` at ${entityName}` : '';
+    return `${candidate.name} (Contact)${at}`;
+  }
   if (candidate.kind === 'Company') return `${candidate.name} (Company)`;
   if (candidate.kind === 'HealthSystem') return `${candidate.name} (Health System)`;
   if (candidate.kind === 'CoInvestor') return `${candidate.name} (Co-Investor)`;
@@ -113,10 +117,73 @@ function getTableForRecord(candidate: CandidateRecord): string {
   return 'Unknown';
 }
 
+// ─── Deduplication ────────────────────────────────────────────────────────────
+
+function normalizeEntityName(name: string): string {
+  return name.toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+function getDedupeKey(candidate: CandidateRecord): string | null {
+  if (candidate.kind === 'HealthSystem') return `HealthSystem:${normalizeEntityName(candidate.name)}`;
+  if (candidate.kind === 'CoInvestor') return `CoInvestor:${normalizeEntityName(candidate.name)}`;
+  if (candidate.kind === 'Company') return `Company:${normalizeEntityName(candidate.name)}`;
+  if (candidate.kind === 'Contact') return `Contact:${normalizeEntityName(candidate.name)}`;
+  return null; // links, notes, opportunities — no dedup
+}
+
+/**
+ * Deduplicates resolved records by (kind, normalizedName) and detects
+ * cross-table conflicts where the same name appears as both HealthSystem
+ * and CoInvestor.
+ */
+function deduplicateResolved(resolved: ResolvedRecord[]): ResolvedRecord[] {
+  const seen = new Map<string, true>();
+  const result: ResolvedRecord[] = [];
+  const healthSystemNames = new Set<string>();
+  const coInvestorNames = new Set<string>();
+
+  for (const record of resolved) {
+    const key = getDedupeKey(record.candidate);
+
+    if (record.candidate.kind === 'HealthSystem') healthSystemNames.add(normalizeEntityName(record.candidate.name));
+    if (record.candidate.kind === 'CoInvestor') coInvestorNames.add(normalizeEntityName(record.candidate.name));
+
+    if (!key) {
+      result.push(record);
+      continue;
+    }
+
+    if (!seen.has(key)) {
+      seen.set(key, true);
+      result.push(record);
+    }
+    // else: duplicate — silently dropped (same entity seen from another source)
+  }
+
+  // Detect cross-table conflicts: same name as both HealthSystem and CoInvestor
+  const conflicts = new Set([...healthSystemNames].filter((n) => coInvestorNames.has(n)));
+  if (conflicts.size === 0) return result;
+
+  return result.map((r) => {
+    if (r.candidate.kind !== 'HealthSystem' && r.candidate.kind !== 'CoInvestor') return r;
+    if (!('name' in r.candidate)) return r;
+    if (conflicts.has(normalizeEntityName(r.candidate.name))) {
+      return { ...r, status: 'AMBIGUOUS' as const, ambiguousCandidates: [
+        { id: 'hs', label: 'Add as Health System' },
+        { id: 'ci', label: 'Add as Co-Investor' },
+      ]};
+    }
+    return r;
+  });
+}
+
+// ─── Planner ──────────────────────────────────────────────────────────────────
+
 /**
  * Converts resolved records into a ChangeSet ready for UI display and writing.
  */
 export function plan(resolved: ResolvedRecord[]): ChangeSet {
+  resolved = deduplicateResolved(resolved);
   const changes: PlannedChange[] = [];
 
   for (const record of resolved) {
@@ -145,11 +212,15 @@ export function plan(resolved: ResolvedRecord[]): ChangeSet {
     }
 
     if (status === 'AMBIGUOUS') {
+      const isConflict = record.ambiguousCandidates?.some((c) => c.id === 'hs' || c.id === 'ci');
+      const ambigLabel = isConflict
+        ? `${label} — ⚠ same name found as Health System AND Co-Investor, please add manually`
+        : `${label} — ⚠ multiple possible matches, please add manually`;
       changes.push({
         id: crypto.randomUUID(),
         operation: 'SKIP',
         table,
-        label: `${label} — AMBIGUOUS (needs user selection)`,
+        label: ambigLabel,
         diffs: [],
         source: (candidate as { source: CandidateRecord['source'] }).source ?? { kind: 'freetext', input: '' },
         confidence: 'LOW',

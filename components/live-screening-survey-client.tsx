@@ -80,6 +80,10 @@ function rankHealthSystemMatch(name: string, query: string) {
   return 0;
 }
 
+function isValidEmailAddress(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
 export function LiveScreeningSurveyClient({ token }: { token: string }) {
   const [loading, setLoading] = React.useState(true);
   const [status, setStatus] = React.useState<{ kind: "error" | "ok"; text: string } | null>(null);
@@ -97,6 +101,7 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
   const [slideDirection, setSlideDirection] = React.useState<"forward" | "backward">("forward");
   const [slideKey, setSlideKey] = React.useState(0);
   const [organizationLookupOpen, setOrganizationLookupOpen] = React.useState(false);
+  const [hasStartedSurvey, setHasStartedSurvey] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -145,6 +150,7 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
         setSlideKey(0);
         setImpressions("");
         setSubmitted(false);
+        setHasStartedSurvey(false);
       } catch (error) {
         if (!cancelled) {
           setStatus({
@@ -182,6 +188,8 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
     : currentQuestion
       ? `Question ${questionPosition + 1} of ${questionCount}`
       : "Final Feedback";
+  const trimmedParticipantName = participantName.trim();
+  const trimmedParticipantEmail = participantEmail.trim().toLowerCase();
   const resolvedOrganizationName = organizationName.trim();
   const matchedHealthSystem = findMatchingHealthSystem(resolvedOrganizationName, healthSystems);
   const sortedHealthSystems = React.useMemo(
@@ -211,14 +219,12 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
   const persistRespondentProfileCookie = React.useCallback(() => {
     if (typeof document === "undefined") return;
 
-    const trimmedName = participantName.trim();
-    const trimmedEmail = participantEmail.trim().toLowerCase();
-    if (!trimmedName && !trimmedEmail) return;
+    if (!trimmedParticipantName && !trimmedParticipantEmail) return;
     if (!resolvedOrganizationName) return;
 
     const cookieValue = serializeScreeningSurveyRespondentProfileCookie({
-      participantName: trimmedName || null,
-      participantEmail: trimmedEmail || null,
+      participantName: trimmedParticipantName || null,
+      participantEmail: trimmedParticipantEmail || null,
       healthSystemId: matchedHealthSystem?.id || null,
       healthSystemName: resolvedOrganizationName
     });
@@ -235,8 +241,8 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
   }, [
     matchedHealthSystem?.id,
     resolvedOrganizationName,
-    participantEmail,
-    participantName
+    trimmedParticipantEmail,
+    trimmedParticipantName
   ]);
 
   React.useEffect(() => {
@@ -254,6 +260,22 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
   function selectOrganization(nextOrganizationName: string) {
     setOrganizationName(nextOrganizationName);
     setOrganizationLookupOpen(false);
+  }
+
+  function getRespondentValidationError() {
+    if (!trimmedParticipantName) {
+      return "Enter your name to continue.";
+    }
+    if (!trimmedParticipantEmail) {
+      return "Enter your email to continue.";
+    }
+    if (!isValidEmailAddress(trimmedParticipantEmail)) {
+      return "Enter a valid email address to continue.";
+    }
+    if (!resolvedOrganizationName) {
+      return "Enter your organization to continue.";
+    }
+    return null;
   }
 
   function goToNextStep() {
@@ -287,21 +309,22 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
   }
 
   function handleStartSurvey() {
+    const validationError = getRespondentValidationError();
+    if (validationError) {
+      setStatus({ kind: "error", text: validationError });
+      return;
+    }
+    setStatus(null);
     persistRespondentProfileCookie();
+    setHasStartedSurvey(true);
     goToNextStep();
   }
 
   async function submitSurvey() {
     if (!session) return;
-    if (!resolvedOrganizationName) {
-      setStatus({
-        kind: "error",
-        text: "Enter your organization."
-      });
-      return;
-    }
-    if (!participantName.trim() && !participantEmail.trim()) {
-      setStatus({ kind: "error", text: "Provide your name or email." });
+    const validationError = getRespondentValidationError();
+    if (validationError) {
+      setStatus({ kind: "error", text: validationError });
       return;
     }
     if (questionCount === 0) {
@@ -333,8 +356,8 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          participantName: participantName.trim() || undefined,
-          participantEmail: participantEmail.trim() || undefined,
+          participantName: trimmedParticipantName || undefined,
+          participantEmail: trimmedParticipantEmail || undefined,
           healthSystemId: matchedHealthSystem?.id,
           healthSystemName: resolvedOrganizationName,
           impressions: impressionText,
@@ -392,112 +415,118 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
 
         {!loading && session && !submitted ? (
           <>
-            <div className="live-survey-form">
-              <div className="live-survey-row">
-                <div>
-                  <label htmlFor="live-survey-name">Name (optional if email is provided)</label>
-                  <input
-                    id="live-survey-name"
-                    value={participantName}
-                    onChange={(event) => setParticipantName(event.target.value)}
-                    placeholder="Your name"
-                  />
+            {!hasStartedSurvey ? (
+              <div className="live-survey-form">
+                <div className="live-survey-row">
+                  <div>
+                    <label htmlFor="live-survey-name">Name</label>
+                    <input
+                      id="live-survey-name"
+                      value={participantName}
+                      onChange={(event) => setParticipantName(event.target.value)}
+                      placeholder="Your name"
+                      autoComplete="name"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="live-survey-email">Email</label>
+                    <input
+                      id="live-survey-email"
+                      type="email"
+                      value={participantEmail}
+                      onChange={(event) => setParticipantEmail(event.target.value)}
+                      placeholder="you@healthsystem.org"
+                      autoComplete="email"
+                      required
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label htmlFor="live-survey-email">Email (optional if name is provided)</label>
-                  <input
-                    id="live-survey-email"
-                    type="email"
-                    value={participantEmail}
-                    onChange={(event) => setParticipantEmail(event.target.value)}
-                    placeholder="you@healthsystem.org"
-                  />
-                </div>
-              </div>
 
-              <div>
-                <label htmlFor="live-survey-health-system">Health system or organization</label>
-                <div
-                  className="live-survey-organization-lookup"
-                  onFocus={() => setOrganizationLookupOpen(true)}
-                  onBlur={handleOrganizationLookupBlur}
-                >
-                  <input
-                    id="live-survey-health-system"
-                    value={organizationName}
-                    onChange={(event) => {
-                      setOrganizationName(event.target.value);
-                      setOrganizationLookupOpen(true);
-                    }}
-                    placeholder="Start typing an organization name"
-                    required
-                    autoComplete="organization"
-                    role="combobox"
-                    aria-autocomplete="list"
-                    aria-expanded={organizationLookupOpen}
-                    aria-controls="live-survey-organization-results"
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") {
-                        setOrganizationLookupOpen(false);
-                      }
-                    }}
-                  />
-                  {organizationLookupOpen ? (
-                    <div
-                      id="live-survey-organization-results"
-                      className="live-survey-organization-results"
-                      role="listbox"
-                      aria-label="Organization matches"
-                    >
-                      {showUseTypedOrganizationOption ? (
-                        <button
-                          type="button"
-                          className="live-survey-organization-option active"
-                          onClick={() => selectOrganization(resolvedOrganizationName)}
-                          role="option"
-                          aria-selected="true"
-                        >
-                          <span className="live-survey-organization-option-name">
-                            Use &quot;{resolvedOrganizationName}&quot;
-                          </span>
-                          <span className="live-survey-organization-option-subtitle">
-                            Continue with this typed organization
-                          </span>
-                        </button>
-                      ) : null}
-                      {organizationSuggestions.length === 0 ? (
-                        <p className="muted live-survey-organization-empty">
-                          No matching organizations found yet.
-                        </p>
-                      ) : (
-                        organizationSuggestions.map((entry) => (
+                <div>
+                  <label htmlFor="live-survey-health-system">Health system or organization</label>
+                  <div
+                    className="live-survey-organization-lookup"
+                    onFocus={() => setOrganizationLookupOpen(true)}
+                    onBlur={handleOrganizationLookupBlur}
+                  >
+                    <input
+                      id="live-survey-health-system"
+                      value={organizationName}
+                      onChange={(event) => {
+                        setOrganizationName(event.target.value);
+                        setOrganizationLookupOpen(true);
+                      }}
+                      placeholder="Start typing an organization name"
+                      required
+                      autoComplete="organization"
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-expanded={organizationLookupOpen}
+                      aria-controls="live-survey-organization-results"
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          setOrganizationLookupOpen(false);
+                        }
+                      }}
+                    />
+                    {organizationLookupOpen ? (
+                      <div
+                        id="live-survey-organization-results"
+                        className="live-survey-organization-results"
+                        role="listbox"
+                        aria-label="Organization matches"
+                      >
+                        {showUseTypedOrganizationOption ? (
                           <button
                             type="button"
-                            key={entry.id}
-                            className={`live-survey-organization-option ${
-                              matchedHealthSystem?.id === entry.id ? "active" : ""
-                            }`}
-                            onClick={() => selectOrganization(entry.name)}
+                            className="live-survey-organization-option active"
+                            onClick={() => selectOrganization(resolvedOrganizationName)}
                             role="option"
-                            aria-selected={matchedHealthSystem?.id === entry.id}
+                            aria-selected="true"
                           >
-                            <span className="live-survey-organization-option-name">{entry.name}</span>
+                            <span className="live-survey-organization-option-name">
+                              Use &quot;{resolvedOrganizationName}&quot;
+                            </span>
                             <span className="live-survey-organization-option-subtitle">
-                              {matchedHealthSystem?.id === entry.id
-                                ? "Selected existing organization"
-                                : "Use existing organization"}
+                              Continue with this typed organization
                             </span>
                           </button>
-                        ))
-                      )}
-                    </div>
-                  ) : null}
+                        ) : null}
+                        {organizationSuggestions.length === 0 ? (
+                          <p className="muted live-survey-organization-empty">
+                            No matching organizations found yet.
+                          </p>
+                        ) : (
+                          organizationSuggestions.map((entry) => (
+                            <button
+                              type="button"
+                              key={entry.id}
+                              className={`live-survey-organization-option ${
+                                matchedHealthSystem?.id === entry.id ? "active" : ""
+                              }`}
+                              onClick={() => selectOrganization(entry.name)}
+                              role="option"
+                              aria-selected={matchedHealthSystem?.id === entry.id}
+                            >
+                              <span className="live-survey-organization-option-name">{entry.name}</span>
+                              <span className="live-survey-organization-option-subtitle">
+                                {matchedHealthSystem?.id === entry.id
+                                  ? "Selected existing organization"
+                                  : "Use existing organization"}
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                  <p className="muted">
+                    Start typing to narrow the list, or enter a new organization name if it is not listed.
+                  </p>
                 </div>
-                <p className="muted">
-                  Start typing to narrow the list, or enter a new organization name if it is not listed.
-                </p>
               </div>
-            </div>
+            ) : null}
 
             {questionCount > 0 ? (
               <>
@@ -545,7 +574,11 @@ export function LiveScreeningSurveyClient({ token }: { token: string }) {
                         onClick={handleStartSurvey}
                         disabled={submitting}
                       >
-                        {isPreviewSession ? "Start Preview" : "Start Survey"}
+                        {hasStartedSurvey
+                          ? "Resume Survey"
+                          : isPreviewSession
+                            ? "Start Preview"
+                            : "Start Survey"}
                       </button>
                     </div>
                   </div>
