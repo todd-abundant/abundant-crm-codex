@@ -184,6 +184,17 @@ type FundraiseDraft = {
   investors: FundraiseInvestorDraft[];
 };
 
+type PipelineLeadSourceType =
+  | "INSIDE_OUT"
+  | "ALLIANCE_REFERRAL"
+  | "CO_INVESTOR_REFERRAL"
+  | "COLD_INBOUND"
+  | "WARM_INTRO"
+  | "OTHER"
+  | "";
+
+type PipelineLeadSourceEntityType = "CONTACT" | "HEALTH_SYSTEM" | "CO_INVESTOR" | "";
+
 type PipelineDraft = {
   phase: PipelinePhase;
   stageChangedAt: string;
@@ -212,6 +223,10 @@ type PipelineDraft = {
   s1InvestmentAmountUsd: string;
   portfolioAddedAt: string;
   createdAt: string;
+  leadSourceType: PipelineLeadSourceType;
+  leadSourceEntityType: PipelineLeadSourceEntityType;
+  leadSourceEntityId: string;
+  leadSourceEntityName: string;
   documents: PipelineDocumentDraft[];
   opportunities: PipelineOpportunityDraft[];
   screeningEvents: ScreeningEventDraft[];
@@ -518,6 +533,10 @@ function hydratePipelineDraft(input: unknown): PipelineDraft {
     portfolioAddedAt: toDateInputValue(payload.portfolioAddedAt),
     createdAt: toDateInputValue(payload.createdAt),
     updatedAt: toText(payload.updatedAt),
+    leadSourceType: (payload.leadSourceType as PipelineLeadSourceType) || "",
+    leadSourceEntityType: (payload.leadSourceEntityType as PipelineLeadSourceEntityType) || "",
+    leadSourceEntityId: toText(payload.leadSourceEntityId),
+    leadSourceEntityName: toText(payload.leadSourceEntityName),
     documents: asArray(payload.documents).map((item) => {
       const entry = asObject(item);
       return {
@@ -632,6 +651,9 @@ function serializePipelineDraft(draft: PipelineDraft) {
     s1InvestmentAt: draft.s1InvestmentAt || null,
     s1InvestmentAmountUsd: parseNullableNumber(draft.s1InvestmentAmountUsd),
     portfolioAddedAt: draft.portfolioAddedAt || null,
+    leadSourceType: draft.leadSourceType || null,
+    leadSourceEntityType: draft.leadSourceEntityType || null,
+    leadSourceEntityId: draft.leadSourceEntityId.trim() || null,
     createdAt: draft.createdAt || null,
     documents: draft.documents
       .map((document) => ({
@@ -704,6 +726,149 @@ function serializePipelineDraft(draft: PipelineDraft) {
       .filter((fundraise) => fundraise.roundLabel)
   };
 }
+
+export type EntitySearchResult = {
+  id: string;
+  entityType: "CONTACT" | "HEALTH_SYSTEM" | "CO_INVESTOR";
+  name: string;
+  label: string;
+};
+
+export function entityTypeLabel(entityType: string) {
+  if (entityType === "HEALTH_SYSTEM") return "Health System";
+  if (entityType === "CO_INVESTOR") return "Co-Investor";
+  if (entityType === "CONTACT") return "Contact";
+  return entityType;
+}
+
+export function LeadSourceEntityPicker({
+  entityId,
+  entityType,
+  entityName,
+  onSelect,
+  onClear
+}: {
+  entityId: string;
+  entityType: string;
+  entityName: string;
+  onSelect: (result: EntitySearchResult) => void;
+  onClear: () => void;
+}) {
+  const [editing, setEditing] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const [results, setResults] = React.useState<EntitySearchResult[]>([]);
+  const [searching, setSearching] = React.useState(false);
+  const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (editing) {
+      setQuery("");
+      setResults([]);
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [editing]);
+
+  React.useEffect(() => {
+    if (!editing) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      setResults([]);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetch(`/api/pipeline/entity-search?q=${encodeURIComponent(trimmed)}`);
+        const data = (await res.json()) as { results?: EntitySearchResult[] };
+        setResults(data.results ?? []);
+      } catch {
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query, editing]);
+
+  if (!editing) {
+    const hasValue = Boolean(entityId);
+    return (
+      <div className="lead-source-entity-display">
+        {hasValue ? (
+          <span className="lead-source-entity-value">
+            {entityName || entityId}
+            {entityType ? ` — ${entityTypeLabel(entityType)}` : ""}
+          </span>
+        ) : (
+          <span className="muted">Not set</span>
+        )}
+        <button type="button" className="link-button" onClick={() => setEditing(true)}>
+          {hasValue ? "Change" : "Select"}
+        </button>
+        {hasValue && (
+          <button type="button" className="link-button" onClick={onClear}>
+            Clear
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="lead-source-entity-picker">
+      <input
+        ref={inputRef}
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search contacts, health systems, co-investors…"
+        className="lead-source-entity-search-input"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setEditing(false);
+        }}
+      />
+      {searching && <p className="muted" style={{ fontSize: "0.8rem", margin: "4px 0 0" }}>Searching…</p>}
+      {results.length > 0 && (
+        <ul className="lead-source-entity-results">
+          {results.map((result) => (
+            <li key={`${result.entityType}:${result.id}`}>
+              <button
+                type="button"
+                className="lead-source-entity-result-item"
+                onClick={() => {
+                  onSelect(result);
+                  setEditing(false);
+                }}
+              >
+                {result.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!searching && query.trim().length >= 2 && results.length === 0 && (
+        <p className="muted" style={{ fontSize: "0.8rem", margin: "4px 0 0" }}>No matches found.</p>
+      )}
+      <button type="button" className="link-button" style={{ fontSize: "0.8rem", marginTop: "4px" }} onClick={() => setEditing(false)}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+export const LEAD_SOURCE_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "", label: "Not set" },
+  { value: "INSIDE_OUT", label: "Inside-out" },
+  { value: "ALLIANCE_REFERRAL", label: "Alliance referral" },
+  { value: "CO_INVESTOR_REFERRAL", label: "Co-investor referral" },
+  { value: "COLD_INBOUND", label: "Cold inbound" },
+  { value: "WARM_INTRO", label: "Warm intro" },
+  { value: "OTHER", label: "Other" }
+];
 
 export function CompanyPipelineManager({
   companyId,
@@ -843,13 +1008,25 @@ export function CompanyPipelineManager({
     });
   }
 
+  function applyDraftPatch(patch: Partial<PipelineDraft>, options?: { save?: boolean }) {
+    if (!draft) return;
+    const nextDraft = { ...draft, ...patch };
+    setDraft(nextDraft);
+    if (options?.save) {
+      void savePipeline(nextDraft);
+    }
+  }
+
   function updateCurrentStage(nextColumn: PipelineBoardColumn) {
     const nextPhase = mapBoardColumnToCanonicalPhase(nextColumn);
-    updateDraft({
-      phase: nextPhase,
-      closedOutcome: "",
-      intakeDecision: nextPhase === "INTAKE" ? "PENDING" : "ADVANCE_TO_NEGOTIATION"
-    });
+    applyDraftPatch(
+      {
+        phase: nextPhase,
+        closedOutcome: "",
+        intakeDecision: nextPhase === "INTAKE" ? "PENDING" : "ADVANCE_TO_NEGOTIATION"
+      },
+      { save: true }
+    );
   }
 
   function updateIntakeVenturePipelineStatus(
@@ -861,76 +1038,100 @@ export function CompanyPipelineManager({
 
     if (nextStatus === "OPEN") {
       if (section === "INTAKE") {
-        updateDraft({
-          ...(isClosedPhase ? { phase: "INTAKE" as PipelinePhase } : {}),
-          intakeDecision: "PENDING",
-          closedOutcome: "",
-          declineReasonNotes: ""
-        });
+        applyDraftPatch(
+          {
+            ...(isClosedPhase ? { phase: "INTAKE" as PipelinePhase } : {}),
+            intakeDecision: "PENDING",
+            closedOutcome: "",
+            declineReasonNotes: ""
+          },
+          { save: true }
+        );
         return;
       }
-      updateDraft({
-        ...(isClosedPhase ? { phase: "VENTURE_STUDIO_NEGOTIATION" as PipelinePhase } : {}),
-        intakeDecision: "ADVANCE_TO_NEGOTIATION",
-        closedOutcome: "",
-        declineReasonNotes: ""
-      });
+      applyDraftPatch(
+        {
+          ...(isClosedPhase ? { phase: "VENTURE_STUDIO_NEGOTIATION" as PipelinePhase } : {}),
+          intakeDecision: "ADVANCE_TO_NEGOTIATION",
+          closedOutcome: "",
+          declineReasonNotes: ""
+        },
+        { save: true }
+      );
       return;
     }
 
     if (nextStatus === "CLOSED_WON") {
       const targetPhase = section === "INTAKE" ? "VENTURE_STUDIO_NEGOTIATION" : "SCREENING";
       if (section === "INTAKE") {
-        updateDraft({
+        applyDraftPatch(
+          {
+            ...(shouldAdvancePhase(draft.phase, targetPhase) ? { phase: targetPhase } : {}),
+            intakeDecision: "ADVANCE_TO_NEGOTIATION",
+            closedOutcome: "",
+            declineReasonNotes: ""
+          },
+          { save: true }
+        );
+        return;
+      }
+      applyDraftPatch(
+        {
           ...(shouldAdvancePhase(draft.phase, targetPhase) ? { phase: targetPhase } : {}),
           intakeDecision: "ADVANCE_TO_NEGOTIATION",
           closedOutcome: "",
           declineReasonNotes: ""
-        });
-        return;
-      }
-      updateDraft({
-        ...(shouldAdvancePhase(draft.phase, targetPhase) ? { phase: targetPhase } : {}),
-        intakeDecision: "ADVANCE_TO_NEGOTIATION",
-        closedOutcome: "",
-        declineReasonNotes: ""
-      });
+        },
+        { save: true }
+      );
       return;
     }
 
     if (nextStatus === "CLOSED_REVISIT") {
-      updateDraft({
-        phase: "DECLINED",
-        intakeDecision: "REVISIT_LATER",
-        closedOutcome: ""
-      });
+      applyDraftPatch(
+        {
+          phase: "DECLINED",
+          intakeDecision: "REVISIT_LATER",
+          closedOutcome: ""
+        },
+        { save: true }
+      );
       return;
     }
 
-    updateDraft({
-      phase: "DECLINED",
-      intakeDecision: "DECLINE",
-      closedOutcome: "",
-      ventureLikelihoodPercent: "0"
-    });
+    applyDraftPatch(
+      {
+        phase: "DECLINED",
+        intakeDecision: "DECLINE",
+        closedOutcome: "",
+        ventureLikelihoodPercent: "0"
+      },
+      { save: true }
+    );
   }
 
   function updateScreeningPipelineStatus(nextStatus: ScreeningPipelineStatus) {
     if (nextStatus === "CLOSED_LOST") {
-      updateDraft({
-        phase: "DECLINED",
-        intakeDecision: "DECLINE",
-        closedOutcome: "LOST",
-        ventureLikelihoodPercent: "0"
-      });
+      applyDraftPatch(
+        {
+          phase: "DECLINED",
+          intakeDecision: "DECLINE",
+          closedOutcome: "LOST",
+          ventureLikelihoodPercent: "0"
+        },
+        { save: true }
+      );
       return;
     }
     const shouldReopenToScreening = draft?.phase === "DECLINED" || draft?.phase === "CLOSED";
-    updateDraft({
-      ...(shouldReopenToScreening ? { phase: "SCREENING" as PipelinePhase } : {}),
-      intakeDecision: "ADVANCE_TO_NEGOTIATION",
-      closedOutcome: ""
-    });
+    applyDraftPatch(
+      {
+        ...(shouldReopenToScreening ? { phase: "SCREENING" as PipelinePhase } : {}),
+        intakeDecision: "ADVANCE_TO_NEGOTIATION",
+        closedOutcome: ""
+      },
+      { save: true }
+    );
   }
 
   function updateDocument(index: number, patch: Partial<PipelineDocumentDraft>) {
@@ -1081,13 +1282,13 @@ export function CompanyPipelineManager({
     });
   }
 
-  async function savePipeline() {
-    if (!draft) return;
+  async function savePipeline(draftToSave: PipelineDraft | null = draft) {
+    if (!draftToSave) return;
 
     setSaving(true);
     setStatus(null);
     const debugContext = createDateDebugContext("company-pipeline-manager.save", companyId);
-    const requestPayload = serializePipelineDraft(draft);
+    const requestPayload = serializePipelineDraft(draftToSave);
     const requestSequence = saveSequenceRef.current + 1;
     saveSequenceRef.current = requestSequence;
     const requestStartMs = Date.now();
@@ -1113,8 +1314,8 @@ export function CompanyPipelineManager({
       "Content-Type": "application/json"
     };
     headers["x-date-debug-seq"] = String(requestSequence);
-    if (draft.updatedAt) {
-      headers["x-date-debug-client-updated-at"] = draft.updatedAt;
+    if (draftToSave.updatedAt) {
+      headers["x-date-debug-client-updated-at"] = draftToSave.updatedAt;
     }
     if (debugContext) {
       headers["x-date-debug-request-id"] = debugContext.requestId;
@@ -1128,8 +1329,8 @@ export function CompanyPipelineManager({
       requestHas,
       requestSequence,
       durationMs: 0,
-      clientUpdatedAt: draft.updatedAt || null,
-      clientUpdatedAtParsed: compareUpdatedAt(draft.updatedAt, null).parsedClientUpdatedAt,
+      clientUpdatedAt: draftToSave.updatedAt || null,
+      clientUpdatedAtParsed: compareUpdatedAt(draftToSave.updatedAt, null).parsedClientUpdatedAt,
       datePayloadHas: requestHas,
       current: {
         intakeDecisionAt: requestPayload.intakeDecisionAt,
@@ -1189,7 +1390,7 @@ export function CompanyPipelineManager({
         ?.requestSequence;
       const dateDebug = (payload as { _dateDebug?: { serverUpdatedAt?: string | null } })._dateDebug;
       const serverUpdatedAt = returnedPipeline?.updatedAt ?? dateDebug?.serverUpdatedAt ?? null;
-      const responseUpdatedState = compareUpdatedAt(draft.updatedAt, serverUpdatedAt);
+      const responseUpdatedState = compareUpdatedAt(draftToSave.updatedAt, serverUpdatedAt);
       debugDateLog("company-pipeline-manager.save-response", {
         companyId,
         debugRequestId: debugContext?.requestId,
@@ -1421,6 +1622,21 @@ export function CompanyPipelineManager({
           field: "screeningWebinarDate2At"
         }}
         onScreeningWebinarDate2Save={(value) => updateDraft({ screeningWebinarDate2At: value })}
+        leadSourceType={draft.leadSourceType}
+        leadSourceEntityId={draft.leadSourceEntityId}
+        leadSourceEntityType={draft.leadSourceEntityType}
+        leadSourceEntityName={draft.leadSourceEntityName}
+        onLeadSourceTypeSave={(value) => updateDraft({ leadSourceType: value as PipelineLeadSourceType })}
+        onLeadSourceEntitySave={(id, entityType, name) =>
+          updateDraft({
+            leadSourceEntityId: id,
+            leadSourceEntityType: entityType as PipelineLeadSourceEntityType,
+            leadSourceEntityName: name
+          })
+        }
+        onLeadSourceEntityClear={() =>
+          updateDraft({ leadSourceEntityId: "", leadSourceEntityType: "", leadSourceEntityName: "" })
+        }
       />
 
       {showExtendedPipelineSections ? (
@@ -2258,7 +2474,7 @@ export function CompanyPipelineManager({
       ) : null}
 
       <div className="actions company-pipeline-save-actions">
-        <button className="primary" type="button" onClick={savePipeline} disabled={saving}>
+        <button className="primary" type="button" onClick={() => void savePipeline()} disabled={saving}>
           {saving ? "Saving..." : "Save"}
         </button>
       </div>

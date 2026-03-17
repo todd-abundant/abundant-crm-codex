@@ -659,7 +659,6 @@ export function CompanyWorkbench() {
   const [selectedRecordId, setSelectedRecordId] = React.useState<string | null>(null);
   const [draftRecordId, setDraftRecordId] = React.useState<string | null>(null);
   const [detailDraft, setDetailDraft] = React.useState<DetailDraft | null>(null);
-  const [, setRunningAgent] = React.useState(false);
   const [creatingFromSearch, setCreatingFromSearch] = React.useState(false);
   const [deletingRecordId, setDeletingRecordId] = React.useState<string | null>(null);
   const [searchCandidates, setSearchCandidates] = React.useState<SearchCandidate[]>([]);
@@ -756,6 +755,8 @@ export function CompanyWorkbench() {
   const [newLeadSourceOther, setNewLeadSourceOther] = React.useState("");
   const [leadSourceOtherOptions, setLeadSourceOtherOptions] = React.useState<string[]>([]);
   const [newDescription, setNewDescription] = React.useState("");
+  const [generatingNewDescription, setGeneratingNewDescription] = React.useState(false);
+  const [generatingSelectedDescription, setGeneratingSelectedDescription] = React.useState(false);
   const [newResearchNotes, setNewResearchNotes] = React.useState("");
   const [newGoogleTranscriptUrl, setNewGoogleTranscriptUrl] = React.useState("");
   const [newSpinOutOwnershipPercent, setNewSpinOutOwnershipPercent] = React.useState("");
@@ -962,6 +963,82 @@ export function CompanyWorkbench() {
     setNewDescription((current) => (current ? `${current}\n\n${trimmedText}` : trimmedText));
   }
 
+  async function requestGeneratedDescription(input: {
+    companyId?: string;
+    name: string;
+    website?: string;
+    googleTranscriptUrl?: string;
+    providedContext?: string;
+  }) {
+    const res = await fetch("/api/companies/generate-description", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    });
+
+    const payload = await res.json();
+    if (!res.ok) {
+      throw new Error(payload.error || "Failed to generate company description");
+    }
+
+    return typeof payload.description === "string" ? payload.description : "";
+  }
+
+  async function generateDescriptionForNewCompany() {
+    const companyName = manualMatchCandidate.name.trim() || query.trim();
+    if (!companyName) {
+      setStatus({ kind: "error", text: "Enter a company name before generating a description." });
+      return;
+    }
+
+    setGeneratingNewDescription(true);
+    setStatus(null);
+
+    try {
+      const description = await requestGeneratedDescription({
+        name: companyName,
+        website: manualMatchCandidate.website || undefined,
+        googleTranscriptUrl: newGoogleTranscriptUrl || undefined,
+        providedContext: [newDescription, newResearchNotes].filter(Boolean).join("\n\n") || undefined
+      });
+      setNewDescription(description);
+      setStatus({ kind: "ok", text: `Generated description for ${companyName}.` });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to generate company description"
+      });
+    } finally {
+      setGeneratingNewDescription(false);
+    }
+  }
+
+  async function generateDescriptionForSelectedCompany() {
+    if (!selectedRecord || !detailDraft) return;
+
+    setGeneratingSelectedDescription(true);
+    setStatus(null);
+
+    try {
+      const description = await requestGeneratedDescription({
+        companyId: selectedRecord.id,
+        name: detailDraft.name,
+        website: detailDraft.website || undefined,
+        googleTranscriptUrl: detailDraft.googleTranscriptUrl || undefined,
+        providedContext: [detailDraft.researchNotes, detailDraft.description].filter(Boolean).join("\n\n") || undefined
+      });
+      updateDetailDraft({ description });
+      setStatus({ kind: "ok", text: `Generated description for ${detailDraft.name}.` });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Failed to generate company description"
+      });
+    } finally {
+      setGeneratingSelectedDescription(false);
+    }
+  }
+
   async function loadHealthSystems() {
     const res = await fetch("/api/health-systems", { cache: "no-store" });
     const payload = await res.json();
@@ -1005,7 +1082,6 @@ export function CompanyWorkbench() {
   }
 
   async function runQueuedAgent(maxJobs = 2) {
-    setRunningAgent(true);
     try {
       await fetch("/api/companies/research-jobs/process", {
         method: "POST",
@@ -1013,7 +1089,6 @@ export function CompanyWorkbench() {
         body: JSON.stringify({ maxJobs })
       });
     } finally {
-      setRunningAgent(false);
       await loadRecords();
     }
   }
@@ -2147,7 +2222,17 @@ export function CompanyWorkbench() {
               {isManualCreationType(newCompanyType) && (
                 <>
                 <div className="detail-section">
-                  <label>Description</label>
+                  <div className="actions actions-flush">
+                    <label>Description</label>
+                    <button
+                      type="button"
+                      className="ghost small"
+                      onClick={() => void generateDescriptionForNewCompany()}
+                      disabled={generatingNewDescription || !(manualMatchCandidate.name.trim() || query.trim())}
+                    >
+                      {generatingNewDescription ? "Generating..." : "Generate with OpenAI"}
+                    </button>
+                  </div>
                   <RichTextArea
                     value={newDescription}
                     onChange={setNewDescription}
@@ -2565,6 +2650,17 @@ export function CompanyWorkbench() {
               </div>
 
               <div className="detail-section">
+                <div className="actions actions-flush">
+                  <p className="detail-label">Description</p>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    onClick={() => void generateDescriptionForSelectedCompany()}
+                    disabled={generatingSelectedDescription || !detailDraft.name.trim()}
+                  >
+                    {generatingSelectedDescription ? "Generating..." : "Generate with OpenAI"}
+                  </button>
+                </div>
                 <InlineTextareaField
                   multiline
                   label="Description"

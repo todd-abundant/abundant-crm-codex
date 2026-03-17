@@ -81,6 +81,7 @@ export async function POST(request: Request) {
     const actor = await authenticateAddonRequest(request, event);
     const endpoint = resolveEndpointUrl(request);
     const parameters = getEventParameters(event);
+    const action = resolveAddonAction(event);
 
     const tokenContext = resolveMessageTokens(event);
     const authorizedScopes = getAuthorizedScopes(event);
@@ -94,6 +95,12 @@ export async function POST(request: Request) {
         authorizedScopes
       })
     ) {
+      console.info("gmail_addon_scope_request", {
+        actorId: actor.id,
+        messageId,
+        requestedScopes: [GMAIL_MESSAGE_METADATA_SCOPE],
+        authorizedScopes
+      });
       return NextResponse.json(buildGoogleScopeRequest([GMAIL_MESSAGE_METADATA_SCOPE]));
     }
 
@@ -106,6 +113,12 @@ export async function POST(request: Request) {
       });
     } catch (error) {
       if (isGmailScopeError(error)) {
+        console.info("gmail_addon_scope_request", {
+          actorId: actor.id,
+          messageId,
+          requestedScopes: [GMAIL_MESSAGE_METADATA_SCOPE],
+          authorizedScopes
+        });
         return NextResponse.json(buildGoogleScopeRequest([GMAIL_MESSAGE_METADATA_SCOPE]));
       }
 
@@ -116,16 +129,22 @@ export async function POST(request: Request) {
       });
     }
 
-    const matches = await findMatchesForMessage(message);
-    const action = resolveAddonAction(event);
+    console.info("gmail_addon_message_preview", {
+      actorId: actor.id,
+      messageId: message.messageId,
+      fromEmail: message.fromEmail,
+      subject: message.subject
+    });
 
     if (action === "home") {
-      return NextResponse.json(pushCard(buildHomeCard({ message, matches, endpoint })));
+      return NextResponse.json(pushCard(buildHomeCard({ message })));
     }
 
     if (action === "refresh_home") {
-      return NextResponse.json(updateCard(buildHomeCard({ message, matches, endpoint })));
+      return NextResponse.json(updateCard(buildHomeCard({ message })));
     }
+
+    const matches = await findMatchesForMessage(message);
 
     if (action === "nav_attach_note") {
       return NextResponse.json(pushCard(buildAttachNoteCard({ endpoint, message, matches })));
@@ -224,7 +243,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       updateCard(
-        buildHomeCard({ message, matches, endpoint }),
+        buildHomeCard({ message }),
         `Unknown action: ${action}. Returning to summary.`
       )
     );

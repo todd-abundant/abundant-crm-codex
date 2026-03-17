@@ -47,7 +47,6 @@ export async function GET(
     }
 
     const healthSystems = await prisma.healthSystem.findMany({
-      where: { isAllianceMember: true },
       orderBy: [{ name: "asc" }],
       select: { id: true, name: true }
     });

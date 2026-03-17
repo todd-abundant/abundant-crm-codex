@@ -8469,10 +8469,179 @@ select {
   color: #173b63;
 }
 
+.venture-meeting-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.venture-meeting-header h2 {
+  margin: 0;
+  font-size: clamp(1.5rem, 2.2vw, 2rem);
+}
+
+.venture-meeting-location {
+  margin: 8px 0 0;
+}
+
+.venture-meeting-header-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.venture-focus-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: #123b69;
+  color: #fff;
+  font-weight: 700;
+}
+
+.venture-stage-action {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.venture-stage-summary--meeting {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.venture-meeting-section {
+  display: grid;
+  gap: 14px;
+}
+
+.venture-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.venture-section-head .detail-label {
+  margin: 0 0 4px;
+}
+
+.venture-section-head .muted {
+  margin: 0;
+}
+
+.venture-health-system-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.venture-health-system-card,
+.venture-next-step-card,
+.venture-open-task-card {
+  border: 1px solid #d9e5f1;
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px;
+}
+
+.venture-health-system-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.venture-health-system-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.venture-health-system-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: #5d6f85;
+  font-size: 0.92rem;
+}
+
+.venture-health-system-card p,
+.venture-open-task-card p,
+.venture-timeline-item p {
+  margin: 6px 0 0;
+}
+
+.venture-next-step-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.1fr) minmax(0, 1.4fr);
+  gap: 12px;
+}
+
+.venture-open-task-list {
+  display: grid;
+  gap: 10px;
+}
+
+.venture-timeline-list {
+  display: grid;
+  gap: 12px;
+}
+
+.venture-timeline-item {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.venture-timeline-marker {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #123b69;
+  margin-top: 8px;
+}
+
+.venture-timeline-content {
+  border-left: 1px solid #d9e5f1;
+  padding-left: 14px;
+}
+
+.venture-timeline-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.venture-edit-section {
+  border: 1px solid #d9e5f1;
+  background: linear-gradient(180deg, #f9fbfe 0%, #ffffff 100%);
+}
+
+.venture-status-control-field {
+  grid-column: span 2;
+}
+
 @media (max-width: 1100px) {
   .pipeline-board-overview,
-  .venture-stage-summary {
+  .venture-stage-summary,
+  .venture-stage-summary--meeting,
+  .venture-next-step-layout,
+  .venture-meeting-header {
     grid-template-columns: 1fr;
+  }
+
+  .venture-meeting-header {
+    display: grid;
+  }
+
+  .venture-status-control-field {
+    grid-column: span 1;
   }
 
   .pipeline-filter-grid {

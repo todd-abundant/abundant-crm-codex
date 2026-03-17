@@ -137,6 +137,17 @@ const fundraiseSchema = z.object({
   investors: z.array(fundraiseInvestorSchema).default([])
 });
 
+const pipelineLeadSourceTypeSchema = z.enum([
+  "INSIDE_OUT",
+  "ALLIANCE_REFERRAL",
+  "CO_INVESTOR_REFERRAL",
+  "COLD_INBOUND",
+  "WARM_INTRO",
+  "OTHER"
+]);
+
+const pipelineLeadSourceEntityTypeSchema = z.enum(["CONTACT", "HEALTH_SYSTEM", "CO_INVESTOR"]);
+
 const pipelineUpdateSchema = z.object({
   phase: pipelinePhaseSchema.default("INTAKE"),
   category: pipelineCategorySchema.default("ACTIVE"),
@@ -145,6 +156,9 @@ const pipelineUpdateSchema = z.object({
   closedOutcome: closedOutcomeSchema.optional().nullable(),
   createdAt: z.string().optional().nullable(),
   ownerName: z.string().optional().nullable(),
+  leadSourceType: pipelineLeadSourceTypeSchema.optional().nullable(),
+  leadSourceEntityType: pipelineLeadSourceEntityTypeSchema.optional().nullable(),
+  leadSourceEntityId: z.string().optional().nullable(),
   nextStepDueAt: z.string().optional().nullable(),
   lastMeaningfulActivityAt: z.string().optional().nullable(),
   declineReasonNotes: z.string().optional().nullable(),
@@ -344,6 +358,10 @@ function buildPipelinePayload(company: CompanyPipelineView) {
       s1InvestmentAt: null,
       s1InvestmentAmountUsd: null,
       portfolioAddedAt: null,
+      leadSourceType: null,
+      leadSourceEntityType: null,
+      leadSourceEntityId: null,
+      leadSourceEntityName: null,
       createdAt: company.createdAt,
       updatedAt: null,
       documents: [],
@@ -382,6 +400,10 @@ function buildPipelinePayload(company: CompanyPipelineView) {
     s1InvestmentAt: company.pipeline.s1InvestmentAt,
     s1InvestmentAmountUsd: company.pipeline.s1InvestmentAmountUsd,
     portfolioAddedAt: company.pipeline.portfolioAddedAt,
+    leadSourceType: company.pipeline.leadSourceType,
+    leadSourceEntityType: company.pipeline.leadSourceEntityType,
+    leadSourceEntityId: company.pipeline.leadSourceEntityId,
+    leadSourceEntityName: company.pipeline.leadSourceEntityName,
     createdAt: company.pipeline.createdAt || company.createdAt,
     updatedAt: company.pipeline.updatedAt.toISOString(),
     documents: company.documents,
@@ -456,6 +478,31 @@ export async function PATCH(
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
 
+    // Resolve the display name for the linked lead source entity
+    let leadSourceEntityName: string | null = null;
+    const leadSourceEntityId = toNullableString(input.leadSourceEntityId);
+    if (input.leadSourceEntityType && leadSourceEntityId) {
+      if (input.leadSourceEntityType === "HEALTH_SYSTEM") {
+        const hs = await prisma.healthSystem.findUnique({
+          where: { id: leadSourceEntityId },
+          select: { name: true }
+        });
+        leadSourceEntityName = hs?.name ?? null;
+      } else if (input.leadSourceEntityType === "CO_INVESTOR") {
+        const ci = await prisma.coInvestor.findUnique({
+          where: { id: leadSourceEntityId },
+          select: { name: true }
+        });
+        leadSourceEntityName = ci?.name ?? null;
+      } else if (input.leadSourceEntityType === "CONTACT") {
+        const c = await prisma.contact.findUnique({
+          where: { id: leadSourceEntityId },
+          select: { name: true }
+        });
+        leadSourceEntityName = c?.name ?? null;
+      }
+    }
+
     const stageChangedAt =
       company.pipeline?.phase === normalizedPhase ? company.pipeline.stageChangedAt : new Date();
 
@@ -484,6 +531,10 @@ export async function PATCH(
       s1InvestmentAt,
       s1InvestmentAmountUsd: input.s1InvestmentAmountUsd ?? null,
       portfolioAddedAt,
+      leadSourceType: input.leadSourceType ?? null,
+      leadSourceEntityType: input.leadSourceEntityType ?? null,
+      leadSourceEntityId,
+      leadSourceEntityName,
       ...(createdAt ? { createdAt } : {})
     };
 
@@ -512,6 +563,10 @@ export async function PATCH(
       s1InvestmentAt,
       s1InvestmentAmountUsd: input.s1InvestmentAmountUsd ?? null,
       portfolioAddedAt,
+      leadSourceType: input.leadSourceType ?? null,
+      leadSourceEntityType: input.leadSourceEntityType ?? null,
+      leadSourceEntityId,
+      leadSourceEntityName,
       ...(createdAt ? { createdAt } : {})
     };
 

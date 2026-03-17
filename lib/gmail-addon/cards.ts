@@ -1,8 +1,6 @@
 import {
-  type MatchCandidate,
   type MatchResults,
-  type NormalizedMessageMetadata,
-  type OpportunityMatchCandidate
+  type NormalizedMessageMetadata
 } from "@/lib/gmail-addon/types";
 
 type CardWidget = Record<string, unknown>;
@@ -121,39 +119,6 @@ function selectionWidget(
   };
 }
 
-function confidenceLabel(confidence: MatchCandidate["confidence"]) {
-  if (confidence === "high") return "High";
-  if (confidence === "medium") return "Medium";
-  return "Low";
-}
-
-function suggestionWidgets(
-  heading: string,
-  candidates: MatchCandidate[] | OpportunityMatchCandidate[],
-  emptyText: string
-): CardWidget[] {
-  if (candidates.length === 0) {
-    return [
-      {
-        decoratedText: {
-          topLabel: heading,
-          text: emptyText,
-          wrapText: true
-        }
-      }
-    ];
-  }
-
-  return candidates.slice(0, 3).map((candidate) => ({
-    decoratedText: {
-      topLabel: `${heading} (${confidenceLabel(candidate.confidence)})`,
-      text: candidate.label,
-      bottomLabel: candidate.subtitle || undefined,
-      wrapText: true
-    }
-  }));
-}
-
 function baseCard(title: string, subtitle: string | undefined, sections: CardSection[]): AddonCard {
   return {
     header: {
@@ -199,19 +164,14 @@ export function buildErrorCard(message: string) {
 
 export function buildHomeCard(args: {
   message: NormalizedMessageMetadata;
-  matches: MatchResults;
-  endpoint: string;
 }) {
-  const { message, matches, endpoint } = args;
+  const { message } = args;
 
-  const params = {
-    messageId: message.messageId,
-    threadId: message.threadId
-  };
+  const metadataAvailable = Boolean(message.fromRaw || message.fromEmail || message.subject || message.dateRaw);
 
   const sections: CardSection[] = [
     {
-      header: "Current email",
+      header: "Email preview",
       widgets: [
         {
           decoratedText: {
@@ -238,31 +198,26 @@ export function buildHomeCard(args: {
                 }
               }
             ]
-          : [])
-      ]
-    },
-    {
-      header: "Suggested CRM matches",
-      widgets: [
-        ...suggestionWidgets("Contact", matches.contacts, "No likely contact match"),
-        ...suggestionWidgets("Company", matches.companies, "No likely company match"),
-        ...suggestionWidgets("Health system", matches.healthSystems, "No likely health system match"),
-        ...suggestionWidgets("Health System Opportunity", matches.opportunities, "No likely health system opportunity match")
-      ]
-    },
-    {
-      header: "Quick actions",
-      widgets: [
-        buttonWidget("Attach Email as Note", endpoint, { addonAction: "nav_attach_note", ...params }),
-        buttonWidget("Add Contact", endpoint, { addonAction: "nav_add_contact", ...params }),
-        buttonWidget("Add Company", endpoint, { addonAction: "nav_add_company", ...params }),
-        buttonWidget("Add Health System", endpoint, { addonAction: "nav_add_health_system", ...params }),
-        buttonWidget("Add Health System Opportunity", endpoint, { addonAction: "nav_add_opportunity", ...params })
+          : []),
+        {
+          decoratedText: {
+            topLabel: "Message ID",
+            text: message.messageId || "(Unavailable)",
+            wrapText: true
+          }
+        },
+        {
+          textParagraph: {
+            text: metadataAvailable
+              ? "Sender and subject loaded from Gmail."
+              : "Waiting for Gmail message metadata. If this stays blank, the add-on still does not have the Gmail metadata scope."
+          }
+        }
       ]
     }
   ];
 
-  return baseCard("Abundant CRM", "Gmail assistant", sections);
+  return baseCard("Abundant CRM", "Gmail message preview", sections);
 }
 
 function targetItemsFromMatches(matches: MatchResults) {

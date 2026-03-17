@@ -1,5 +1,7 @@
 import { Prisma, type EntityKind, type User } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { normalizeCompanyDocumentUrl } from "@/lib/company-document-links";
+import { parseDateInput } from "@/lib/date-parse";
 
 export type EntityNoteAffiliationKind = "company" | "healthSystem" | "contact" | "opportunity";
 
@@ -66,9 +68,18 @@ function toNullableString(value?: string | null) {
 
 function parseUploadedAt(value?: string | null) {
   if (!value) return new Date();
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return new Date();
+  const parsed = parseDateInput(value);
+  if (!parsed) return new Date();
   return parsed;
+}
+
+function normalizeDocumentUrl(value: string) {
+  const normalized = normalizeCompanyDocumentUrl(value);
+  if (!normalized) {
+    throw new Error("Document URL must be a valid link or uploaded file payload.");
+  }
+
+  return normalized;
 }
 
 function parseAffiliationKind(value: string): EntityNoteAffiliationKind | null {
@@ -199,7 +210,7 @@ export async function createEntityDocument(entityKind: EntityKind, entityId: str
       entityKind,
       entityId,
       title: ensureTrimmedValue(input.title, "Document title"),
-      url: ensureTrimmedValue(input.url, "Document URL"),
+      url: normalizeDocumentUrl(input.url),
       notes: toNullableString(input.notes),
       uploadedAt: parseUploadedAt(input.uploadedAt)
     }
@@ -231,7 +242,7 @@ export async function updateEntityDocument(
     where: { id: documentId },
     data: {
       title: ensureTrimmedValue(input.title, "Document title"),
-      url: ensureTrimmedValue(input.url, "Document URL"),
+      url: normalizeDocumentUrl(input.url),
       notes: toNullableString(input.notes),
       uploadedAt: parseUploadedAt(input.uploadedAt)
     }

@@ -1,7 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { InlineSelectField, InlineTextField } from "./inline-detail-field";
+import { InlineTextField } from "./inline-detail-field";
+import {
+  LeadSourceEntityPicker,
+  LEAD_SOURCE_TYPE_OPTIONS,
+  type EntitySearchResult
+} from "./company-pipeline-manager";
 
 type StatusOption = {
   value: string;
@@ -15,15 +20,51 @@ type StageOption = {
 
 type DateDebugContext = string | Record<string, unknown>;
 
+type HealthSystemParticipationItem = {
+  id: string;
+  name: string;
+  loiStatusLabel: string;
+  currentInterestLabel: string;
+  opportunityStageLabel: string;
+  statusUpdate: string;
+  memberFeedbackStatus: string;
+  updatedAtLabel: string;
+};
+
+type OpenTaskItem = {
+  id: string;
+  title: string;
+  detail: string;
+  dueLabel: string;
+};
+
+type ActivityTimelineItem = {
+  id: string;
+  title: string;
+  description: string;
+  timestampLabel: string;
+  badge?: string;
+};
+
 type VentureStudioOpportunityTabContentProps = {
+  companyName?: string;
+  location?: string;
   ownerLabel: string;
   ownerName: string;
   createdDate: string;
   activePipelineColumn: string | null;
   currentFocusLabel: string;
+  lastActivityLabel?: string;
+  daysInStageLabel?: string;
   stageOptions: StageOption[];
   onCurrentStageChange: (value: string) => void;
+  isMovingStage?: boolean;
   pipelineStepLabel: string;
+  healthSystemParticipation?: HealthSystemParticipationItem[];
+  nextStepLabel?: string;
+  nextStepDueLabel?: string;
+  openTasks?: OpenTaskItem[];
+  activityTimeline?: ActivityTimelineItem[];
   showStatusControls: boolean;
   statusValue: string;
   statusOptions: StatusOption[];
@@ -55,17 +96,39 @@ type VentureStudioOpportunityTabContentProps = {
   screeningWebinarDate2: string;
   screeningWebinarDate2DebugContext?: DateDebugContext;
   onScreeningWebinarDate2Save: (value: string) => void;
+  leadSourceType: string;
+  leadSourceEntityId: string;
+  leadSourceEntityType: string;
+  leadSourceEntityName: string;
+  onLeadSourceTypeSave: (value: string) => void;
+  onLeadSourceEntitySave: (id: string, entityType: string, name: string) => void;
+  onLeadSourceEntityClear: () => void;
 };
 
+function summaryValue(value: string | null | undefined, fallback: string) {
+  const trimmed = (value || "").trim();
+  return trimmed || fallback;
+}
+
 export function VentureStudioOpportunityTabContent({
+  companyName = "Company",
+  location = "",
   ownerLabel,
   ownerName,
   createdDate,
   activePipelineColumn,
   currentFocusLabel,
+  lastActivityLabel = "Date unavailable",
+  daysInStageLabel = "Stage age unavailable",
   stageOptions,
   onCurrentStageChange,
+  isMovingStage = false,
   pipelineStepLabel,
+  healthSystemParticipation = [],
+  nextStepLabel = "",
+  nextStepDueLabel = "No due date",
+  openTasks = [],
+  activityTimeline = [],
   showStatusControls,
   statusValue,
   statusOptions,
@@ -97,63 +160,197 @@ export function VentureStudioOpportunityTabContent({
   screeningWebinarDate2,
   screeningWebinarDate2DebugContext,
   onScreeningWebinarDate2Save,
+  leadSourceType,
+  leadSourceEntityId,
+  leadSourceEntityType,
+  leadSourceEntityName,
+  onLeadSourceTypeSave,
+  onLeadSourceEntitySave,
+  onLeadSourceEntityClear
 }: VentureStudioOpportunityTabContentProps) {
   const statusRadioGroupId = React.useId();
+  const [showMoveStagePicker, setShowMoveStagePicker] = React.useState(false);
+  const [moveStageValue, setMoveStageValue] = React.useState(activePipelineColumn || stageOptions[0]?.value || "");
   const isClosedStatusValue = statusValue === "CLOSED_LOST" || statusValue === "CLOSED_REVISIT";
   const shouldShowStatusControls = showStatusControls || isClosedStatusValue;
   const showClosedReasonField = Boolean(closedReasonValue.trim());
   const focusDisplayLabel = activePipelineColumn ? currentFocusLabel : "Closed / Inactive";
 
+  React.useEffect(() => {
+    setMoveStageValue(activePipelineColumn || stageOptions[0]?.value || "");
+  }, [activePipelineColumn, stageOptions]);
+
   return (
-    <div className="venture-studio-opportunity-tab-content">
-      <div className="detail-section venture-stage-summary">
+    <div className="venture-studio-opportunity-tab-content venture-meeting-layout">
+      <section className="detail-section venture-meeting-header">
+        <div>
+          <h2>{companyName}</h2>
+          <p className="muted venture-meeting-location">{summaryValue(location, "Location unavailable")}</p>
+        </div>
+        <div className="venture-meeting-header-actions">
+          <span className="venture-focus-badge">{focusDisplayLabel}</span>
+          {stageOptions.length > 0 ? (
+            <div className="venture-stage-action">
+              <button
+                type="button"
+                className="secondary small"
+                onClick={() => setShowMoveStagePicker((current) => !current)}
+                disabled={isMovingStage}
+              >
+                {isMovingStage ? "Moving..." : "Move Company To"}
+              </button>
+              {showMoveStagePicker ? (
+                <select
+                  value={moveStageValue}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    setMoveStageValue(nextValue);
+                    setShowMoveStagePicker(false);
+                    if (nextValue) {
+                      onCurrentStageChange(nextValue);
+                    }
+                  }}
+                  onBlur={() => setShowMoveStagePicker(false)}
+                  autoFocus
+                >
+                  {stageOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="detail-section venture-stage-summary venture-stage-summary--meeting">
         <div className="venture-stage-summary-card">
           <p className="detail-label">Current Focus</p>
           <div className="venture-stage-summary-value">{focusDisplayLabel}</div>
         </div>
         <div className="venture-stage-summary-card">
           <p className="detail-label">Detailed Step</p>
-          <div className="venture-stage-summary-value">{pipelineStepLabel || "Not set"}</div>
+          <div className="venture-stage-summary-value">{summaryValue(pipelineStepLabel, "Not set")}</div>
         </div>
         <div className="venture-stage-summary-card">
-          <p className="detail-label">Status</p>
-          <div className="venture-stage-summary-value">{statusReadOnlyLabel}</div>
+          <p className="detail-label">{ownerLabel}</p>
+          <div className="venture-stage-summary-value">{summaryValue(ownerName, "Unassigned")}</div>
         </div>
-      </div>
-      <div className="detail-section company-pipeline-main-section">
-        <div className="detail-grid">
-          <div className="inline-edit-field pipeline-status-readonly-field">
-            <label>{ownerLabel}</label>
-            <div className="pipeline-status-readonly-value">{ownerName || "Unassigned"}</div>
+        <div className="venture-stage-summary-card">
+          <p className="detail-label">Last Activity</p>
+          <div className="venture-stage-summary-value">{summaryValue(lastActivityLabel, "Date unavailable")}</div>
+        </div>
+        <div className="venture-stage-summary-card">
+          <p className="detail-label">Days in Stage</p>
+          <div className="venture-stage-summary-value">{summaryValue(daysInStageLabel, "Stage age unavailable")}</div>
+        </div>
+      </section>
+
+      <section className="detail-section venture-meeting-section">
+        <div className="venture-section-head">
+          <div>
+            <p className="detail-label">Health System Participation</p>
+            <p className="muted">Linked health systems, current posture, and LOI context.</p>
           </div>
+        </div>
+        {healthSystemParticipation.length === 0 ? (
+          <p className="muted">No linked health systems yet.</p>
+        ) : (
+          <div className="venture-health-system-grid">
+            {healthSystemParticipation.map((entry) => (
+              <article key={entry.id} className="venture-health-system-card">
+                <div className="venture-health-system-card-head">
+                  <h3>{entry.name}</h3>
+                  <span className="status-pill draft">{entry.loiStatusLabel}</span>
+                </div>
+                <div className="venture-health-system-meta">
+                  <span>{entry.currentInterestLabel}</span>
+                  <span>{entry.opportunityStageLabel}</span>
+                  <span>{entry.updatedAtLabel}</span>
+                </div>
+                <p><strong>Status update:</strong> {summaryValue(entry.statusUpdate, "No status update yet")}</p>
+                <p><strong>Member feedback:</strong> {summaryValue(entry.memberFeedbackStatus, "No member feedback yet")}</p>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="detail-section venture-meeting-section">
+        <div className="venture-section-head">
+          <div>
+            <p className="detail-label">Next Step + Open Tasks</p>
+            <p className="muted">What the team needs to do next.</p>
+          </div>
+        </div>
+        <div className="venture-next-step-layout">
+          <div className="venture-next-step-card">
+            <p className="detail-label">Next Step</p>
+            <div className="venture-stage-summary-value">{summaryValue(nextStepLabel, "No next step set")}</div>
+            <p className="muted">Due: {summaryValue(nextStepDueLabel, "No due date")}</p>
+          </div>
+          <div className="venture-open-task-list">
+            {openTasks.length === 0 ? (
+              <p className="muted">No open tasks captured yet.</p>
+            ) : (
+              openTasks.map((task) => (
+                <article key={task.id} className="venture-open-task-card">
+                  <strong>{task.title}</strong>
+                  <p>{task.detail}</p>
+                  <p className="muted">{task.dueLabel}</p>
+                </article>
+              ))
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="detail-section venture-meeting-section">
+        <div className="venture-section-head">
+          <div>
+            <p className="detail-label">Activity Timeline</p>
+            <p className="muted">Recent notes, meetings, and status changes in reverse chronological order.</p>
+          </div>
+        </div>
+        {activityTimeline.length === 0 ? (
+          <p className="muted">No recent activity captured yet.</p>
+        ) : (
+          <div className="venture-timeline-list">
+            {activityTimeline.map((entry) => (
+              <article key={entry.id} className="venture-timeline-item">
+                <div className="venture-timeline-marker" aria-hidden="true" />
+                <div className="venture-timeline-content">
+                  <div className="venture-timeline-head">
+                    <strong>{entry.title}</strong>
+                    {entry.badge ? <span className="status-pill draft">{entry.badge}</span> : null}
+                  </div>
+                  <p>{summaryValue(entry.description, "No details available")}</p>
+                  <p className="muted">{entry.timestampLabel}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="detail-section venture-edit-section">
+        <div className="venture-section-head">
+          <div>
+            <p className="detail-label">Editable Fields</p>
+            <p className="muted">Operational settings and milestones live here so the read view above stays clean in meetings.</p>
+          </div>
+        </div>
+        <div className="detail-grid">
           <div className="inline-edit-field pipeline-status-readonly-field">
             <label>Created Date</label>
             <div className="pipeline-status-readonly-value">{createdDate || "Not set"}</div>
           </div>
 
-          {activePipelineColumn ? (
-            <InlineSelectField
-              label="Move Company To"
-              value={activePipelineColumn}
-              options={stageOptions}
-              blurOnChange
-              onSave={onCurrentStageChange}
-            />
-          ) : (
-            <div className="inline-edit-field pipeline-status-readonly-field">
-              <label>Move Company To</label>
-              <div className="pipeline-status-readonly-value">Closed / Inactive</div>
-            </div>
-          )}
-
-          <div className="inline-edit-field pipeline-status-readonly-field">
-            <label>Detailed Step</label>
-            <div className="pipeline-status-readonly-value">{pipelineStepLabel || "Not set"}</div>
-          </div>
-
           {shouldShowStatusControls ? (
             <>
-              <div className="inline-edit-field">
+              <div className="inline-edit-field venture-status-control-field">
                 <label>Status</label>
                 <div className="opportunity-filter-options" role="radiogroup" aria-label="Status">
                   {statusOptions.map((statusOption) => {
@@ -192,20 +389,19 @@ export function VentureStudioOpportunityTabContent({
               />
             </>
           ) : (
-            <div className="inline-edit-field pipeline-status-readonly-field">
-              <label>Status</label>
-              <div className="pipeline-status-readonly-value">{statusReadOnlyLabel}</div>
-            </div>
-          )}
-
-          {!shouldShowStatusControls ? (
-            <div className="inline-edit-field pipeline-status-readonly-field">
-              <label>{closedReasonLabel}</label>
-              <div className="pipeline-status-readonly-value">
-                {showClosedReasonField ? closedReasonValue : "Not set"}
+            <>
+              <div className="inline-edit-field pipeline-status-readonly-field">
+                <label>Status</label>
+                <div className="pipeline-status-readonly-value">{statusReadOnlyLabel}</div>
               </div>
-            </div>
-          ) : null}
+              <div className="inline-edit-field pipeline-status-readonly-field">
+                <label>{closedReasonLabel}</label>
+                <div className="pipeline-status-readonly-value">
+                  {showClosedReasonField ? closedReasonValue : "Not set"}
+                </div>
+              </div>
+            </>
+          )}
 
           {isClosedLostStatus ? (
             <div className="inline-edit-field pipeline-status-readonly-field">
@@ -234,12 +430,7 @@ export function VentureStudioOpportunityTabContent({
             <label>Closed Date</label>
             <div className="pipeline-status-readonly-value">{closedDateDisplay}</div>
           </div>
-        </div>
-      </div>
 
-      <div className="detail-section">
-        <p className="detail-label">Milestones</p>
-        <div className="detail-grid">
           <InlineTextField
             inputType="date"
             label="Intake Decision Date"
@@ -273,8 +464,35 @@ export function VentureStudioOpportunityTabContent({
               />
             </>
           ) : null}
+
+          <div className="inline-edit-field venture-lead-source-type-field">
+            <label>Source Type</label>
+            <select
+              value={leadSourceType}
+              onChange={(e) => onLeadSourceTypeSave(e.target.value)}
+            >
+              {LEAD_SOURCE_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="inline-edit-field venture-lead-source-entity-field">
+            <label>Source Entity</label>
+            <LeadSourceEntityPicker
+              entityId={leadSourceEntityId}
+              entityType={leadSourceEntityType}
+              entityName={leadSourceEntityName}
+              onSelect={(result: EntitySearchResult) =>
+                onLeadSourceEntitySave(result.id, result.entityType, result.name)
+              }
+              onClear={onLeadSourceEntityClear}
+            />
+          </div>
         </div>
-      </div>
+      </section>
 
       <datalist id={reasonListId}>
         {reasonSuggestions.map((reason) => (

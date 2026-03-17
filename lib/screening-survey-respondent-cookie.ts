@@ -7,7 +7,7 @@ export const SCREENING_SURVEY_RESPONDENT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 *
 const screeningSurveyRespondentProfileSchema = z.object({
   participantName: z.string().trim().min(1).max(200).nullable(),
   participantEmail: z.string().trim().email().nullable(),
-  healthSystemId: z.string().trim().min(1).max(191),
+  healthSystemId: z.string().trim().min(1).max(191).nullable(),
   healthSystemName: z.string().trim().min(1).max(200)
 });
 

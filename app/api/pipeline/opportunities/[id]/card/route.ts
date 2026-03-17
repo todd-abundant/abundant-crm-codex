@@ -30,6 +30,8 @@ const pipelinePhaseSchema = z.enum([
 
 const closedOutcomeSchema = z.enum(["INVESTED", "PASSED", "LOST", "WITHDREW", "OTHER"]);
 const intakeDecisionSchema = z.enum(["PENDING", "ADVANCE_TO_NEGOTIATION", "DECLINE", "REVISIT_LATER"]);
+const leadSourceTypeSchema = z.enum(["INSIDE_OUT", "ALLIANCE_REFERRAL", "CO_INVESTOR_REFERRAL", "COLD_INBOUND", "WARM_INTRO", "OTHER"]);
+const leadSourceEntityTypeSchema = z.enum(["CONTACT", "HEALTH_SYSTEM", "CO_INVESTOR"]);
 
 function normalizePipelinePhase(phase: PipelinePhase | undefined) {
   if (!phase) return phase;
@@ -66,7 +68,11 @@ const cardUpdateSchema = z.object({
     .optional(),
   marketLandscape: z
     .unknown()
-    .optional()
+    .optional(),
+  leadSourceType: leadSourceTypeSchema.optional().nullable(),
+  leadSourceEntityType: leadSourceEntityTypeSchema.optional().nullable(),
+  leadSourceEntityId: z.string().optional().nullable(),
+  leadSourceEntityName: z.string().optional().nullable()
 });
 
 function toNullableDate(value?: string | null) {
@@ -305,6 +311,10 @@ export async function PATCH(
       ventureExpectedCloseDate?: Date | null;
       lastMeaningfulActivityAt?: Date | null;
       ventureStudioCriteria?: Prisma.InputJsonValue;
+      leadSourceType?: "INSIDE_OUT" | "ALLIANCE_REFERRAL" | "CO_INVESTOR_REFERRAL" | "COLD_INBOUND" | "WARM_INTRO" | "OTHER" | null;
+      leadSourceEntityType?: "CONTACT" | "HEALTH_SYSTEM" | "CO_INVESTOR" | null;
+      leadSourceEntityId?: string | null;
+      leadSourceEntityName?: string | null;
     } = {};
     const companyUpdatePayload: {
       atAGlanceProblem?: string | null;
@@ -366,6 +376,18 @@ export async function PATCH(
     }
     if (Object.prototype.hasOwnProperty.call(body, "atAGlanceKeyConsiderations")) {
       companyUpdatePayload.atAGlanceKeyConsiderations = toNullableString(input.atAGlanceKeyConsiderations);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "leadSourceType")) {
+      updatePayload.leadSourceType = input.leadSourceType ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "leadSourceEntityType")) {
+      updatePayload.leadSourceEntityType = input.leadSourceEntityType ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "leadSourceEntityId")) {
+      updatePayload.leadSourceEntityId = toNullableString(input.leadSourceEntityId);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "leadSourceEntityName")) {
+      updatePayload.leadSourceEntityName = toNullableString(input.leadSourceEntityName);
     }
     updatePayload.lastMeaningfulActivityAt = new Date();
 

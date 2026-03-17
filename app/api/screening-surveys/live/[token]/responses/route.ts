@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
@@ -6,15 +7,30 @@ import {
   resolveOrCreateContact,
   upsertHealthSystemContactLink
 } from "@/lib/contact-resolution";
+import { runQueuedResearchJobs } from "@/lib/research-jobs";
 import { inferQualitativeFeedbackFromImpression } from "@/lib/screening-qualitative-inference";
 import { refreshSurveyDrivenScreeningOpportunity } from "@/lib/screening-opportunity-sync";
 import { setScreeningSurveyRespondentProfileCookie } from "@/lib/screening-survey-respondent-cookie";
+
+const GENERIC_EMAIL_DOMAINS = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "yahoo.com",
+  "outlook.com",
+  "hotmail.com",
+  "live.com",
+  "icloud.com",
+  "me.com",
+  "aol.com",
+  "protonmail.com"
+]);
 
 const submitResponseSchema = z
   .object({
     participantName: z.string().trim().optional().or(z.literal("")),
     participantEmail: z.string().trim().email().optional().or(z.literal("")),
-    healthSystemId: z.string().min(1),
+    healthSystemId: z.string().trim().min(1).optional().or(z.literal("")),
+    healthSystemName: z.string().trim().min(1).max(200),
     impressions: z.string().trim().min(1).max(1200),
     answers: z
       .array(
@@ -45,6 +61,10 @@ function normalizeEmail(value?: string | null) {
   return normalized || null;
 }
 
+function normalizeText(value?: string | null) {
+  return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 function inferNameFromEmail(email: string) {
   const local = email.split("@")[0] || "Survey Participant";
   const normalized = local.replace(/[._-]+/g, " ").trim();
@@ -53,6 +73,94 @@ function inferNameFromEmail(email: string) {
     .split(/\s+/)
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(" ");
+}
+
+function inferWebsiteFromEmail(email: string | null) {
+  if (!email) return null;
+  const domain = email.split("@")[1]?.trim().toLowerCase() || "";
+  if (!domain || GENERIC_EMAIL_DOMAINS.has(domain)) return null;
+  return `https://${domain}`;
+}
+
+async function resolveSurveyHealthSystem(
+  tx: Prisma.TransactionClient,
+  input: {
+    healthSystemId?: string | null;
+    healthSystemName: string;
+    participantEmail: string | null;
+  }
+) {
+  const normalizedHealthSystemId = trimOrNull(input.healthSystemId);
+  const requestedHealthSystemName = input.healthSystemName.trim();
+
+  if (normalizedHealthSystemId) {
+    const existingHealthSystem = await tx.healthSystem.findUnique({
+      where: { id: normalizedHealthSystemId },
+      select: { id: true, name: true, isAllianceMember: true }
+    });
+    if (!existingHealthSystem) {
+      throw new Error("Selected health system not found.");
+    }
+    return { healthSystem: existingHealthSystem, queuedHealthSystemId: null };
+  }
+
+  const emailDomain = input.participantEmail?.split("@")[1]?.trim().toLowerCase() || "";
+  const lookupClauses: Prisma.HealthSystemWhereInput[] = [
+    {
+      name: {
+        equals: requestedHealthSystemName,
+        mode: "insensitive"
+      }
+    }
+  ];
+
+  if (emailDomain && !GENERIC_EMAIL_DOMAINS.has(emailDomain)) {
+    lookupClauses.push({
+      website: {
+        contains: emailDomain,
+        mode: "insensitive"
+      }
+    });
+  }
+
+  const existingHealthSystem = await tx.healthSystem.findFirst({
+    where: { OR: lookupClauses },
+    orderBy: [{ isAllianceMember: "desc" }, { updatedAt: "desc" }],
+    select: { id: true, name: true, isAllianceMember: true }
+  });
+
+  if (existingHealthSystem && normalizeText(existingHealthSystem.name) === normalizeText(requestedHealthSystemName)) {
+    return { healthSystem: existingHealthSystem, queuedHealthSystemId: null };
+  }
+
+  if (existingHealthSystem && emailDomain && !GENERIC_EMAIL_DOMAINS.has(emailDomain)) {
+    return { healthSystem: existingHealthSystem, queuedHealthSystemId: null };
+  }
+
+  const inferredWebsite = inferWebsiteFromEmail(input.participantEmail);
+  const createdHealthSystem = await tx.healthSystem.create({
+    data: {
+      name: requestedHealthSystemName,
+      website: inferredWebsite,
+      isAllianceMember: false,
+      allianceMemberStatus: "NO",
+      researchStatus: "QUEUED",
+      researchError: null,
+      researchUpdatedAt: new Date()
+    },
+    select: { id: true, name: true, isAllianceMember: true }
+  });
+
+  await tx.healthSystemResearchJob.create({
+    data: {
+      healthSystemId: createdHealthSystem.id,
+      status: "QUEUED",
+      searchName: requestedHealthSystemName,
+      selectedWebsite: inferredWebsite
+    }
+  });
+
+  return { healthSystem: createdHealthSystem, queuedHealthSystemId: createdHealthSystem.id };
 }
 
 export async function POST(
@@ -64,6 +172,7 @@ export async function POST(
     const input = submitResponseSchema.parse(await request.json());
     const participantName = trimOrNull(input.participantName);
     const participantEmail = normalizeEmail(input.participantEmail);
+    const requestedHealthSystemName = input.healthSystemName.trim();
     const impressions = input.impressions.trim();
     const inferredQualitative = await inferQualitativeFeedbackFromImpression({
       impression: impressions
@@ -74,6 +183,7 @@ export async function POST(
     const sourceIpHash = forwardedFor
       ? createHash("sha256").update(forwardedFor).digest("hex")
       : null;
+    let queuedHealthSystemId: string | null = null;
 
     const result = await prisma.$transaction(async (tx) => {
       const session = await tx.companyScreeningSurveySession.findUnique({
@@ -108,13 +218,13 @@ export async function POST(
         throw new Error("Survey session is not accepting responses.");
       }
 
-      const healthSystem = await tx.healthSystem.findUnique({
-        where: { id: input.healthSystemId },
-        select: { id: true, name: true, isAllianceMember: true }
+      const healthSystemResult = await resolveSurveyHealthSystem(tx, {
+        healthSystemId: input.healthSystemId,
+        healthSystemName: requestedHealthSystemName,
+        participantEmail
       });
-      if (!healthSystem || !healthSystem.isAllianceMember) {
-        throw new Error("Alliance health system not found");
-      }
+      const healthSystem = healthSystemResult.healthSystem;
+      queuedHealthSystemId = healthSystemResult.queuedHealthSystemId;
 
       const sessionQuestionById = new Map(
         session.questions.map((entry) => [entry.id, entry] as const)
@@ -190,12 +300,12 @@ export async function POST(
 
       await upsertHealthSystemContactLink(tx, {
         contactId,
-        healthSystemId: input.healthSystemId,
+        healthSystemId: healthSystem.id,
         roleType: "EXECUTIVE",
         title: null
       });
 
-      const eventTitle = `Alliance Screening - ${healthSystem.name}`;
+      const eventTitle = `${healthSystem.isAllianceMember ? "Alliance Screening" : "Screening Survey"} - ${healthSystem.name}`;
       const screeningEvent =
         (await tx.companyScreeningEvent.findFirst({
           where: {
@@ -216,7 +326,7 @@ export async function POST(
       const existingParticipant = await tx.companyScreeningParticipant.findFirst({
         where: {
           screeningEventId: screeningEvent.id,
-          healthSystemId: input.healthSystemId,
+          healthSystemId: healthSystem.id,
           contactId
         },
         select: { id: true }
@@ -233,7 +343,7 @@ export async function POST(
         await tx.companyScreeningParticipant.create({
           data: {
             screeningEventId: screeningEvent.id,
-            healthSystemId: input.healthSystemId,
+            healthSystemId: healthSystem.id,
             contactId,
             attendanceStatus: "ATTENDED",
             notes: `Captured via live screening survey: ${session.title}`
@@ -244,7 +354,7 @@ export async function POST(
       const submission = await tx.companyScreeningSurveySubmission.create({
         data: {
           sessionId: session.id,
-          healthSystemId: input.healthSystemId,
+          healthSystemId: healthSystem.id,
           contactId,
           participantName: resolvedName,
           participantEmail,
@@ -290,7 +400,7 @@ export async function POST(
         await tx.companyScreeningQuantitativeFeedback.createMany({
           data: scoredRows.map((row) => ({
             companyId: session.companyId,
-            healthSystemId: input.healthSystemId,
+            healthSystemId: healthSystem.id,
             contactId,
             category: row.category,
             metric: row.metric,
@@ -303,7 +413,7 @@ export async function POST(
       await tx.companyScreeningQualitativeFeedback.create({
         data: {
           companyId: session.companyId,
-          healthSystemId: input.healthSystemId,
+          healthSystemId: healthSystem.id,
           contactId,
           category: "Survey Impression",
           theme: inferredQualitative.topic,
@@ -316,7 +426,7 @@ export async function POST(
       const screeningOpportunityResult = hasInterestDriver
         ? await refreshSurveyDrivenScreeningOpportunity(tx, {
             companyId: session.companyId,
-            healthSystemId: input.healthSystemId
+            healthSystemId: healthSystem.id
           })
         : null;
 
@@ -340,6 +450,13 @@ export async function POST(
       screeningOpportunityId: result.screeningOpportunityId
     });
     setScreeningSurveyRespondentProfileCookie(response, result.respondentProfile);
+
+    if (queuedHealthSystemId) {
+      void runQueuedResearchJobs(1, { healthSystemId: queuedHealthSystemId }).catch((error) => {
+        console.error("submit_live_survey_write_in_health_system_research_error", error);
+      });
+    }
+
     return response;
   } catch (error) {
     console.error("submit_live_screening_survey_response_error", error);

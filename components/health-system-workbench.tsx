@@ -418,7 +418,6 @@ export function HealthSystemWorkbench() {
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [draftRecordId, setDraftRecordId] = useState<string | null>(null);
   const [detailDraft, setDetailDraft] = useState<DetailDraft | null>(null);
-  const [, setRunningAgent] = useState(false);
   const [creatingFromSearch, setCreatingFromSearch] = useState(false);
   const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
   const [newIsLimitedPartner, setNewIsLimitedPartner] = useState(false);
@@ -667,7 +666,6 @@ export function HealthSystemWorkbench() {
   }
 
   async function runQueuedAgent(maxJobs = 2) {
-    setRunningAgent(true);
     try {
       await fetch("/api/health-systems/research-jobs/process", {
         method: "POST",
@@ -675,7 +673,6 @@ export function HealthSystemWorkbench() {
         body: JSON.stringify({ maxJobs })
       });
     } finally {
-      setRunningAgent(false);
       await loadRecords();
     }
   }

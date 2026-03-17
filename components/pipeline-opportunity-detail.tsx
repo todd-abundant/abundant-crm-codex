@@ -252,6 +252,15 @@ type PipelineOpportunityDetail = {
   screeningWebinarDate2At: string | null;
   ventureLikelihoodPercent: number | null;
   ventureExpectedCloseDate: string | null;
+  nextStep: string | null;
+  nextStepDueAt: string | null;
+  lastMeaningfulActivityAt: string | null;
+  stageChangedAt: string | null;
+  timeInStageDays: number | null;
+  leadSourceType: string | null;
+  leadSourceEntityType: string | null;
+  leadSourceEntityId: string | null;
+  leadSourceEntityName: string | null;
   ownerName: string | null;
   createdAt: string | null;
   updatedAt: string | null;
@@ -369,6 +378,33 @@ function formatTimestamp(value: string | null | undefined) {
     hour: "numeric",
     minute: "2-digit"
   });
+}
+
+function stripRichText(value: string | null | undefined) {
+  return (value || "")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/p>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function truncate(value: string, maxLength = 180) {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function formatEnumLabel(value: string | null | undefined) {
+  if (!value) return "Not set";
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function toDateInputValue(value: string | null | undefined) {
@@ -3006,6 +3042,10 @@ export function PipelineOpportunityDetailView({
     screeningWebinarDate2At?: string | null;
     ventureLikelihoodPercent?: number | null;
     ventureExpectedCloseDate?: string | null;
+    leadSourceType?: string | null;
+    leadSourceEntityType?: string | null;
+    leadSourceEntityId?: string | null;
+    leadSourceEntityName?: string | null;
   }): Promise<boolean> {
     if (!item) return false;
     const requestPayload = { ...input };
@@ -3388,6 +3428,31 @@ export function PipelineOpportunityDetailView({
     }
     if (item.ventureExpectedCloseDate && toDateInputValue(item.ventureExpectedCloseDate) === trimmed) return;
     await updatePipelineCardMeta({ ventureExpectedCloseDate: trimmed });
+  }
+
+  async function saveLeadSourceType(nextType: string) {
+    if (!item) return;
+    const value = nextType.trim() || null;
+    if ((item.leadSourceType ?? null) === value) return;
+    await updatePipelineCardMeta({ leadSourceType: value });
+  }
+
+  async function saveLeadSourceEntity(id: string, entityType: string, name: string) {
+    if (!item) return;
+    await updatePipelineCardMeta({
+      leadSourceEntityId: id || null,
+      leadSourceEntityType: entityType || null,
+      leadSourceEntityName: name || null
+    });
+  }
+
+  async function clearLeadSourceEntity() {
+    if (!item) return;
+    await updatePipelineCardMeta({
+      leadSourceEntityId: null,
+      leadSourceEntityType: null,
+      leadSourceEntityName: null
+    });
   }
 
   async function saveScreeningPipelineStatus(nextStatus: ScreeningPipelineStatus, nextReason?: string): Promise<boolean> {
@@ -5094,6 +5159,149 @@ function stripCurrencyFormatting(value: string) {
       })
     : [];
 
+  const meetingLastActivityLabel = item ? formatTimestamp(item.lastMeaningfulActivityAt || item.updatedAt) : "Date unavailable";
+  const meetingDaysInStageLabel = item
+    ? item.timeInStageDays === null
+      ? "Stage age unavailable"
+      : `${item.timeInStageDays} days`
+    : "Stage age unavailable";
+  const meetingHealthSystemParticipation = item
+    ? [...item.screening.healthSystems]
+        .sort((left, right) => left.healthSystemName.localeCompare(right.healthSystemName, undefined, { sensitivity: "base" }))
+        .map((entry) => ({
+          id: entry.healthSystemId,
+          name: entry.healthSystemName,
+          loiStatusLabel: formatEnumLabel(entry.status),
+          currentInterestLabel: entry.currentInterestLabel || "Current interest not set",
+          opportunityStageLabel: entry.screeningOpportunityStage ? formatEnumLabel(entry.screeningOpportunityStage) : "No LOI yet",
+          statusUpdate: truncate(stripRichText(entry.statusUpdate || entry.notes || ""), 160),
+          memberFeedbackStatus: truncate(stripRichText(entry.memberFeedbackStatus), 160),
+          updatedAtLabel: entry.statusUpdatedAt ? `Updated ${formatTimestamp(entry.statusUpdatedAt)}` : "No recent update"
+        }))
+    : [];
+  const meetingOpenTasks = item
+    ? item.opportunities
+        .filter((opportunity) => !isClosedOpportunityStage(opportunity.stage))
+        .slice(0, 6)
+        .map((opportunity) => ({
+          id: opportunity.id,
+          title: opportunity.nextSteps || opportunity.title,
+          detail: [opportunity.healthSystem?.name || "No health system", formatEnumLabel(opportunity.stage)]
+            .filter(Boolean)
+            .join(" • "),
+          dueLabel: opportunity.estimatedCloseDate
+            ? `Expected ${formatDate(opportunity.estimatedCloseDate)}`
+            : "No expected close date"
+        }))
+    : [];
+  const meetingActivityTimeline = item
+    ? (() => {
+        const timeline: Array<{ id: string; title: string; description: string; timestamp: number; badge?: string }> = [];
+
+        for (const note of sortedNotes.slice(0, 8)) {
+          const timestamp = Date.parse(note.createdAt);
+          if (!Number.isFinite(timestamp)) continue;
+          timeline.push({
+            id: `note-${note.id}`,
+            title: note.createdByName ? `Note from ${note.createdByName}` : "Note added",
+            description: truncate(stripRichText(note.note), 220) || "No note preview available",
+            timestamp,
+            badge: "Note"
+          });
+        }
+
+        const datedMilestones = [
+          item.stageChangedAt
+            ? {
+                id: `stage-${item.id}`,
+                title: "Current focus changed",
+                description: [currentFocusLabel(activePipelineColumn || "INTAKE"), detailedStepLabel(item.phase)].filter(Boolean).join(" • "),
+                timestamp: Date.parse(item.stageChangedAt),
+                badge: "Status"
+              }
+            : null,
+          item.intakeDecisionAt
+            ? {
+                id: `intake-decision-${item.id}`,
+                title: "Intake decision recorded",
+                description: formatEnumLabel(item.intakeDecision),
+                timestamp: Date.parse(item.intakeDecisionAt),
+                badge: "Milestone"
+              }
+            : null,
+          item.ventureStudioContractExecutedAt
+            ? {
+                id: `vs-contract-${item.id}`,
+                title: "Venture studio contract executed",
+                description: "Contract execution milestone reached.",
+                timestamp: Date.parse(item.ventureStudioContractExecutedAt),
+                badge: "Milestone"
+              }
+            : null,
+          item.screeningWebinarDate1At
+            ? {
+                id: `screening-webinar-1-${item.id}`,
+                title: "Screening webinar date 1",
+                description: "First screening webinar milestone.",
+                timestamp: Date.parse(item.screeningWebinarDate1At),
+                badge: "Meeting"
+              }
+            : null,
+          item.screeningWebinarDate2At
+            ? {
+                id: `screening-webinar-2-${item.id}`,
+                title: "Screening webinar date 2",
+                description: "Second screening webinar milestone.",
+                timestamp: Date.parse(item.screeningWebinarDate2At),
+                badge: "Meeting"
+              }
+            : null
+        ].filter((entry): entry is { id: string; title: string; description: string; timestamp: number; badge: string } => entry != null && Number.isFinite(entry.timestamp));
+        timeline.push(...datedMilestones);
+
+        const eventMap = new Map<string, { id: string; title: string; description: string; timestamp: number; badge?: string }>();
+        for (const healthSystem of item.screening.healthSystems) {
+          for (const participant of healthSystem.participants) {
+            const eventDate = participant.eventCompletedAt || participant.eventScheduledAt;
+            const timestamp = eventDate ? Date.parse(eventDate) : Number.NaN;
+            if (!Number.isFinite(timestamp)) continue;
+            if (!eventMap.has(participant.eventId)) {
+              eventMap.set(participant.eventId, {
+                id: `event-${participant.eventId}`,
+                title: participant.eventTitle || participant.eventType || "Screening meeting",
+                description: `${healthSystem.healthSystemName}${participant.contactName ? ` • ${participant.contactName}` : ""}`,
+                timestamp,
+                badge: "Meeting"
+              });
+            }
+          }
+          const statusTimestamp = healthSystem.statusUpdatedAt ? Date.parse(healthSystem.statusUpdatedAt) : Number.NaN;
+          if (Number.isFinite(statusTimestamp)) {
+            timeline.push({
+              id: `health-system-status-${healthSystem.healthSystemId}`,
+              title: `${healthSystem.healthSystemName} status updated`,
+              description: truncate(stripRichText(healthSystem.statusUpdate || healthSystem.memberFeedbackStatus || healthSystem.notes), 200) || formatEnumLabel(healthSystem.status),
+              timestamp: statusTimestamp,
+              badge: "Health system"
+            });
+          }
+        }
+        timeline.push(...eventMap.values());
+
+        return timeline
+          .filter((entry) => Number.isFinite(entry.timestamp))
+          .sort((left, right) => right.timestamp - left.timestamp)
+          .slice(0, 12)
+          .map((entry) => ({
+            id: entry.id,
+            title: entry.title,
+            description: entry.description,
+            timestampLabel: formatTimestamp(new Date(entry.timestamp).toISOString()),
+            badge: entry.badge
+          }));
+      })()
+    : [];
+
   React.useEffect(() => {
     if (!item?.documents.length) {
       return;
@@ -5739,11 +5947,15 @@ function stripCurrencyFormatting(value: string) {
           <>
             {activeIntakeDetailTab === "pipeline-status" ? (
               <VentureStudioOpportunityTabContent
+                companyName={item.name}
+                location={item.location}
                 ownerLabel="Venture Studio Owner"
                 ownerName={item.ownerName || ""}
-                createdDate={toDateInputValue(item.createdAt)}
+                createdDate={formatDate(item.createdAt)}
                 activePipelineColumn={activePipelineColumn}
                 currentFocusLabel={activePipelineColumn ? currentFocusLabel(activePipelineColumn) : "Closed / Inactive"}
+                lastActivityLabel={meetingLastActivityLabel}
+                daysInStageLabel={meetingDaysInStageLabel}
                 stageOptions={PIPELINE_BOARD_COLUMNS.map((column) => ({
                   value: column.key,
                   label: currentFocusLabel(column.key)
@@ -5754,7 +5966,13 @@ function stripCurrencyFormatting(value: string) {
                     void updateColumn(nextColumn);
                   }
                 }}
+                isMovingStage={savingPhase}
                 pipelineStepLabel={detailedStepLabel(item.phase)}
+                healthSystemParticipation={meetingHealthSystemParticipation}
+                nextStepLabel={item.nextStep || ""}
+                nextStepDueLabel={item.nextStepDueAt ? formatDate(item.nextStepDueAt) : "No due date"}
+                openTasks={meetingOpenTasks}
+                activityTimeline={meetingActivityTimeline}
                 showStatusControls={showStatusControls}
                 statusValue={statusSelectValue}
                 statusOptions={statusSelectOptions}
@@ -5829,6 +6047,13 @@ function stripCurrencyFormatting(value: string) {
                   field: "screeningWebinarDate2At"
                 }}
                 onScreeningWebinarDate2Save={(nextValue) => void saveScreeningWebinarDate2(nextValue)}
+                leadSourceType={item.leadSourceType || ""}
+                leadSourceEntityId={item.leadSourceEntityId || ""}
+                leadSourceEntityType={item.leadSourceEntityType || ""}
+                leadSourceEntityName={item.leadSourceEntityName || ""}
+                onLeadSourceTypeSave={(nextType) => void saveLeadSourceType(nextType)}
+                onLeadSourceEntitySave={(id, entityType, name) => void saveLeadSourceEntity(id, entityType, name)}
+                onLeadSourceEntityClear={() => void clearLeadSourceEntity()}
               />
             ) : null}
 
