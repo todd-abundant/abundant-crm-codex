@@ -3,6 +3,7 @@ import { AddonAuthError, authenticateAddonRequest } from "@/lib/gmail-addon/auth
 import {
   buildAddCompanyCard,
   buildAddContactCard,
+  buildAddCoInvestorCard,
   buildAddHealthSystemCard,
   buildAddOpportunityCard,
   buildAttachNoteCard,
@@ -12,7 +13,15 @@ import {
   pushCard,
   updateCard
 } from "@/lib/gmail-addon/cards";
-import { attachEmailAsNotes, createCompanyFromForm, createContactFromForm, createHealthSystemFromForm, createOpportunityFromForm, loadOpportunityFormOptions } from "@/lib/gmail-addon/actions";
+import {
+  attachEmailAsNotes,
+  createCompanyFromForm,
+  createContactFromForm,
+  createCoInvestorFromForm,
+  createHealthSystemFromForm,
+  createOpportunityFromForm,
+  loadOpportunityFormOptions
+} from "@/lib/gmail-addon/actions";
 import { buildFallbackMessageMetadata, fetchMessageMetadata } from "@/lib/gmail-addon/gmail";
 import { findMatchesForMessage } from "@/lib/gmail-addon/match";
 import {
@@ -24,6 +33,7 @@ import {
 } from "@/lib/gmail-addon/types";
 
 const GMAIL_MESSAGE_METADATA_SCOPE = "https://www.googleapis.com/auth/gmail.addons.current.message.metadata";
+const GMAIL_MESSAGE_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.addons.current.message.readonly";
 
 function buildGoogleScopeRequest(scopes: string[]) {
   return {
@@ -33,15 +43,19 @@ function buildGoogleScopeRequest(scopes: string[]) {
   };
 }
 
-function shouldRequestMessageMetadataScope(args: {
+function requiredMessageScopes() {
+  return [GMAIL_MESSAGE_METADATA_SCOPE, GMAIL_MESSAGE_READONLY_SCOPE];
+}
+
+function missingMessageScopes(args: {
   messageId: string | null;
   gmailAccessToken: string | null;
   userOAuthToken: string | null;
   authorizedScopes: string[];
 }) {
-  if (!args.messageId) return false;
-  if (!args.gmailAccessToken && !args.userOAuthToken) return false;
-  return !args.authorizedScopes.includes(GMAIL_MESSAGE_METADATA_SCOPE);
+  if (!args.messageId) return [];
+  if (!args.gmailAccessToken && !args.userOAuthToken) return [];
+  return requiredMessageScopes().filter((scope) => !args.authorizedScopes.includes(scope));
 }
 
 function isGmailScopeError(error: unknown) {
@@ -87,21 +101,21 @@ export async function POST(request: Request) {
     const authorizedScopes = getAuthorizedScopes(event);
     const messageId = tokenContext.messageId || parameters.messageId || null;
 
-    if (
-      shouldRequestMessageMetadataScope({
-        messageId,
-        gmailAccessToken: tokenContext.gmailAccessToken,
-        userOAuthToken: tokenContext.userOAuthToken,
-        authorizedScopes
-      })
-    ) {
+    const missingScopes = missingMessageScopes({
+      messageId,
+      gmailAccessToken: tokenContext.gmailAccessToken,
+      userOAuthToken: tokenContext.userOAuthToken,
+      authorizedScopes
+    });
+
+    if (missingScopes.length > 0) {
       console.info("gmail_addon_scope_request", {
         actorId: actor.id,
         messageId,
-        requestedScopes: [GMAIL_MESSAGE_METADATA_SCOPE],
+        requestedScopes: missingScopes,
         authorizedScopes
       });
-      return NextResponse.json(buildGoogleScopeRequest([GMAIL_MESSAGE_METADATA_SCOPE]));
+      return NextResponse.json(buildGoogleScopeRequest(missingScopes));
     }
 
     let message = buildFallbackMessageMetadata(messageId);
@@ -116,10 +130,10 @@ export async function POST(request: Request) {
         console.info("gmail_addon_scope_request", {
           actorId: actor.id,
           messageId,
-          requestedScopes: [GMAIL_MESSAGE_METADATA_SCOPE],
+          requestedScopes: requiredMessageScopes(),
           authorizedScopes
         });
-        return NextResponse.json(buildGoogleScopeRequest([GMAIL_MESSAGE_METADATA_SCOPE]));
+        return NextResponse.json(buildGoogleScopeRequest(requiredMessageScopes()));
       }
 
       console.error("gmail_addon_message_fetch_error", {
@@ -136,15 +150,15 @@ export async function POST(request: Request) {
       subject: message.subject
     });
 
+    const matches = await findMatchesForMessage(message);
+
     if (action === "home") {
-      return NextResponse.json(pushCard(buildHomeCard({ message })));
+      return NextResponse.json(pushCard(buildHomeCard({ endpoint, message, matches })));
     }
 
     if (action === "refresh_home") {
-      return NextResponse.json(updateCard(buildHomeCard({ message })));
+      return NextResponse.json(updateCard(buildHomeCard({ endpoint, message, matches })));
     }
-
-    const matches = await findMatchesForMessage(message);
 
     if (action === "nav_attach_note") {
       return NextResponse.json(pushCard(buildAttachNoteCard({ endpoint, message, matches })));
@@ -160,6 +174,10 @@ export async function POST(request: Request) {
 
     if (action === "nav_add_health_system") {
       return NextResponse.json(pushCard(buildAddHealthSystemCard({ endpoint, message })));
+    }
+
+    if (action === "nav_add_co_investor") {
+      return NextResponse.json(pushCard(buildAddCoInvestorCard({ endpoint, message })));
     }
 
     if (action === "nav_add_opportunity") {
@@ -229,6 +247,18 @@ export async function POST(request: Request) {
       return NextResponse.json(updateCard(successCard, "Health system saved"));
     }
 
+    if (action === "submit_add_co_investor") {
+      const created = await createCoInvestorFromForm(event);
+      const successCard = buildSuccessCard(
+        "Co-investor saved",
+        `Created co-investor: ${created.name}`,
+        endpoint,
+        message
+      );
+
+      return NextResponse.json(updateCard(successCard, "Co-investor saved"));
+    }
+
     if (action === "submit_add_opportunity") {
       const created = await createOpportunityFromForm(event);
       const successCard = buildSuccessCard(
@@ -243,7 +273,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       updateCard(
-        buildHomeCard({ message }),
+        buildHomeCard({ endpoint, message, matches }),
         `Unknown action: ${action}. Returning to summary.`
       )
     );

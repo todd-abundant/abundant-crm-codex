@@ -5,14 +5,16 @@ export type AddonAction =
   | "nav_add_contact"
   | "nav_add_company"
   | "nav_add_health_system"
+  | "nav_add_co_investor"
   | "nav_add_opportunity"
   | "submit_attach_note"
   | "submit_add_contact"
   | "submit_add_company"
   | "submit_add_health_system"
+  | "submit_add_co_investor"
   | "submit_add_opportunity";
 
-export type AddonEntityKind = "CONTACT" | "COMPANY" | "HEALTH_SYSTEM" | "OPPORTUNITY";
+export type AddonEntityKind = "CONTACT" | "COMPANY" | "HEALTH_SYSTEM" | "CO_INVESTOR" | "OPPORTUNITY";
 
 type StringInputsValue = {
   value?: string[];
@@ -66,6 +68,7 @@ export type NormalizedMessageMetadata = {
   ccRaw: string;
   dateRaw: string;
   snippet: string;
+  bodyText: string;
 };
 
 export type MatchCandidate = {
@@ -75,16 +78,44 @@ export type MatchCandidate = {
   confidence: "high" | "medium" | "low";
 };
 
+export type OrganizationMatchKind = "COMPANY" | "HEALTH_SYSTEM" | "CO_INVESTOR";
+
+export type OrganizationMatchCandidate = MatchCandidate & {
+  kind: OrganizationMatchKind;
+};
+
 export type OpportunityMatchCandidate = MatchCandidate & {
   companyId: string;
+};
+
+export type SuggestedAttachTarget = {
+  kind: AddonEntityKind;
+  id: string;
 };
 
 export type MatchResults = {
   contacts: MatchCandidate[];
   companies: MatchCandidate[];
   healthSystems: MatchCandidate[];
+  coInvestors: MatchCandidate[];
   opportunities: OpportunityMatchCandidate[];
+  primaryContact: MatchCandidate | null;
+  primaryOrganization: OrganizationMatchCandidate | null;
+  suggestedAttachTargets: SuggestedAttachTarget[];
 };
+
+export function emptyMatchResults(): MatchResults {
+  return {
+    contacts: [],
+    companies: [],
+    healthSystems: [],
+    coInvestors: [],
+    opportunities: [],
+    primaryContact: null,
+    primaryOrganization: null,
+    suggestedAttachTargets: []
+  };
+}
 
 export function getEventParameters(event: GmailAddonEvent): Record<string, string> {
   return event.commonEventObject?.parameters || {};

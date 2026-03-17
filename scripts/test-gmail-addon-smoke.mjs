@@ -202,6 +202,15 @@ async function run() {
     assert(card?.header?.title === "Add Health System", "Add health system card title mismatch");
   });
 
+  await check("navigation card: add co-investor", async () => {
+    const response = await invoke(
+      buildEvent({ action: "nav_add_co_investor", parameters: { messageId: names.messageId } })
+    );
+    assertAddonCardResponse(response.status, response.json);
+    const card = extractCard(response.json);
+    assert(card?.header?.title === "Add Co-Investor", "Add co-investor card title mismatch");
+  });
+
   await check("navigation card: add opportunity", async () => {
     const response = await invoke(
       buildEvent({ action: "nav_add_opportunity", parameters: { messageId: names.messageId } })

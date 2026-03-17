@@ -224,6 +224,9 @@ export function AppHeader({
                   <Link href="/workbench" className="top-nav-dropdown-link" role="menuitem" onClick={closeOpenDropdowns}>
                     Workbench
                   </Link>
+                  <Link href="/beta/claude-data-partner" className="top-nav-dropdown-link" role="menuitem" onClick={closeOpenDropdowns}>
+                    Claude Data Partner
+                  </Link>
                 </div>
               </div>
             </>

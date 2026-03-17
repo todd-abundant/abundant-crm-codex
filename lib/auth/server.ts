@@ -314,6 +314,46 @@ export async function setGoogleApiSession(
   setGoogleApiCookie(response, token);
 }
 
+/**
+ * Uses the stored refresh token to obtain a new access token from Google.
+ * Returns the new access token and its expiry, or null on failure.
+ */
+export async function refreshGoogleAccessToken(
+  refreshToken: string
+): Promise<{ accessToken: string; accessTokenExpiresAt: number } | null> {
+  const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) return null;
+
+  try {
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
+      cache: 'no-store',
+    });
+
+    if (!res.ok) return null;
+
+    const data = (await res.json()) as { access_token?: string; expires_in?: number };
+    if (!data.access_token) return null;
+
+    const accessTokenExpiresAt =
+      typeof data.expires_in === 'number'
+        ? Date.now() + data.expires_in * 1000
+        : Date.now() + 3600 * 1000;
+
+    return { accessToken: data.access_token, accessTokenExpiresAt };
+  } catch {
+    return null;
+  }
+}
+
 export async function readGoogleApiSession() {
   const cookieStore = await cookies();
   const token = cookieStore.get(GOOGLE_API_COOKIE_NAME)?.value;

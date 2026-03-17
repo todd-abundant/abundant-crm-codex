@@ -1,6 +1,9 @@
+import { defaultWebsiteFromMessage, inferMessageEntityDefaults } from "@/lib/gmail-addon/inference";
 import {
+  type MatchCandidate,
   type MatchResults,
-  type NormalizedMessageMetadata
+  type NormalizedMessageMetadata,
+  type OrganizationMatchKind
 } from "@/lib/gmail-addon/types";
 
 type CardWidget = Record<string, unknown>;
@@ -30,10 +33,32 @@ type AddonResponse = {
   };
 };
 
+type ButtonSpec = {
+  text: string;
+  endpoint: string;
+  parameters: Record<string, string | null | undefined>;
+};
+
 function toActionParameters(parameters: Record<string, string | null | undefined>) {
   return Object.entries(parameters)
     .filter((entry): entry is [string, string] => Boolean(entry[0]) && typeof entry[1] === "string")
     .map(([key, value]) => ({ key, value }));
+}
+
+function buttonListWidget(buttons: ButtonSpec[]): CardWidget {
+  return {
+    buttonList: {
+      buttons: buttons.map((button) => ({
+        text: button.text,
+        onClick: {
+          action: {
+            function: button.endpoint,
+            parameters: toActionParameters(button.parameters)
+          }
+        }
+      }))
+    }
+  };
 }
 
 function buttonWidget(
@@ -41,21 +66,7 @@ function buttonWidget(
   endpoint: string,
   parameters: Record<string, string | null | undefined>
 ): CardWidget {
-  return {
-    buttonList: {
-      buttons: [
-        {
-          text,
-          onClick: {
-            action: {
-              function: endpoint,
-              parameters: toActionParameters(parameters)
-            }
-          }
-        }
-      ]
-    }
-  };
+  return buttonListWidget([{ text, endpoint, parameters }]);
 }
 
 function dualButtonWidget(
@@ -66,30 +77,10 @@ function dualButtonWidget(
   secondaryEndpoint: string,
   secondaryParameters: Record<string, string | null | undefined>
 ): CardWidget {
-  return {
-    buttonList: {
-      buttons: [
-        {
-          text: primaryText,
-          onClick: {
-            action: {
-              function: primaryEndpoint,
-              parameters: toActionParameters(primaryParameters)
-            }
-          }
-        },
-        {
-          text: secondaryText,
-          onClick: {
-            action: {
-              function: secondaryEndpoint,
-              parameters: toActionParameters(secondaryParameters)
-            }
-          }
-        }
-      ]
-    }
-  };
+  return buttonListWidget([
+    { text: primaryText, endpoint: primaryEndpoint, parameters: primaryParameters },
+    { text: secondaryText, endpoint: secondaryEndpoint, parameters: secondaryParameters }
+  ]);
 }
 
 function textInputWidget(name: string, label: string, value?: string, multiline?: boolean): CardWidget {
@@ -129,6 +120,76 @@ function baseCard(title: string, subtitle: string | undefined, sections: CardSec
   };
 }
 
+function suggestedWebsite(message: NormalizedMessageMetadata) {
+  return defaultWebsiteFromMessage(message);
+}
+
+function confidenceLabel(confidence: MatchCandidate["confidence"]) {
+  return `${confidence[0]?.toUpperCase() || ""}${confidence.slice(1)} confidence`;
+}
+
+function organizationKindLabel(kind: OrganizationMatchKind) {
+  if (kind === "COMPANY") return "Company";
+  if (kind === "HEALTH_SYSTEM") return "Health system";
+  return "Co-investor";
+}
+
+function matchRowWidget(args: {
+  label: string;
+  candidate: MatchCandidate | null;
+  emptyText: string;
+  textPrefix?: string;
+}) {
+  if (!args.candidate) {
+    return {
+      decoratedText: {
+        topLabel: args.label,
+        text: args.emptyText,
+        wrapText: true
+      }
+    };
+  }
+
+  return {
+    decoratedText: {
+      topLabel: `${args.label} · ${confidenceLabel(args.candidate.confidence)}`,
+      text: args.textPrefix ? `${args.textPrefix}: ${args.candidate.label}` : args.candidate.label,
+      bottomLabel: args.candidate.subtitle || undefined,
+      wrapText: true
+    }
+  };
+}
+
+function homeSummaryText(matches: MatchResults) {
+  if (matches.primaryContact && matches.primaryOrganization) {
+    return `Attach Email as Note will preselect ${matches.primaryContact.label} and ${matches.primaryOrganization.label}.`;
+  }
+
+  if (matches.primaryContact) {
+    return `Matched contact ${matches.primaryContact.label}. No likely employer record was found yet.`;
+  }
+
+  if (matches.primaryOrganization) {
+    return `Matched likely employer ${matches.primaryOrganization.label}. Add the sender as a contact to link them.`;
+  }
+
+  return "No existing contact or organization was matched from this sender yet.";
+}
+
+function topCandidate(candidates: MatchCandidate[]) {
+  const top = candidates[0] || null;
+  if (!top || top.confidence === "low") return null;
+  return top;
+}
+
+function chunkButtons(buttons: ButtonSpec[], size: number) {
+  const chunks: ButtonSpec[][] = [];
+  for (let index = 0; index < buttons.length; index += size) {
+    chunks.push(buttons.slice(index, index + size));
+  }
+  return chunks;
+}
+
 export function pushCard(card: AddonCard, notification?: string): AddonResponse {
   return {
     action: {
@@ -163,15 +224,88 @@ export function buildErrorCard(message: string) {
 }
 
 export function buildHomeCard(args: {
+  endpoint: string;
   message: NormalizedMessageMetadata;
+  matches: MatchResults;
 }) {
-  const { message } = args;
-
+  const { endpoint, message, matches } = args;
+  const inference = inferMessageEntityDefaults(message);
   const metadataAvailable = Boolean(message.fromRaw || message.fromEmail || message.subject || message.dateRaw);
+  const quickActions: ButtonSpec[] = [];
+
+  if (matches.suggestedAttachTargets.length > 0) {
+    quickActions.push({
+      text: "Attach Email as Note",
+      endpoint,
+      parameters: {
+        addonAction: "nav_attach_note",
+        messageId: message.messageId,
+        threadId: message.threadId
+      }
+    });
+  }
+
+  if (!matches.primaryContact) {
+    quickActions.push({
+      text: "Add Contact",
+      endpoint,
+      parameters: {
+        addonAction: "nav_add_contact",
+        messageId: message.messageId,
+        threadId: message.threadId
+      }
+    });
+  }
+
+  if (!matches.primaryOrganization) {
+    quickActions.push(
+      {
+        text: "Add Company",
+        endpoint,
+        parameters: {
+          addonAction: "nav_add_company",
+          messageId: message.messageId,
+          threadId: message.threadId
+        }
+      },
+      {
+        text: "Add Health System",
+        endpoint,
+        parameters: {
+          addonAction: "nav_add_health_system",
+          messageId: message.messageId,
+          threadId: message.threadId
+        }
+      },
+      {
+        text: "Add Co-Investor",
+        endpoint,
+        parameters: {
+          addonAction: "nav_add_co_investor",
+          messageId: message.messageId,
+          threadId: message.threadId
+        }
+      }
+    );
+  }
+
+  if (matches.companies.length > 0) {
+    quickActions.push({
+      text: "Add Opportunity",
+      endpoint,
+      parameters: {
+        addonAction: "nav_add_opportunity",
+        messageId: message.messageId,
+        threadId: message.threadId
+      }
+    });
+  }
+
+  const actionWidgets = chunkButtons(quickActions, 2).map((buttons) => buttonListWidget(buttons));
 
   const sections: CardSection[] = [
     {
-      header: "Email preview",
+      header: "Current email",
       widgets: [
         {
           decoratedText: {
@@ -214,23 +348,82 @@ export function buildHomeCard(args: {
           }
         }
       ]
+    },
+    {
+      header: "CRM status",
+      widgets: [
+        matchRowWidget({
+          label: "Contact",
+          candidate: matches.primaryContact,
+          emptyText: "No likely contact match"
+        }),
+        matchRowWidget({
+          label: "Company",
+          candidate: topCandidate(matches.companies),
+          emptyText: "No likely company match"
+        }),
+        matchRowWidget({
+          label: "Health system",
+          candidate: topCandidate(matches.healthSystems),
+          emptyText: "No likely health system match"
+        }),
+        matchRowWidget({
+          label: "Co-investor",
+          candidate: topCandidate(matches.coInvestors),
+          emptyText: "No likely co-investor match"
+        }),
+        ...(!matches.primaryOrganization && inference.organizationName
+          ? [
+              {
+                decoratedText: {
+                  topLabel: "Inferred organization",
+                  text: inference.organizationName,
+                  bottomLabel: inference.suggestedEntityKind
+                    ? organizationKindLabel(inference.suggestedEntityKind)
+                    : undefined,
+                  wrapText: true
+                }
+              }
+            ]
+          : []),
+        {
+          textParagraph: {
+            text: homeSummaryText(matches)
+          }
+        }
+      ]
     }
   ];
 
-  return baseCard("Abundant CRM", "Gmail message preview", sections);
+  if (actionWidgets.length > 0) {
+    sections.push({
+      header: "Quick actions",
+      widgets: actionWidgets
+    });
+  }
+
+  return baseCard("Abundant CRM", "Gmail assistant", sections);
 }
 
 function targetItemsFromMatches(matches: MatchResults) {
+  const selectedKeys = new Set(matches.suggestedAttachTargets.map((target) => `${target.kind}:${target.id}`));
   const items: Array<{ text: string; value: string; selected?: boolean }> = [];
 
   for (const contact of matches.contacts.slice(0, 4)) {
-    items.push({ text: `Contact: ${contact.label}`, value: `CONTACT:${contact.id}` });
+    const value = `CONTACT:${contact.id}`;
+    items.push({ text: `Contact: ${contact.label}`, value, selected: selectedKeys.has(value) });
   }
   for (const company of matches.companies.slice(0, 4)) {
-    items.push({ text: `Company: ${company.label}`, value: `COMPANY:${company.id}` });
+    const value = `COMPANY:${company.id}`;
+    items.push({ text: `Company: ${company.label}`, value, selected: selectedKeys.has(value) });
   }
   for (const healthSystem of matches.healthSystems.slice(0, 4)) {
-    items.push({ text: `Health system: ${healthSystem.label}`, value: `HEALTH_SYSTEM:${healthSystem.id}` });
+    const value = `HEALTH_SYSTEM:${healthSystem.id}`;
+    items.push({ text: `Health system: ${healthSystem.label}`, value, selected: selectedKeys.has(value) });
+  }
+  for (const coInvestor of matches.coInvestors.slice(0, 4)) {
+    const value = `CO_INVESTOR:${coInvestor.id}`;
+    items.push({ text: `Co-investor: ${coInvestor.label}`, value, selected: selectedKeys.has(value) });
   }
   for (const opportunity of matches.opportunities.slice(0, 4)) {
     items.push({ text: `Health System Opportunity: ${opportunity.label}`, value: `OPPORTUNITY:${opportunity.id}` });
@@ -255,8 +448,10 @@ export function buildAttachNoteCard(args: {
           textParagraph: {
             text:
               targetItems.length > 0
-                ? "Select one or more records. The add-on stores the email metadata and optional analyst note."
-                : "No suggested records found. Use create actions first, then return to attach this message."
+                ? matches.suggestedAttachTargets.length > 0
+                  ? "Matched contact and organization targets are preselected. Adjust them if needed, then save the note."
+                  : "Select one or more records. The add-on stores the email metadata and optional analyst note."
+                : "No suggested records found. Create the contact or organization first, then return to attach this message."
           }
         },
         ...(targetItems.length > 0
@@ -282,24 +477,52 @@ export function buildAddContactCard(args: {
   matches: MatchResults;
 }) {
   const { endpoint, message, matches } = args;
+  const inference = inferMessageEntityDefaults(message);
+  const suggestedPrincipalValue = matches.primaryOrganization
+    ? `${matches.primaryOrganization.kind}:${matches.primaryOrganization.id}`
+    : "NONE";
   const principalItems: Array<{ text: string; value: string; selected?: boolean }> = [
-    { text: "No principal entity", value: "NONE", selected: true }
+    { text: "No principal entity", value: "NONE", selected: suggestedPrincipalValue === "NONE" }
   ];
 
   for (const company of matches.companies.slice(0, 5)) {
-    principalItems.push({ text: `Company: ${company.label}`, value: `COMPANY:${company.id}` });
+    principalItems.push({
+      text: `Company: ${company.label}`,
+      value: `COMPANY:${company.id}`,
+      selected: suggestedPrincipalValue === `COMPANY:${company.id}`
+    });
   }
   for (const healthSystem of matches.healthSystems.slice(0, 5)) {
-    principalItems.push({ text: `Health system: ${healthSystem.label}`, value: `HEALTH_SYSTEM:${healthSystem.id}` });
+    principalItems.push({
+      text: `Health system: ${healthSystem.label}`,
+      value: `HEALTH_SYSTEM:${healthSystem.id}`,
+      selected: suggestedPrincipalValue === `HEALTH_SYSTEM:${healthSystem.id}`
+    });
+  }
+  for (const coInvestor of matches.coInvestors.slice(0, 5)) {
+    principalItems.push({
+      text: `Co-investor: ${coInvestor.label}`,
+      value: `CO_INVESTOR:${coInvestor.id}`,
+      selected: suggestedPrincipalValue === `CO_INVESTOR:${coInvestor.id}`
+    });
   }
 
   return baseCard("Add Contact", "Create or match contact from sender", [
     {
       header: "Contact details",
       widgets: [
+        ...(matches.primaryOrganization
+          ? [
+              {
+                textParagraph: {
+                  text: `Suggested employer: ${organizationKindLabel(matches.primaryOrganization.kind)} ${matches.primaryOrganization.label}`
+                }
+              }
+            ]
+          : []),
         textInputWidget("contactName", "Name", message.fromName),
         textInputWidget("contactEmail", "Email", message.fromEmail),
-        textInputWidget("contactTitle", "Title", ""),
+        textInputWidget("contactTitle", "Title", inference.contactTitle || ""),
         selectionWidget("contactPrincipal", "Principal entity", "DROPDOWN", principalItems),
         dualButtonWidget(
           "Save Contact",
@@ -316,13 +539,14 @@ export function buildAddContactCard(args: {
 
 export function buildAddCompanyCard(args: { endpoint: string; message: NormalizedMessageMetadata }) {
   const { endpoint, message } = args;
+  const inference = inferMessageEntityDefaults(message);
 
   return baseCard("Add Company", "Create a company record", [
     {
       header: "Company details",
       widgets: [
-        textInputWidget("companyName", "Company name", ""),
-        textInputWidget("companyWebsite", "Website", ""),
+        textInputWidget("companyName", "Company name", inference.organizationName || ""),
+        textInputWidget("companyWebsite", "Website", suggestedWebsite(message)),
         textInputWidget("companyHeadquartersCity", "HQ city", ""),
         textInputWidget("companyHeadquartersState", "HQ state", ""),
         textInputWidget("companyHeadquartersCountry", "HQ country", ""),
@@ -346,13 +570,14 @@ export function buildAddCompanyCard(args: { endpoint: string; message: Normalize
 
 export function buildAddHealthSystemCard(args: { endpoint: string; message: NormalizedMessageMetadata }) {
   const { endpoint, message } = args;
+  const inference = inferMessageEntityDefaults(message);
 
   return baseCard("Add Health System", "Create a health system record", [
     {
       header: "Health system details",
       widgets: [
-        textInputWidget("healthSystemName", "Health system name", ""),
-        textInputWidget("healthSystemWebsite", "Website", ""),
+        textInputWidget("healthSystemName", "Health system name", inference.organizationName || ""),
+        textInputWidget("healthSystemWebsite", "Website", suggestedWebsite(message)),
         textInputWidget("healthSystemHeadquartersCity", "HQ city", ""),
         textInputWidget("healthSystemHeadquartersState", "HQ state", ""),
         textInputWidget("healthSystemHeadquartersCountry", "HQ country", ""),
@@ -365,6 +590,44 @@ export function buildAddHealthSystemCard(args: { endpoint: string; message: Norm
           endpoint,
           {
             addonAction: "submit_add_health_system",
+            messageId: message.messageId,
+            threadId: message.threadId
+          },
+          "Back",
+          endpoint,
+          { addonAction: "refresh_home", messageId: message.messageId, threadId: message.threadId }
+        )
+      ]
+    }
+  ]);
+}
+
+export function buildAddCoInvestorCard(args: { endpoint: string; message: NormalizedMessageMetadata }) {
+  const { endpoint, message } = args;
+  const inference = inferMessageEntityDefaults(message);
+
+  return baseCard("Add Co-Investor", "Create a co-investor record", [
+    {
+      header: "Co-investor details",
+      widgets: [
+        textInputWidget("coInvestorName", "Co-investor name", inference.organizationName || ""),
+        textInputWidget("coInvestorWebsite", "Website", suggestedWebsite(message)),
+        textInputWidget("coInvestorHeadquartersCity", "HQ city", ""),
+        textInputWidget("coInvestorHeadquartersState", "HQ state", ""),
+        textInputWidget("coInvestorHeadquartersCountry", "HQ country", ""),
+        selectionWidget("coInvestorIsSeedInvestor", "Seed investor", "DROPDOWN", [
+          { text: "No", value: "false", selected: true },
+          { text: "Yes", value: "true" }
+        ]),
+        selectionWidget("coInvestorIsSeriesAInvestor", "Series A investor", "DROPDOWN", [
+          { text: "No", value: "false", selected: true },
+          { text: "Yes", value: "true" }
+        ]),
+        dualButtonWidget(
+          "Save Co-Investor",
+          endpoint,
+          {
+            addonAction: "submit_add_co_investor",
             messageId: message.messageId,
             threadId: message.threadId
           },

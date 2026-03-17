@@ -9,6 +9,7 @@ import { createEntityNote, type EntityNoteAffiliation } from "@/lib/entity-recor
 import {
   resolveOrCreateContact,
   upsertCompanyContactLink,
+  upsertCoInvestorContactLink,
   upsertHealthSystemContactLink
 } from "@/lib/contact-resolution";
 import {
@@ -53,7 +54,13 @@ function parseAttachTarget(value: string): AttachTarget | null {
   if (!id) return null;
 
   const kind = kindRaw?.trim().toUpperCase();
-  if (kind !== "CONTACT" && kind !== "COMPANY" && kind !== "HEALTH_SYSTEM" && kind !== "OPPORTUNITY") {
+  if (
+    kind !== "CONTACT" &&
+    kind !== "COMPANY" &&
+    kind !== "HEALTH_SYSTEM" &&
+    kind !== "CO_INVESTOR" &&
+    kind !== "OPPORTUNITY"
+  ) {
     return null;
   }
 
@@ -71,7 +78,7 @@ function parsePrincipalSelection(value: string | null) {
   const kind = kindRaw?.trim().toUpperCase();
 
   if (!id) return null;
-  if (kind !== "COMPANY" && kind !== "HEALTH_SYSTEM") return null;
+  if (kind !== "COMPANY" && kind !== "HEALTH_SYSTEM" && kind !== "CO_INVESTOR") return null;
 
   return {
     kind,
@@ -79,13 +86,16 @@ function parsePrincipalSelection(value: string | null) {
   };
 }
 
-function toEntityKind(kind: Exclude<AddonEntityKind, "OPPORTUNITY">): "CONTACT" | "COMPANY" | "HEALTH_SYSTEM" {
+function toEntityKind(
+  kind: Exclude<AddonEntityKind, "OPPORTUNITY">
+): "CONTACT" | "COMPANY" | "HEALTH_SYSTEM" | "CO_INVESTOR" {
   if (kind === "CONTACT") return "CONTACT";
   if (kind === "COMPANY") return "COMPANY";
+  if (kind === "CO_INVESTOR") return "CO_INVESTOR";
   return "HEALTH_SYSTEM";
 }
 
-type CapturableEntityKind = "CONTACT" | "COMPANY" | "HEALTH_SYSTEM";
+type CapturableEntityKind = "CONTACT" | "COMPANY" | "HEALTH_SYSTEM" | "CO_INVESTOR";
 
 function buildEmailNoteBody(args: {
   message: NormalizedMessageMetadata;
@@ -437,6 +447,31 @@ export async function createContactFromForm(args: {
       });
     }
 
+    if (principalSelection.kind === "CO_INVESTOR") {
+      const exists = await tx.coInvestor.findUnique({
+        where: { id: principalSelection.id },
+        select: { id: true }
+      });
+      if (!exists) {
+        throw new Error("Selected principal co-investor was not found.");
+      }
+
+      await upsertCoInvestorContactLink(tx, {
+        contactId: resolved.contact.id,
+        coInvestorId: principalSelection.id,
+        roleType: "INVESTOR_PARTNER" as ContactRoleType,
+        title
+      });
+
+      await tx.contact.update({
+        where: { id: resolved.contact.id },
+        data: {
+          principalEntityType: "CO_INVESTOR",
+          principalEntityId: principalSelection.id
+        }
+      });
+    }
+
     if (principalSelection.kind === "COMPANY") {
       const exists = await tx.company.findUnique({
         where: { id: principalSelection.id },
@@ -530,6 +565,40 @@ export async function createHealthSystemFromForm(event: GmailAddonEvent) {
       headquartersCountry,
       isAllianceMember,
       isLimitedPartner: false,
+      researchStatus: "DRAFT",
+      researchUpdatedAt: new Date()
+    },
+    select: {
+      id: true,
+      name: true
+    }
+  });
+
+  return created;
+}
+
+export async function createCoInvestorFromForm(event: GmailAddonEvent) {
+  const name = toNullableTrimmed(getFormValue(event, "coInvestorName"));
+  if (!name) {
+    throw new Error("Co-investor name is required.");
+  }
+
+  const website = toNullableTrimmed(getFormValue(event, "coInvestorWebsite"));
+  const headquartersCity = toNullableTrimmed(getFormValue(event, "coInvestorHeadquartersCity"));
+  const headquartersState = toNullableTrimmed(getFormValue(event, "coInvestorHeadquartersState"));
+  const headquartersCountry = toNullableTrimmed(getFormValue(event, "coInvestorHeadquartersCountry"));
+  const isSeedInvestor = isTruthyInput(getFormValue(event, "coInvestorIsSeedInvestor"));
+  const isSeriesAInvestor = isTruthyInput(getFormValue(event, "coInvestorIsSeriesAInvestor"));
+
+  const created = await prisma.coInvestor.create({
+    data: {
+      name,
+      website,
+      headquartersCity,
+      headquartersState,
+      headquartersCountry,
+      isSeedInvestor,
+      isSeriesAInvestor,
       researchStatus: "DRAFT",
       researchUpdatedAt: new Date()
     },

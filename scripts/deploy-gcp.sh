@@ -30,6 +30,7 @@ Optional environment variables:
   GCP_REQUEST_TIMEOUT                  Request timeout in seconds (default: 300).
   GCP_MIGRATION_TIMEOUT                Migration job timeout (default: 10m).
   ALLOW_UNAUTHENTICATED                true/false (default: true).
+  SKIP_MIGRATIONS                      true/false to skip Prisma migration job (default: false).
   OPENAI_MODEL                         Default OPENAI_MODEL env var on service.
   OPENAI_SEARCH_MODEL                  Default OPENAI_SEARCH_MODEL env var on service.
   GMAIL_ADDON_ENABLED                  Enable Gmail add-on endpoint behavior (default: preserve current service value, else false).
@@ -53,6 +54,23 @@ require_command() {
   if ! command -v "$cmd" >/dev/null 2>&1; then
     die "Required command '$cmd' is not installed."
   fi
+}
+
+normalize_bool() {
+  local value="$1"
+  local name="$2"
+  value="$(printf "%s" "$value" | tr '[:upper:]' '[:lower:]')"
+  case "$value" in
+    ""|true|1|yes|on)
+      echo true
+      ;;
+    false|0|no|off)
+      echo false
+      ;;
+    *)
+      die "Environment variable '${name}' must be true/false, got '${1}'."
+      ;;
+  esac
 }
 
 require_command gcloud
@@ -101,6 +119,8 @@ MEMORY="${GCP_MEMORY:-1Gi}"
 REQUEST_TIMEOUT="${GCP_REQUEST_TIMEOUT:-300}"
 MIGRATION_TIMEOUT="${GCP_MIGRATION_TIMEOUT:-10m}"
 ALLOW_UNAUTHENTICATED="${ALLOW_UNAUTHENTICATED:-true}"
+ALLOW_UNAUTHENTICATED="$(normalize_bool "$ALLOW_UNAUTHENTICATED" "ALLOW_UNAUTHENTICATED")"
+SKIP_MIGRATIONS="$(normalize_bool "${SKIP_MIGRATIONS:-false}" "SKIP_MIGRATIONS")"
 
 RUNTIME_SERVICE_ACCOUNT_NAME="${GCP_RUNTIME_SERVICE_ACCOUNT_NAME:-abundant-crm-runner}"
 EXPLICIT_RUNTIME_SERVICE_ACCOUNT_EMAIL="${GCP_RUNTIME_SERVICE_ACCOUNT_EMAIL:-}"
@@ -289,11 +309,15 @@ else
     --max-retries 0 >/dev/null
 fi
 
-log "Running Prisma migrations with Cloud Run Job..."
-gcloud run jobs execute "$MIGRATION_JOB_NAME" \
-  --project "$PROJECT_ID" \
-  --region "$REGION" \
-  --wait >/dev/null
+if [ "$SKIP_MIGRATIONS" = "true" ]; then
+  log "Skipping migrations because SKIP_MIGRATIONS=true"
+else
+  log "Running Prisma migrations with Cloud Run Job..."
+  gcloud run jobs execute "$MIGRATION_JOB_NAME" \
+    --project "$PROJECT_ID" \
+    --region "$REGION" \
+    --wait >/dev/null
+fi
 
 DEPLOY_CMD=(
   gcloud run deploy "$SERVICE_NAME"

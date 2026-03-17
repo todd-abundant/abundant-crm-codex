@@ -10,7 +10,12 @@ type GmailMessageResponse = {
   threadId?: string;
   snippet?: string;
   payload?: {
+    mimeType?: string;
+    body?: {
+      data?: string;
+    };
     headers?: GmailMessageHeader[];
+    parts?: Array<GmailMessageResponse["payload"]>;
   };
 };
 
@@ -31,6 +36,55 @@ function normalizeHeaderMap(headers: GmailMessageHeader[] | undefined) {
     map.set(key, value);
   }
   return map;
+}
+
+function decodeBase64Url(value: string | undefined) {
+  if (!value) return "";
+
+  try {
+    const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+    return Buffer.from(normalized, "base64").toString("utf8");
+  } catch {
+    return "";
+  }
+}
+
+function stripHtml(value: string) {
+  return value
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function extractBodyText(payload: GmailMessageResponse["payload"] | undefined): string {
+  if (!payload) return "";
+
+  const mimeType = (payload.mimeType || "").toLowerCase();
+  if (mimeType === "text/plain") {
+    return decodeBase64Url(payload.body?.data).trim();
+  }
+
+  if (mimeType === "text/html") {
+    return stripHtml(decodeBase64Url(payload.body?.data));
+  }
+
+  for (const part of payload.parts || []) {
+    const extracted = extractBodyText(part);
+    if (extracted) return extracted;
+  }
+
+  const directBody = decodeBase64Url(payload.body?.data).trim();
+  return directBody ? stripHtml(directBody) : "";
 }
 
 function parseAddress(raw: string) {
@@ -79,7 +133,8 @@ export function buildFallbackMessageMetadata(messageId: string | null): Normaliz
     toRaw: "",
     ccRaw: "",
     dateRaw: "",
-    snippet: ""
+    snippet: "",
+    bodyText: ""
   };
 }
 
@@ -93,7 +148,7 @@ export async function fetchMessageMetadata(input: GmailMessageFetchInput): Promi
   }
 
   const url = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(input.messageId)}`);
-  url.searchParams.set("format", "metadata");
+  url.searchParams.set("format", "full");
   for (const header of METADATA_HEADERS) {
     url.searchParams.append("metadataHeaders", header);
   }
@@ -160,6 +215,7 @@ export async function fetchMessageMetadata(input: GmailMessageFetchInput): Promi
 
   const fromRaw = headers.get("from") || "";
   const parsedFrom = parseAddress(fromRaw);
+  const bodyText = extractBodyText(payload.payload);
 
   return {
     messageId: payload.id || input.messageId,
@@ -172,6 +228,7 @@ export async function fetchMessageMetadata(input: GmailMessageFetchInput): Promi
     toRaw: headers.get("to") || "",
     ccRaw: headers.get("cc") || "",
     dateRaw: headers.get("date") || "",
-    snippet: payload.snippet || ""
+    snippet: payload.snippet || "",
+    bodyText
   };
 }
