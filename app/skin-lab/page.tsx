@@ -1057,12 +1057,12 @@ export default function SkinLabPage() {
     {
       id: "search",
       label: "Search + edit interaction",
-      element: searchAndEditPreviewShell(activePack.id)
+      element: searchAndEditPreviewShell()
     },
     {
       id: "execution",
       label: "Execution board",
-      element: executionBoardPreviewShell(activePack.id)
+      element: executionBoardPreviewShell()
     }
   ];
 

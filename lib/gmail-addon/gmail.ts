@@ -88,7 +88,7 @@ export async function fetchMessageMetadata(input: GmailMessageFetchInput): Promi
     return buildFallbackMessageMetadata(null);
   }
 
-  if (!input.gmailAccessToken) {
+  if (!input.gmailAccessToken && !input.userOAuthToken) {
     return buildFallbackMessageMetadata(input.messageId);
   }
 
@@ -100,7 +100,7 @@ export async function fetchMessageMetadata(input: GmailMessageFetchInput): Promi
 
   const attempts: Array<{ name: string; headers: Record<string, string> }> = [];
 
-  if (input.userOAuthToken) {
+  if (input.userOAuthToken && input.gmailAccessToken) {
     attempts.push({
       name: "user_oauth_plus_gmail_access_header",
       headers: {
@@ -110,12 +110,14 @@ export async function fetchMessageMetadata(input: GmailMessageFetchInput): Promi
     });
   }
 
-  attempts.push({
-    name: "gmail_access_token_as_bearer",
-    headers: {
-      Authorization: `Bearer ${input.gmailAccessToken}`
-    }
-  });
+  if (input.gmailAccessToken) {
+    attempts.push({
+      name: "gmail_access_token_as_bearer",
+      headers: {
+        Authorization: `Bearer ${input.gmailAccessToken}`
+      }
+    });
+  }
 
   if (input.userOAuthToken) {
     attempts.push({

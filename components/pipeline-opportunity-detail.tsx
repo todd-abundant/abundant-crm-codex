@@ -1618,7 +1618,7 @@ export function PipelineOpportunityDetailView({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [item?.isScreeningStage, screeningDetailView, itemId]);
+  }, [item, item?.isScreeningStage, screeningDetailView, itemId]);
 
   React.useEffect(() => {
     if (!item?.isScreeningStage) {
@@ -1662,7 +1662,7 @@ export function PipelineOpportunityDetailView({
     if (item.isScreeningStage) return;
     if (activeIntakeDetailTab !== "screening-materials") return;
     setActiveIntakeDetailTab("pipeline-status");
-  }, [item?.isScreeningStage, activeIntakeDetailTab]);
+  }, [item, item?.isScreeningStage, activeIntakeDetailTab]);
 
   React.useEffect(() => {
     if (!item) return;
@@ -3528,7 +3528,7 @@ export function PipelineOpportunityDetailView({
     await updatePipelineCardMeta({ valueProp: trimmed });
   }
 
-  async function saveSubmittingHealthSystem(id: string | null, name: string | null) {
+  async function saveSubmittingHealthSystem(id: string | null) {
     if (!item) return;
     await updatePipelineCardMeta({
       submittingHealthSystemId: id || null
@@ -6156,7 +6156,7 @@ function stripCurrencyFormatting(value: string) {
                 onAmountRaisingSave={(v) => void saveAmountRaising(v)}
                 onTargetCustomerSave={(v) => void saveTargetCustomer(v)}
                 onValuePropSave={(v) => void saveValueProp(v)}
-                onSubmittingHealthSystemSave={(id, name) => void saveSubmittingHealthSystem(id, name)}
+                onSubmittingHealthSystemSave={(id) => void saveSubmittingHealthSystem(id)}
                 onIntakeStepSave={(v) => void saveIntakeStep(v)}
               />
             ) : null}

@@ -208,7 +208,7 @@ async function run() {
     );
     assertAddonCardResponse(response.status, response.json);
     const card = extractCard(response.json);
-    assert(card?.header?.title === "Add Opportunity", "Add opportunity card title mismatch");
+    assert(card?.header?.title === "Add Health System Opportunity", "Add opportunity card title mismatch");
   });
 
   if (allowWrites) {

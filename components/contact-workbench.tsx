@@ -610,22 +610,6 @@ export function ContactWorkbench() {
   }, [records, returnToRecordId, selectedRecordId]);
 
   React.useEffect(() => {
-    if (activeDetailTab !== "overview") return;
-    if (!selectedRecord || !detailDraft) return;
-    if (!overviewDirty) return;
-    if (savingOverview) return;
-    if (!trim(detailDraft.name)) return;
-    if (detailDraft.principalEntityType && !detailDraft.principalEntityId) return;
-
-    const draftSnapshot = detailDraft;
-    const timeout = window.setTimeout(() => {
-      void saveOverview(draftSnapshot);
-    }, 450);
-
-    return () => window.clearTimeout(timeout);
-  }, [activeDetailTab, detailDraft, overviewDirty, savingOverview, saveOverview, selectedRecord]);
-
-  React.useEffect(() => {
     setCreatePrincipalRoleType(defaultRoleTypeForAssociation(createPrincipalType));
     setCreatePrincipalEntityId("");
     setCreatePrincipalRelationshipTitle("");
@@ -780,6 +764,22 @@ export function ContactWorkbench() {
       setSavingOverview(false);
     }
   }, [detailDraft, loadRecords, selectedRecord]);
+
+  React.useEffect(() => {
+    if (activeDetailTab !== "overview") return;
+    if (!selectedRecord || !detailDraft) return;
+    if (!overviewDirty) return;
+    if (savingOverview) return;
+    if (!trim(detailDraft.name)) return;
+    if (detailDraft.principalEntityType && !detailDraft.principalEntityId) return;
+
+    const draftSnapshot = detailDraft;
+    const timeout = window.setTimeout(() => {
+      void saveOverview(draftSnapshot);
+    }, 450);
+
+    return () => window.clearTimeout(timeout);
+  }, [activeDetailTab, detailDraft, overviewDirty, saveOverview, savingOverview, selectedRecord]);
 
   async function deleteSelectedContact() {
     if (!selectedRecord) return;
