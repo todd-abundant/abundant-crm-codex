@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { runHealthSystemSignalsSweep } from "@/lib/health-system-signals";
 import { stakeholderSignalsConfig, type DigestKind } from "@/lib/stakeholder-signals-config";
 
-type AllianceDigestStatus = "YES" | "PROSPECT" | "NO";
+type AllianceDigestStatus = "YES" | "PROSPECT" | "REVISIT_LATER" | "NO";
 
 type WeeklyDigestItem = {
   subjectName: string;
@@ -200,18 +200,21 @@ function windowWhere(start: Date, endExclusive: Date) {
 function alliancePriorityRank(status: AllianceDigestStatus | null | undefined) {
   if (status === "YES") return 0;
   if (status === "PROSPECT") return 1;
-  return 2;
+  if (status === "REVISIT_LATER") return 2;
+  return 3;
 }
 
 function allianceLabel(status: AllianceDigestStatus | null | undefined) {
   if (status === "YES") return "Alliance Member";
   if (status === "PROSPECT") return "Alliance Prospect";
+  if (status === "REVISIT_LATER") return "Alliance Revisit";
   return null;
 }
 
 function highestAllianceStatus(statuses: AllianceDigestStatus[]) {
   if (statuses.includes("YES")) return "YES" as const;
   if (statuses.includes("PROSPECT")) return "PROSPECT" as const;
+  if (statuses.includes("REVISIT_LATER")) return "REVISIT_LATER" as const;
   return "NO" as const;
 }
 
@@ -222,6 +225,8 @@ function sortWeeklyItems(items: WeeklyDigestItem[]) {
         ? "YES"
         : left.allianceLabel === "Alliance Prospect"
           ? "PROSPECT"
+          : left.allianceLabel === "Alliance Revisit"
+            ? "REVISIT_LATER"
           : "NO"
     ) -
       alliancePriorityRank(
@@ -229,6 +234,8 @@ function sortWeeklyItems(items: WeeklyDigestItem[]) {
           ? "YES"
           : right.allianceLabel === "Alliance Prospect"
             ? "PROSPECT"
+            : right.allianceLabel === "Alliance Revisit"
+              ? "REVISIT_LATER"
             : "NO"
       );
 

@@ -33,48 +33,77 @@ export async function PATCH(
       data.researchNotes = input.researchNotes || null;
     }
 
-    const updated = await prisma.healthSystem.update({
-      where: { id },
-      data,
-      include: {
-        venturePartners: {
-          include: {
-            coInvestor: {
-              select: {
-                id: true,
-                name: true
+    const updated = await prisma.$transaction(async (tx) => {
+      const healthSystem = await tx.healthSystem.update({
+        where: { id },
+        data,
+        include: {
+          venturePartners: {
+            include: {
+              coInvestor: {
+                select: {
+                  id: true,
+                  name: true
+                }
               }
             }
-          }
-        },
-        contactLinks: {
-          include: { contact: true }
-        },
-        investments: {
-          include: {
-            company: {
-              select: {
-                id: true,
-                name: true
+          },
+          contactLinks: {
+            include: { contact: true }
+          },
+          investments: {
+            include: {
+              company: {
+                select: {
+                  id: true,
+                  name: true
+                }
               }
             }
-          }
-        },
-        companyHealthSystemLinks: {
-          include: {
-            company: {
-              select: {
-                id: true,
-                name: true
+          },
+          companyHealthSystemLinks: {
+            include: {
+              company: {
+                select: {
+                  id: true,
+                  name: true
+                }
               }
             }
+          },
+          researchJobs: {
+            orderBy: { createdAt: "desc" },
+            take: 1
           }
-        },
-        researchJobs: {
-          orderBy: { createdAt: "desc" },
-          take: 1
+        }
+      });
+
+      const pipeline = await tx.healthSystemAlliancePipeline.findUnique({
+        where: { healthSystemId: id },
+        select: {
+          status: true
+        }
+      });
+
+      if (pipeline && pipeline.status !== "CLOSED") {
+        if (allianceMemberStatus === "REVISIT_LATER" && pipeline.status !== "REVISIT") {
+          await tx.healthSystemAlliancePipeline.update({
+            where: { healthSystemId: id },
+            data: {
+              status: "REVISIT"
+            }
+          });
+        } else if (allianceMemberStatus !== "REVISIT_LATER" && pipeline.status === "REVISIT") {
+          await tx.healthSystemAlliancePipeline.update({
+            where: { healthSystemId: id },
+            data: {
+              status: "ACTIVE"
+            }
+          });
         }
       }
+
+      return healthSystem;
     });
 
     return NextResponse.json({ healthSystem: updated });

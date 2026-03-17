@@ -237,7 +237,9 @@ export async function runQueuedResearchJobs(
         job.healthSystem.allianceMemberStatus ||
         (job.healthSystem.isAllianceMember ? "YES" : "NO");
       const nextAllianceStatus: AllianceMemberStatus =
-        persistedAllianceStatus === "PROSPECT"
+        persistedAllianceStatus === "REVISIT_LATER"
+          ? "REVISIT_LATER"
+          : persistedAllianceStatus === "PROSPECT"
           ? "PROSPECT"
           : keepAllianceFlag
             ? "YES"

@@ -130,7 +130,8 @@ const companyHealthSystemRelationshipOptions: Array<{ value: "CUSTOMER" | "SPIN_
 const allianceMemberStatusOptions: Array<{ value: AllianceMemberStatus; label: string }> = [
   { value: "YES", label: "Yes" },
   { value: "NO", label: "No" },
-  { value: "PROSPECT", label: "Prospect" }
+  { value: "PROSPECT", label: "Prospect" },
+  { value: "REVISIT_LATER", label: "Revisit Later" }
 ];
 
 type DetailDraft = {
@@ -337,7 +338,8 @@ function normalizeAllianceMemberStatus(input: {
 }): AllianceMemberStatus {
   if (
     input.allianceMemberStatus === "YES" ||
-    input.allianceMemberStatus === "PROSPECT"
+    input.allianceMemberStatus === "PROSPECT" ||
+    input.allianceMemberStatus === "REVISIT_LATER"
   ) {
     return input.allianceMemberStatus;
   }
@@ -349,6 +351,7 @@ function normalizeAllianceMemberStatus(input: {
 
 function allianceMemberTagLabel(status: AllianceMemberStatus) {
   if (status === "PROSPECT") return "Alliance Prospect";
+  if (status === "REVISIT_LATER") return "Alliance Revisit";
   if (status === "YES") return "Alliance";
   return "";
 }

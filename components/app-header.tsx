@@ -156,12 +156,12 @@ export function AppHeader({
                   aria-haspopup="true"
                   onClick={closeOpenDropdowns}
                 >
-                  <span>Venture Studio Pipeline</span>
+                  <span>Pipelines</span>
                   <span className="top-nav-dropdown-caret" aria-hidden="true">
                     ▾
                   </span>
                 </Link>
-                <div className="top-nav-dropdown-menu" role="menu" aria-label="Venture Studio Pipeline">
+                <div className="top-nav-dropdown-menu" role="menu" aria-label="Pipelines">
                   {PIPELINE_COMPANY_TYPE_OPTIONS.map((option) => {
                     const href = option.value === "STARTUP" ? "/pipeline" : `/pipeline?companyType=${option.value}`;
                     return (
@@ -176,6 +176,14 @@ export function AppHeader({
                       </Link>
                     );
                   })}
+                  <Link
+                    href="/alliance-pipeline"
+                    className="top-nav-dropdown-link"
+                    role="menuitem"
+                    onClick={closeOpenDropdowns}
+                  >
+                    Alliance Pipeline
+                  </Link>
                 </div>
               </div>
               <Link href="/reports" className="top-nav-link">

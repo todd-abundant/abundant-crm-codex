@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const allianceMemberStatusSchema = z.enum(["YES", "NO", "PROSPECT"]).default("NO");
+export const allianceMemberStatusSchema = z.enum(["YES", "NO", "PROSPECT", "REVISIT_LATER"]).default("NO");
 export type AllianceMemberStatus = z.infer<typeof allianceMemberStatusSchema>;
 
 type AllianceMemberStatusInput = {
@@ -11,7 +11,8 @@ type AllianceMemberStatusInput = {
 export function resolveAllianceMemberStatus(input: AllianceMemberStatusInput): AllianceMemberStatus {
   if (
     input.allianceMemberStatus === "YES" ||
-    input.allianceMemberStatus === "PROSPECT"
+    input.allianceMemberStatus === "PROSPECT" ||
+    input.allianceMemberStatus === "REVISIT_LATER"
   ) {
     return input.allianceMemberStatus;
   }

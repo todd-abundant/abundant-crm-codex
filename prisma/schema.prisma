@@ -305,6 +305,28 @@ enum AllianceMemberStatus {
   YES
   NO
   PROSPECT
+  REVISIT_LATER
+}
+
+enum AlliancePipelineStage {
+  PROSPECTING
+  QUALIFYING
+  PROPOSAL
+  CONTRACTING
+}
+
+enum AlliancePipelineStatus {
+  ACTIVE
+  CLOSED
+  REVISIT
+}
+
+enum AlliancePipelineClosedOutcome {
+  JOINED
+  PASSED
+  LOST
+  WITHDREW
+  OTHER
 }
 
 enum StakeholderSignalsDigestDispatchStatus {
@@ -355,6 +377,7 @@ model HealthSystem {
   companyScreeningSurveySubmissions    CompanyScreeningSurveySubmission[]
   signalEvents                         HealthSystemSignalEvent[]
   submittingPipelines                  CompanyPipeline[]                      @relation("PipelineSubmittingHealthSystem")
+  alliancePipeline                     HealthSystemAlliancePipeline?
 
   @@index([name])
   @@index([isAllianceMember])
@@ -363,6 +386,31 @@ model HealthSystem {
   @@index([researchStatus])
   @@index([website])
   @@index([headquartersCity, headquartersState, headquartersCountry])
+}
+
+model HealthSystemAlliancePipeline {
+  id                 String                        @id @default(cuid())
+  healthSystemId     String                        @unique
+  stage              AlliancePipelineStage        @default(PROSPECTING)
+  stageChangedAt     DateTime                      @default(now())
+  status             AlliancePipelineStatus       @default(ACTIVE)
+  closedOutcome      AlliancePipelineClosedOutcome?
+  closedAt           DateTime?
+  closeReason        String?
+  ownerName          String?
+  nextStep           String?
+  nextStepDueAt      DateTime?
+  contractPriceUsd   Decimal?                      @db.Decimal(16, 2)
+  likelihoodPercent  Int?
+  estimatedCloseDate DateTime?
+  createdAt          DateTime                      @default(now())
+  updatedAt          DateTime                      @updatedAt
+
+  healthSystem HealthSystem @relation(fields: [healthSystemId], references: [id], onDelete: Cascade)
+
+  @@index([status, stage])
+  @@index([ownerName])
+  @@index([estimatedCloseDate])
 }
 
 model Executive {

@@ -30,20 +30,29 @@ export function ScanControls({ onScan, onCommand, loading }: ScanControlsProps) 
         <button
           type="button"
           className="btn"
-          onClick={() => onScan(7)}
+          onClick={() => onScan(1)}
           disabled={loading}
           style={{ fontWeight: 500 }}
         >
-          Scan last 7 days
+          Scan last 24 hours
         </button>
         <button
           type="button"
           className="btn"
-          onClick={() => onScan(30)}
+          onClick={() => onScan(2)}
           disabled={loading}
           style={{ fontWeight: 500 }}
         >
-          Scan last 30 days
+          Scan last 48 hours
+        </button>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => onScan(7)}
+          disabled={loading}
+          style={{ fontWeight: 500 }}
+        >
+          Scan last week
         </button>
       </div>
 

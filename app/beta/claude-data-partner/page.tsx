@@ -298,17 +298,38 @@ function Row({ label, value, err }: { label: string; value: string; err?: boolea
 
 // ─── Loading steps ────────────────────────────────────────────────────────────
 
-type LoadingStep = { label: string; done: boolean; error?: string };
+type StepStatus = "pending" | "running" | "done" | "error";
+type LoadingStep = { label: string; status: StepStatus; detail?: string };
+
+function Spinner() {
+  const [tick, setTick] = React.useState(0);
+  React.useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 150);
+    return () => clearInterval(id);
+  }, []);
+  const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  return <span style={{ fontFamily: "monospace", color: "#6366f1" }}>{frames[tick % frames.length]}</span>;
+}
 
 function LoadingSteps({ steps }: { steps: LoadingStep[] }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "10px", padding: "40px 0" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "32px 0" }}>
       {steps.map((step, i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "14px" }}>
-          <span style={{ fontSize: "16px" }}>{step.error ? "❌" : step.done ? "✅" : "⏳"}</span>
-          <span style={{ color: step.error ? "#b91c1c" : step.done ? "#374151" : "#6b7280" }}>
-            {step.error ? `${step.label}: ${step.error}` : step.label}
+        <div key={i} style={{ display: "flex", alignItems: "baseline", gap: "10px", fontSize: "14px" }}>
+          <span style={{ fontSize: "15px", minWidth: 20, textAlign: "center" }}>
+            {step.status === "running" ? <Spinner /> : step.status === "done" ? "✅" : step.status === "error" ? "❌" : "·"}
           </span>
+          <span style={{
+            color: step.status === "error" ? "#b91c1c" : step.status === "done" ? "#374151" : step.status === "running" ? "#1e40af" : "#9ca3af",
+            fontWeight: step.status === "running" ? 600 : 400,
+          }}>
+            {step.label}
+          </span>
+          {step.detail && (
+            <span style={{ fontSize: "12px", color: step.status === "error" ? "#b91c1c" : "#6b7280" }}>
+              — {step.detail}
+            </span>
+          )}
         </div>
       ))}
     </div>
@@ -342,12 +363,10 @@ export default function ClaudeDataPartnerPage() {
   React.useEffect(() => { void runDiagnostics(); }, []);
 
   async function handleScan(windowDays: number) {
-    const steps: LoadingStep[] = [
-      { label: `Fetching Gmail messages and Calendar events (last ${windowDays} days)…`, done: false },
-      { label: "Claude is analyzing for CRM signals…", done: false },
-      { label: "Resolving candidates against database…", done: false },
-    ];
-    setState({ kind: "loading", steps });
+    const windowLabel = windowDays === 1 ? "24 hours" : windowDays === 2 ? "48 hours" : "last week";
+    setState({ kind: "loading", steps: [
+      { label: `Starting scan (${windowLabel})…`, status: "running" },
+    ]});
 
     try {
       const res = await fetch("/api/beta/claude-data-partner/scan", {
@@ -355,32 +374,79 @@ export default function ClaudeDataPartnerPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ windowDays, sources: ["gmail", "calendar", "drive"] }),
       });
-      const data = await res.json() as { changeSet?: ChangeSet; debug?: ScanDebugInfo; error?: string };
 
-      if (!res.ok) {
-        setState({ kind: "error", message: data.error || "Scan failed", debug: data.debug });
+      if (!res.ok || !res.body) {
+        const data = await res.json() as { message?: string };
+        setState({ kind: "error", message: data.message || "Scan failed" });
         return;
       }
 
-      // Animate steps done
-      for (let i = 0; i < steps.length; i++) {
-        steps[i] = { ...steps[i], done: true };
-        setState({ kind: "loading", steps: [...steps] });
-        await new Promise((r) => setTimeout(r, 250));
-      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      // Steps managed locally, pushed to state on each event
+      const steps: LoadingStep[] = [];
 
-      initPlan(data.changeSet as ChangeSet, data.debug);
+      const setSteps = (next: LoadingStep[]) => {
+        setState({ kind: "loading", steps: [...next] });
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let event: { type: string; label?: string; detail?: string; changeSet?: ChangeSet; debug?: ScanDebugInfo; message?: string };
+          try { event = JSON.parse(line) as typeof event; } catch { continue; }
+
+          if (event.type === "progress") {
+            // Mark previous running step as done if still running
+            const prev = [...steps].reverse().find((s) => s.status === "running");
+            if (prev) prev.status = "done";
+            steps.push({ label: event.label ?? "Working…", status: "running" });
+            setSteps(steps);
+
+          } else if (event.type === "progress_done") {
+            // Resolve the most recent running step
+            const running = [...steps].reverse().find((s) => s.status === "running");
+            if (running) {
+              running.status = event.detail?.startsWith("Error") ? "error" : "done";
+              if (event.label) running.label = event.label;
+              if (event.detail) running.detail = event.detail;
+            }
+            setSteps(steps);
+
+          } else if (event.type === "result") {
+            // Mark any remaining running step done
+            for (const s of steps) { if (s.status === "running") s.status = "done"; }
+            steps.push({ label: "Done — building change plan", status: "done" });
+            setSteps(steps);
+            await new Promise((r) => setTimeout(r, 400));
+            initPlan(event.changeSet as ChangeSet, event.debug);
+            return;
+
+          } else if (event.type === "error") {
+            for (const s of steps) { if (s.status === "running") s.status = "error"; }
+            setSteps(steps);
+            setState({ kind: "error", message: event.message ?? "Scan failed", debug: event.debug });
+            return;
+          }
+        }
+      }
     } catch (err) {
       setState({ kind: "error", message: err instanceof Error ? err.message : "Scan failed" });
     }
   }
 
   async function handleCommand(input: string) {
-    const steps: LoadingStep[] = [
-      { label: "Claude is parsing your command…", done: false },
-      { label: "Resolving against database…", done: false },
-    ];
-    setState({ kind: "loading", steps });
+    setState({ kind: "loading", steps: [
+      { label: "Claude is parsing your command…", status: "running" },
+      { label: "Resolving against database…", status: "pending" },
+    ]});
 
     try {
       const res = await fetch("/api/beta/claude-data-partner/command", {
@@ -395,11 +461,15 @@ export default function ClaudeDataPartnerPage() {
         return;
       }
 
-      steps[0] = { ...steps[0], done: true };
-      setState({ kind: "loading", steps: [...steps] });
+      setState({ kind: "loading", steps: [
+        { label: "Claude parsed your command", status: "done" },
+        { label: "Resolving against database…", status: "running" },
+      ]});
       await new Promise((r) => setTimeout(r, 300));
-      steps[1] = { ...steps[1], done: true };
-      setState({ kind: "loading", steps: [...steps] });
+      setState({ kind: "loading", steps: [
+        { label: "Claude parsed your command", status: "done" },
+        { label: "Resolved against database", status: "done" },
+      ]});
       await new Promise((r) => setTimeout(r, 200));
 
       initPlan(data.changeSet as ChangeSet);

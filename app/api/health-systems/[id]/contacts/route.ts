@@ -125,6 +125,37 @@ function buildContactUpdatePayload(input: z.infer<typeof patchRequestSchema>) {
   };
 }
 
+export async function GET(
+  _request: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: healthSystemId } = await context.params;
+
+    const healthSystem = await prisma.healthSystem.findUnique({
+      where: { id: healthSystemId },
+      select: { id: true }
+    });
+
+    if (!healthSystem) {
+      return NextResponse.json({ error: "Health system not found" }, { status: 404 });
+    }
+
+    const links = await prisma.contactHealthSystem.findMany({
+      where: { healthSystemId },
+      include: {
+        contact: true
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }]
+    });
+
+    return NextResponse.json({ links });
+  } catch (error) {
+    console.error("health_system_list_contacts_error", error);
+    return NextResponse.json({ error: "Failed to load health system contacts" }, { status: 400 });
+  }
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> }

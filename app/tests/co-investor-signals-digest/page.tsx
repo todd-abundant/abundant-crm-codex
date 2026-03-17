@@ -15,7 +15,7 @@ type SearchParams = {
   eventType?: string | string[];
 };
 
-type AllianceDigestStatus = "YES" | "PROSPECT" | "NO";
+type AllianceDigestStatus = "YES" | "PROSPECT" | "REVISIT_LATER" | "NO";
 
 type DigestRow = {
   id: string;
@@ -83,18 +83,21 @@ function rowTimestamp(row: Pick<DigestRow, "sourcePublishedAt" | "signalDate" | 
 function alliancePriorityRank(status: AllianceDigestStatus | null | undefined): number {
   if (status === "YES") return 0;
   if (status === "PROSPECT") return 1;
-  return 2;
+  if (status === "REVISIT_LATER") return 2;
+  return 3;
 }
 
 function allianceLabel(status: AllianceDigestStatus | null | undefined): string | null {
   if (status === "YES") return "Alliance Member";
   if (status === "PROSPECT") return "Alliance Prospect";
+  if (status === "REVISIT_LATER") return "Alliance Revisit";
   return null;
 }
 
 function highestAllianceStatus(statuses: AllianceDigestStatus[]): AllianceDigestStatus {
   if (statuses.includes("YES")) return "YES";
   if (statuses.includes("PROSPECT")) return "PROSPECT";
+  if (statuses.includes("REVISIT_LATER")) return "REVISIT_LATER";
   return "NO";
 }
 
