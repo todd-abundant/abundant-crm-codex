@@ -5597,25 +5597,74 @@ select {
   flex-direction: column;
 }
 
+/* ── Pipeline detail modal chrome — clean white + underline tabs ── */
+
+.pipeline-detail-panel .detail-head {
+  background: #ffffff !important;
+  border-bottom: 1px solid #E5E7EB;
+  padding: 10px 16px 10px;
+}
+
+.pipeline-detail-panel .detail-head h3 {
+  color: #6B7280 !important;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .pipeline-detail-panel .detail-tabs {
   position: static;
   width: 100%;
   box-sizing: border-box;
   align-items: flex-end;
   overflow-y: visible;
-  padding: 8px 12px 0;
-  min-height: 42px;
+  padding: 0 16px;
+  min-height: unset;
+  background: #F9FAFB !important;
+  border-bottom: 1px solid #E5E7EB;
+  gap: 0;
 }
 
 .pipeline-detail-panel .detail-tab {
   display: inline-flex;
   align-items: center;
-  min-height: 33px;
-  padding-top: 7px;
-  padding-bottom: 7px;
-  line-height: 1.22;
-  font-size: 0.86rem;
-  margin-bottom: 0;
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 2px solid transparent !important;
+  border-radius: 0;
+  color: #6B7280;
+  font-size: 14px;
+  font-weight: 400;
+  min-height: unset;
+  padding: 10px 14px;
+  margin-bottom: -1px;
+  white-space: nowrap;
+  box-shadow: none !important;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.pipeline-detail-panel .detail-tab:hover {
+  background: transparent !important;
+  color: #374151;
+}
+
+.pipeline-detail-panel .detail-tab.active {
+  background: transparent !important;
+  color: #111827;
+  font-weight: 500;
+  border-bottom-color: #0D9488 !important;
+}
+
+.pipeline-detail-panel .detail-tab:hover:not(.active) {
+  background: transparent !important;
+  color: #374151;
+  border-bottom-color: transparent !important;
+}
+
+.pipeline-detail-panel .pipeline-detail-tab-content {
+  background: #F8F7F5;
 }
 
 .pipeline-detail-panel .pipeline-detail-tab-panel {
@@ -5685,6 +5734,13 @@ select {
 
 .pipeline-detail-panel .venture-studio-opportunity-tab-content {
   --detail-field-label-width: 230px;
+}
+
+/* Edit groups inside the detail panel inherit section padding so groups align */
+.pipeline-detail-panel .venture-edit-group,
+.entity-detail-panel .venture-edit-group {
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .pipeline-detail-panel .venture-studio-opportunity-tab-content .inline-edit-field > label {
@@ -8446,29 +8502,676 @@ select {
   vertical-align: top;
 }
 
-.venture-stage-summary {
+/* ══════════════════════════════════════════════════════════════════════
+   VS WORKBENCH — full design system
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── Layout shell ── */
+.vs-workbench {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  background: #F8F7F5;
+  min-height: 100%;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  color: #111827;
+}
+
+/* ── Base card ── */
+.vs-card {
+  background: #ffffff;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* ── Section label (caps) ── */
+.vs-card-label {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9CA3AF;
+}
+
+/* ── Muted placeholder text ── */
+.vs-placeholder-text {
+  color: #9CA3AF;
+  font-style: italic;
+}
+
+/* ── Empty centered text ── */
+.vs-empty-text {
+  margin: 0;
+  color: #9CA3AF;
+  font-size: 13px;
+  text-align: center;
+  padding: 8px 0;
+}
+
+/* ── Teal text link ── */
+.vs-teal-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #0D9488;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+.vs-teal-link:hover {
+  color: #0F766E;
+  text-decoration: underline;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   1. Company header card
+   ───────────────────────────────────────────────────────────────────── */
+.vs-header-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vs-company-name {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  color: #111827;
+  line-height: 1.2;
+}
+
+.vs-company-location {
+  margin: 0;
+  font-size: 13px;
+  color: #9CA3AF;
+}
+
+.vs-company-desc {
+  margin: 8px 0 4px;
+  font-size: 16px;
+  font-weight: 500;
+  color: #111827;
+  line-height: 1.5;
+}
+
+.vs-desc-empty {
+  color: #9CA3AF;
+}
+
+.vs-generate-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #0D9488;
+  font-size: 15px;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+.vs-generate-link:hover:not(:disabled) {
+  color: #0F766E;
+  text-decoration: underline;
+}
+.vs-generate-link:disabled {
+  color: #9CA3AF;
+  cursor: default;
+}
+
+/* Lead source line in header */
+.vs-ls-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.vs-ls-line:hover .vs-ls-pencil {
+  opacity: 1;
+}
+.vs-ls-text {
+  font-size: 13px;
+  color: #6B7280;
+}
+.vs-ls-pencil {
+  opacity: 0;
+  background: transparent;
+  border: none;
+  padding: 2px 6px;
+  color: #9CA3AF;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: opacity 150ms ease, background 150ms ease;
+}
+.vs-ls-pencil:hover {
+  background: #F3F4F6;
+  color: #6B7280;
+}
+.vs-add-lead-source {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin-top: 4px;
+  color: #9CA3AF;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+.vs-add-lead-source:hover {
+  color: #0D9488;
+}
+.vs-ls-edit-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.vs-ls-select {
+  min-width: 160px;
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid #E5E7EB;
+  border-radius: 4px;
+}
+.vs-ls-done {
+  font-size: 13px;
+  padding: 4px 12px;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  background: transparent;
+  color: #6B7280;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+.vs-ls-done:hover {
+  background: #F3F4F6;
+  border-color: #D1D5DB;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   2. Pipeline Stage strip
+   ───────────────────────────────────────────────────────────────────── */
+.vs-stage-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: #ffffff;
+  border: 1px solid #E5E7EB;
+  border-left: 3px solid #0D9488;
+  border-radius: 8px;
+  padding: 14px 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.vs-stage-strip-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.vs-stage-name {
+  font-size: 22px;
+  font-weight: 700;
+  color: #111827;
+  line-height: 1.2;
+}
+
+.vs-stage-step {
+  font-size: 13px;
+  color: #6B7280;
+}
+
+.vs-stage-strip-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.vs-stage-days {
+  font-size: 12px;
+  color: #9CA3AF;
+  white-space: nowrap;
+}
+
+.vs-advance-wrap {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.vs-advance-btn {
+  background: #0D9488;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 150ms ease, transform 100ms ease;
+}
+.vs-advance-btn:hover:not(:disabled) {
+  background: #0F766E;
+}
+.vs-advance-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.vs-advance-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.vs-advance-select {
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   3. Two-column layout
+   ───────────────────────────────────────────────────────────────────── */
+.vs-two-col {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1fr 340px;
+  gap: 16px;
+  align-items: start;
+}
+
+.vs-col-left {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.vs-col-right {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Sidebar cards slightly tighter padding */
+.vs-sidebar-card {
+  padding: 14px;
+}
+
+/* ─── Health System section ─── */
+.vs-hs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.vs-hs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #F3F4F6;
+}
+.vs-hs-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.vs-hs-row:first-child {
+  padding-top: 0;
+}
+
+.vs-hs-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #111827;
+}
+
+.vs-hs-badges {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.vs-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+.vs-badge--teal   { background: #CCFBF1; color: #0F766E; }
+.vs-badge--amber  { background: #FEF3C7; color: #D97706; }
+.vs-badge--gray   { background: #F3F4F6; color: #6B7280; }
+.vs-badge--sm     { font-size: 11px; padding: 3px 7px; }
+
+.vs-hs-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px 16px;
+  border: 1px dashed #E5E7EB;
+  border-radius: 6px;
+  text-align: center;
+}
+.vs-hs-link {
+  font-size: 14px;
+}
+.vs-hs-empty-sub {
+  margin: 0;
+  font-size: 12px;
+  color: #9CA3AF;
+}
+
+/* ─── Activity Timeline ─── */
+.vs-timeline {
+  display: flex;
+  flex-direction: column;
+}
+
+.vs-timeline-entry {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 8px;
+  padding: 10px 0;
+}
+.vs-timeline-entry:first-child { padding-top: 0; }
+.vs-timeline-entry:last-child  { padding-bottom: 0; }
+
+.vs-timeline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+.vs-timeline-dot--status  { background: #0D9488; }
+.vs-timeline-dot--meeting { background: #3B82F6; }
+.vs-timeline-dot--note    { background: #D1D5DB; }
+
+.vs-timeline-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.vs-timeline-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.vs-timeline-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+.vs-timeline-ts {
+  margin-left: auto;
+  font-size: 12px;
+  color: #9CA3AF;
+  white-space: nowrap;
+}
+.vs-timeline-desc {
+  margin: 0;
+  font-size: 13px;
+  color: #6B7280;
+  line-height: 1.4;
+}
+.vs-timeline-divider {
+  height: 1px;
+  background: #F3F4F6;
+  margin: 0;
+}
+
+/* ─── Deal Owner ─── */
+.vs-owner-row {
+  display: flex;
+  align-items: center;
   gap: 10px;
 }
 
-.venture-stage-summary-card {
-  border: 1px solid #d9e5f1;
-  border-radius: 12px;
-  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
-  padding: 12px 14px;
-}
-
-.venture-stage-summary-card .detail-label {
-  margin-bottom: 6px;
-}
-
-.venture-stage-summary-value {
-  font-size: 1rem;
+.vs-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #0D9488;
+  color: #ffffff;
+  font-size: 12px;
   font-weight: 700;
-  color: #173b63;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  letter-spacing: 0.03em;
 }
 
+.vs-owner-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: #111827;
+}
+
+/* ─── Next Step ─── */
+.vs-next-text {
+  margin: 0;
+  font-size: 14px;
+  color: #111827;
+  line-height: 1.4;
+}
+.vs-due-text {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #6B7280;
+}
+.vs-due-overdue {
+  color: #EF4444;
+}
+
+/* ─── Open Tasks ─── */
+.vs-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.vs-task-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.vs-task-circle {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid #E5E7EB;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.vs-task-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.vs-task-text {
+  font-size: 14px;
+  color: #111827;
+}
+.vs-task-due {
+  font-size: 12px;
+  color: #9CA3AF;
+}
+.vs-add-link {
+  display: block;
+  margin-top: 4px;
+}
+
+/* ─── S1 Investment ─── */
+.vs-sidebar-value {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: #111827;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   4. Collapsible Settings
+   ───────────────────────────────────────────────────────────────────── */
+.vs-settings-section {
+  background: #ffffff;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.vs-settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 150ms ease;
+}
+.vs-settings-toggle:hover {
+  background: #F9FAFB;
+}
+.vs-settings-toggle-label {
+  font-size: 13px;
+  color: #9CA3AF;
+}
+.vs-settings-chevron {
+  font-size: 14px;
+  color: #9CA3AF;
+}
+
+.vs-settings-body {
+  border-top: 1px solid #E5E7EB;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Status pills */
+.vs-settings-status-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.vs-settings-field-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6B7280;
+  white-space: nowrap;
+  min-width: 90px;
+}
+
+.vs-status-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.vs-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1.5px solid #E5E7EB;
+  background: transparent;
+  color: #6B7280;
+  cursor: pointer;
+  transition: all 150ms ease;
+  line-height: 1;
+}
+/* Visible radio inputs hidden */
+.vs-status-pill input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.vs-status-pill:hover {
+  border-color: #D1D5DB;
+  background: #F9FAFB;
+}
+.vs-status-pill--open.active    { background: #CCFBF1; border-color: #0D9488; color: #0F766E; }
+.vs-status-pill--won.active     { background: #D1FAE5; border-color: #10B981; color: #065F46; }
+.vs-status-pill--lost.active    { background: #FEE2E2; border-color: #EF4444; color: #991B1B; }
+.vs-status-pill--revisit.active { background: #FEF3C7; border-color: #F59E0B; color: #92400E; }
+
+/* Settings fields grid */
+.vs-settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+
+/* Style InlineTextField inside settings */
+.vs-settings-grid .inline-edit-field {
+  padding: 8px 0;
+  border-bottom: 1px solid #F3F4F6;
+}
+.vs-settings-grid .inline-edit-field:nth-last-child(-n+2) {
+  border-bottom: none;
+}
+.vs-settings-grid .inline-edit-field > label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6B7280;
+  min-width: unset;
+  width: auto;
+  flex: none;
+}
+
+.vs-settings-readonly {
+  font-size: 14px;
+  color: #111827;
+  padding: 2px 0;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 1100px) {
+  .vs-two-col {
+    grid-template-columns: 1fr;
+  }
+  .vs-stage-strip {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .vs-stage-strip-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .vs-settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .vs-settings-grid .inline-edit-field:last-child {
+    border-bottom: none;
+  }
+}
+
+/* ─── Keep legacy CSS for old VS classes that may exist elsewhere ─── */
 .venture-meeting-header {
   display: flex;
   justify-content: space-between;
@@ -8478,16 +9181,20 @@ select {
 
 .venture-meeting-header h2 {
   margin: 0;
-  font-size: clamp(1.5rem, 2.2vw, 2rem);
+  font-size: clamp(1.3rem, 2vw, 1.75rem);
+  font-weight: 700;
+  color: #0f1f35;
 }
 
-.venture-meeting-location {
-  margin: 8px 0 0;
+.vs-location {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: #8a99aa;
 }
 
 .venture-meeting-header-actions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -8496,11 +9203,13 @@ select {
 .venture-focus-badge {
   display: inline-flex;
   align-items: center;
-  padding: 8px 14px;
+  padding: 5px 12px;
   border-radius: 999px;
   background: #123b69;
   color: #fff;
-  font-weight: 700;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .venture-stage-action {
@@ -8509,48 +9218,233 @@ select {
   align-items: center;
 }
 
+/* ─ Summary row: primary tile + secondary tiles ─ */
+.venture-stage-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .venture-stage-summary--meeting {
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
+/* New two-column summary row */
+.vs-summary-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.vs-secondary-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* Base tile */
+.venture-stage-summary-card {
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+  background: #fafbfc;
+  padding: 10px 14px;
+}
+
+/* Primary tile — Pipeline Stage */
+.vs-tile--primary {
+  background: #fff;
+  border-color: #c2d4e8;
+  border-left: 3px solid #123b69;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-left: 16px;
+}
+
+/* Secondary tiles — subordinate */
+.vs-tile--secondary {
+  background: #fafbfc;
+  border-color: #edf1f5;
+}
+
+/* Tile label — small muted caps */
+.vs-tile-label {
+  margin: 0 0 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #9aaabb;
+}
+
+/* Base tile value */
+.vs-tile-value {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1e293b;
+  line-height: 1.3;
+}
+
+/* Primary tile value — larger */
+.vs-tile-value--primary {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0d2b4a;
+}
+
+/* ─ Section layout ─ */
 .venture-meeting-section {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
-.venture-section-head {
+.vs-section-head {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  align-items: start;
+  align-items: center;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #eef1f5;
 }
 
-.venture-section-head .detail-label {
-  margin: 0 0 4px;
-}
-
-.venture-section-head .muted {
+.vs-section-label {
   margin: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: #9aaabb;
 }
 
+/* ─ Lead Source — read display with hover-reveal edit ─ */
+.vs-lead-source-section {
+  gap: 8px;
+}
+
+.vs-lead-source-read {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.vs-lead-source-read:hover .vs-edit-affordance {
+  opacity: 1;
+}
+
+.vs-lead-source-value {
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.vs-lead-source-empty {
+  color: #b8c8d6;
+  font-size: 0.92rem;
+}
+
+.vs-edit-affordance {
+  opacity: 0;
+  transition: opacity 0.15s;
+  padding: 2px 8px;
+  border: 1px solid #d0dce8;
+  border-radius: 5px;
+  background: transparent;
+  color: #6b8199;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.vs-edit-affordance:hover {
+  background: #f0f6fb;
+  border-color: #4a7fa5;
+  color: #1a5276;
+}
+
+.vs-lead-source-edit {
+  display: grid;
+  gap: 8px;
+}
+
+.vs-lead-source-edit-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.vs-lead-source-select {
+  min-width: 160px;
+}
+
+.vs-lead-source-done {
+  font-size: 0.8rem;
+  padding: 3px 10px;
+  border: 1px solid #d0dce8;
+  border-radius: 5px;
+  background: transparent;
+  color: #5a7a95;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.vs-lead-source-done:hover {
+  background: #f0f6fb;
+  border-color: #4a7fa5;
+}
+
+/* ─ Placeholder / empty states ─ */
+.vs-placeholder {
+  color: #b8c8d6;
+  font-size: 0.875rem;
+  font-style: italic;
+}
+
+.vs-empty-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.vs-empty-action {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border: 1px dashed #c5d3e0;
+  border-radius: 6px;
+  background: transparent;
+  color: #6b8199;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.vs-empty-action:hover {
+  border-color: #4a7fa5;
+  color: #1a5276;
+  background: #f0f6fb;
+}
+
+/* ─ Health system cards ─ */
 .venture-health-system-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .venture-health-system-card,
 .venture-next-step-card,
 .venture-open-task-card {
-  border: 1px solid #d9e5f1;
-  border-radius: 12px;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
   background: #fff;
-  padding: 14px;
+  padding: 12px 14px;
 }
 
 .venture-health-system-card h3 {
   margin: 0;
-  font-size: 1rem;
+  font-size: 0.95rem;
 }
 
 .venture-health-system-card-head {
@@ -8558,57 +9452,61 @@ select {
   justify-content: space-between;
   gap: 10px;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .venture-health-system-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 10px;
-  color: #5d6f85;
-  font-size: 0.92rem;
+  margin-bottom: 8px;
+  color: #6b7e94;
+  font-size: 0.82rem;
 }
 
 .venture-health-system-card p,
 .venture-open-task-card p,
 .venture-timeline-item p {
-  margin: 6px 0 0;
+  margin: 5px 0 0;
+  font-size: 0.875rem;
 }
 
+/* ─ Next step + tasks ─ */
 .venture-next-step-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 1.1fr) minmax(0, 1.4fr);
-  gap: 12px;
+  grid-template-columns: minmax(220px, 1fr) minmax(0, 1.5fr);
+  gap: 10px;
 }
 
 .venture-open-task-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
+  align-content: start;
 }
 
+/* ─ Activity timeline ─ */
 .venture-timeline-list {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .venture-timeline-item {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 10px;
 }
 
 .venture-timeline-marker {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
-  background: #123b69;
-  margin-top: 8px;
+  background: #c5d3e0;
+  margin-top: 7px;
 }
 
 .venture-timeline-content {
-  border-left: 1px solid #d9e5f1;
-  padding-left: 14px;
+  border-left: 1px solid #eef1f5;
+  padding-left: 12px;
 }
 
 .venture-timeline-head {
@@ -8618,21 +9516,48 @@ select {
   flex-wrap: wrap;
 }
 
+/* ─ Editable fields section ─ */
 .venture-edit-section {
-  border: 1px solid #d9e5f1;
-  background: linear-gradient(180deg, #f9fbfe 0%, #ffffff 100%);
+  border: 1px solid #e8edf3;
+  background: #fafbfc;
+  border-radius: 10px;
+}
+
+.venture-edit-group {
+  padding: 14px 0;
+  border-bottom: 1px solid #eef1f5;
+}
+
+.venture-edit-group:last-child {
+  border-bottom: none;
+  padding-bottom: 4px;
+}
+
+.venture-edit-group-label {
+  margin: 0 0 10px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: #b8c8d6;
 }
 
 .venture-status-control-field {
   grid-column: span 2;
 }
 
+/* ─ Responsive ─ */
 @media (max-width: 1100px) {
   .pipeline-board-overview,
   .venture-stage-summary,
   .venture-stage-summary--meeting,
+  .vs-secondary-tiles,
   .venture-next-step-layout,
   .venture-meeting-header {
+    grid-template-columns: 1fr;
+  }
+
+  .vs-summary-row {
     grid-template-columns: 1fr;
   }
 
@@ -8757,4 +9682,197 @@ select {
   .intake-deep-dive-sort-control {
     min-width: 0;
   }
+}
+
+/* ─── VS Workbench: Pill Selector ─────────────────────────────────────── */
+.vs-pill-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.vs-pill {
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid #E5E7EB;
+  background: #ffffff;
+  color: #6B7280;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  line-height: 1.4;
+}
+.vs-pill:hover {
+  border-color: #0D9488;
+  color: #0D9488;
+}
+.vs-pill--active {
+  background: #CCFBF1;
+  border-color: #0D9488;
+  color: #0F766E;
+  font-weight: 600;
+}
+
+/* ─── VS Workbench: Intake Step Indicator ────────────────────────────── */
+.vs-intake-step-card {
+  padding: 14px 16px 12px;
+}
+.vs-intake-steps {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  margin-top: 8px;
+  position: relative;
+}
+.vs-intake-steps::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  height: 2px;
+  background: #E5E7EB;
+  z-index: 0;
+}
+.vs-intake-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0 4px;
+  position: relative;
+  z-index: 1;
+}
+.vs-intake-step-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #E5E7EB;
+  background: #ffffff;
+  display: block;
+  transition: border-color 0.15s, background 0.15s;
+}
+.vs-intake-step--past .vs-intake-step-dot {
+  background: #CCFBF1;
+  border-color: #0D9488;
+}
+.vs-intake-step--active .vs-intake-step-dot {
+  background: #0D9488;
+  border-color: #0D9488;
+  box-shadow: 0 0 0 3px rgba(13,148,136,0.15);
+}
+.vs-intake-step-label {
+  font-size: 11px;
+  color: #9CA3AF;
+  text-align: center;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.vs-intake-step--active .vs-intake-step-label {
+  color: #0F766E;
+  font-weight: 600;
+}
+.vs-intake-step--past .vs-intake-step-label {
+  color: #6B7280;
+}
+
+/* ─── VS Workbench: Company Snapshot Card ────────────────────────────── */
+.vs-snapshot-card {
+  padding: 16px;
+}
+.vs-snapshot-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #F3F4F6;
+}
+.vs-snapshot-row:last-child {
+  border-bottom: none;
+}
+.vs-snapshot-row--full {
+  flex-direction: column;
+  gap: 4px;
+}
+.vs-snapshot-row--amount {
+  align-items: center;
+}
+.vs-snapshot-field-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6B7280;
+  min-width: 110px;
+  flex-shrink: 0;
+  padding-top: 5px;
+}
+.vs-snapshot-text {
+  font-size: 14px;
+  color: #374151;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ─── VS Workbench: InlineTextArea ───────────────────────────────────── */
+.vs-inline-ta-wrap {
+  width: 100%;
+}
+.vs-inline-ta {
+  width: 100%;
+  border: 1px solid #0D9488;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 14px;
+  color: #111827;
+  background: #ffffff;
+  resize: vertical;
+  outline: none;
+  font-family: inherit;
+  line-height: 1.5;
+  margin-top: 4px;
+  box-sizing: border-box;
+}
+.vs-inline-ta:focus {
+  box-shadow: 0 0 0 3px rgba(13,148,136,0.15);
+}
+.vs-inline-ta-display {
+  width: 100%;
+  cursor: text;
+  border-radius: 6px;
+  padding: 2px 0;
+}
+.vs-inline-ta-display:hover .vs-snapshot-text,
+.vs-inline-ta-display:hover .vs-placeholder-text {
+  background: #F9FAFB;
+  border-radius: 4px;
+}
+
+/* ─── VS Workbench: InlineAmountField ────────────────────────────────── */
+.vs-amount-input {
+  border: 1px solid #0D9488;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+  color: #111827;
+  background: #ffffff;
+  width: 160px;
+  outline: none;
+}
+.vs-amount-input:focus {
+  box-shadow: 0 0 0 3px rgba(13,148,136,0.15);
+}
+.vs-amount-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.vs-amount-value:hover {
+  background: #F3F4F6;
 }

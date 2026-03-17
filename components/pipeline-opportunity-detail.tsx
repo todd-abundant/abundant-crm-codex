@@ -261,6 +261,13 @@ type PipelineOpportunityDetail = {
   leadSourceEntityType: string | null;
   leadSourceEntityId: string | null;
   leadSourceEntityName: string | null;
+  pipelineCompanyType: string | null;
+  fundingStage: string | null;
+  amountRaising: number | null;
+  targetCustomer: string | null;
+  valueProp: string | null;
+  submittingHealthSystemId: string | null;
+  intakeStep: string | null;
   ownerName: string | null;
   createdAt: string | null;
   updatedAt: string | null;
@@ -3046,6 +3053,13 @@ export function PipelineOpportunityDetailView({
     leadSourceEntityType?: string | null;
     leadSourceEntityId?: string | null;
     leadSourceEntityName?: string | null;
+    pipelineCompanyType?: string | null;
+    fundingStage?: string | null;
+    amountRaising?: number | null;
+    targetCustomer?: string | null;
+    valueProp?: string | null;
+    submittingHealthSystemId?: string | null;
+    intakeStep?: string | null;
   }): Promise<boolean> {
     if (!item) return false;
     const requestPayload = { ...input };
@@ -3453,6 +3467,72 @@ export function PipelineOpportunityDetailView({
       leadSourceEntityType: null,
       leadSourceEntityName: null
     });
+  }
+
+  async function savePipelineCompanyType(nextValue: string | null) {
+    if (!item) return;
+    const value = nextValue?.trim() || null;
+    if ((item.pipelineCompanyType ?? null) === value) return;
+    await updatePipelineCardMeta({ pipelineCompanyType: value });
+  }
+
+  async function saveFundingStage(nextValue: string | null) {
+    if (!item) return;
+    const value = nextValue?.trim() || null;
+    if ((item.fundingStage ?? null) === value) return;
+    await updatePipelineCardMeta({ fundingStage: value });
+  }
+
+  async function saveAmountRaising(nextValue: string) {
+    if (!item) return;
+    const trimmed = nextValue.trim();
+    if (!trimmed) {
+      if (item.amountRaising === null) return;
+      await updatePipelineCardMeta({ amountRaising: null });
+      return;
+    }
+    const parsed = parseFloat(trimmed.replace(/[^0-9.]/g, ""));
+    if (isNaN(parsed)) return;
+    if (item.amountRaising === parsed) return;
+    await updatePipelineCardMeta({ amountRaising: parsed });
+  }
+
+  async function saveTargetCustomer(nextValue: string) {
+    if (!item) return;
+    const trimmed = nextValue.trim();
+    if (!trimmed) {
+      if (item.targetCustomer === null) return;
+      await updatePipelineCardMeta({ targetCustomer: null });
+      return;
+    }
+    if (item.targetCustomer === trimmed) return;
+    await updatePipelineCardMeta({ targetCustomer: trimmed });
+  }
+
+  async function saveValueProp(nextValue: string) {
+    if (!item) return;
+    const trimmed = nextValue.trim();
+    if (!trimmed) {
+      if (item.valueProp === null) return;
+      await updatePipelineCardMeta({ valueProp: null });
+      return;
+    }
+    if (item.valueProp === trimmed) return;
+    await updatePipelineCardMeta({ valueProp: trimmed });
+  }
+
+  async function saveSubmittingHealthSystem(id: string | null, name: string | null) {
+    if (!item) return;
+    await updatePipelineCardMeta({
+      submittingHealthSystemId: id || null
+    });
+  }
+
+  async function saveIntakeStep(nextValue: string | null) {
+    if (!item) return;
+    const value = nextValue?.trim() || null;
+    if ((item.intakeStep ?? null) === value) return;
+    await updatePipelineCardMeta({ intakeStep: value });
   }
 
   async function saveScreeningPipelineStatus(nextStatus: ScreeningPipelineStatus, nextReason?: string): Promise<boolean> {
@@ -5949,6 +6029,7 @@ function stripCurrencyFormatting(value: string) {
               <VentureStudioOpportunityTabContent
                 companyName={item.name}
                 location={item.location}
+                description={item.description || ""}
                 ownerLabel="Venture Studio Owner"
                 ownerName={item.ownerName || ""}
                 createdDate={formatDate(item.createdAt)}
@@ -5971,6 +6052,7 @@ function stripCurrencyFormatting(value: string) {
                 healthSystemParticipation={meetingHealthSystemParticipation}
                 nextStepLabel={item.nextStep || ""}
                 nextStepDueLabel={item.nextStepDueAt ? formatDate(item.nextStepDueAt) : "No due date"}
+                nextStepDueAt={item.nextStepDueAt}
                 openTasks={meetingOpenTasks}
                 activityTimeline={meetingActivityTimeline}
                 showStatusControls={showStatusControls}
@@ -6054,6 +6136,20 @@ function stripCurrencyFormatting(value: string) {
                 onLeadSourceTypeSave={(nextType) => void saveLeadSourceType(nextType)}
                 onLeadSourceEntitySave={(id, entityType, name) => void saveLeadSourceEntity(id, entityType, name)}
                 onLeadSourceEntityClear={() => void clearLeadSourceEntity()}
+                pipelineCompanyType={item.pipelineCompanyType || ""}
+                fundingStage={item.fundingStage || ""}
+                amountRaising={item.amountRaising}
+                targetCustomer={item.targetCustomer || ""}
+                valueProp={item.valueProp || ""}
+                submittingHealthSystemId={item.submittingHealthSystemId || ""}
+                intakeStep={item.intakeStep || ""}
+                onPipelineCompanyTypeSave={(v) => void savePipelineCompanyType(v)}
+                onFundingStageSave={(v) => void saveFundingStage(v)}
+                onAmountRaisingSave={(v) => void saveAmountRaising(v)}
+                onTargetCustomerSave={(v) => void saveTargetCustomer(v)}
+                onValuePropSave={(v) => void saveValueProp(v)}
+                onSubmittingHealthSystemSave={(id, name) => void saveSubmittingHealthSystem(id, name)}
+                onIntakeStepSave={(v) => void saveIntakeStep(v)}
               />
             ) : null}
 

@@ -32,6 +32,9 @@ const closedOutcomeSchema = z.enum(["INVESTED", "PASSED", "LOST", "WITHDREW", "O
 const intakeDecisionSchema = z.enum(["PENDING", "ADVANCE_TO_NEGOTIATION", "DECLINE", "REVISIT_LATER"]);
 const leadSourceTypeSchema = z.enum(["INSIDE_OUT", "ALLIANCE_REFERRAL", "CO_INVESTOR_REFERRAL", "COLD_INBOUND", "WARM_INTRO", "OTHER"]);
 const leadSourceEntityTypeSchema = z.enum(["CONTACT", "HEALTH_SYSTEM", "CO_INVESTOR"]);
+const pipelineCompanyTypeSchema = z.enum(["DE_NOVO", "SPIN_OUT", "EARLY_STAGE"]);
+const pipelineFundingStageSchema = z.enum(["PRE_SEED", "SEED", "SERIES_A", "SERIES_B", "OTHER"]);
+const pipelineIntakeStepSchema = z.enum(["INITIAL_CALL", "DEEPER_DIVE", "PROPOSAL_REVIEW", "MANAGEMENT_PRESENTATION"]);
 
 function normalizePipelinePhase(phase: PipelinePhase | undefined) {
   if (!phase) return phase;
@@ -72,7 +75,14 @@ const cardUpdateSchema = z.object({
   leadSourceType: leadSourceTypeSchema.optional().nullable(),
   leadSourceEntityType: leadSourceEntityTypeSchema.optional().nullable(),
   leadSourceEntityId: z.string().optional().nullable(),
-  leadSourceEntityName: z.string().optional().nullable()
+  leadSourceEntityName: z.string().optional().nullable(),
+  pipelineCompanyType: pipelineCompanyTypeSchema.optional().nullable(),
+  fundingStage: pipelineFundingStageSchema.optional().nullable(),
+  amountRaising: z.number().nonnegative().optional().nullable(),
+  targetCustomer: z.string().optional().nullable(),
+  valueProp: z.string().optional().nullable(),
+  submittingHealthSystemId: z.string().optional().nullable(),
+  intakeStep: pipelineIntakeStepSchema.optional().nullable()
 });
 
 function toNullableDate(value?: string | null) {
@@ -315,6 +325,13 @@ export async function PATCH(
       leadSourceEntityType?: "CONTACT" | "HEALTH_SYSTEM" | "CO_INVESTOR" | null;
       leadSourceEntityId?: string | null;
       leadSourceEntityName?: string | null;
+      pipelineCompanyType?: "DE_NOVO" | "SPIN_OUT" | "EARLY_STAGE" | null;
+      fundingStage?: "PRE_SEED" | "SEED" | "SERIES_A" | "SERIES_B" | "OTHER" | null;
+      amountRaising?: Prisma.Decimal | null;
+      targetCustomer?: string | null;
+      valueProp?: string | null;
+      submittingHealthSystemId?: string | null;
+      intakeStep?: "INITIAL_CALL" | "DEEPER_DIVE" | "PROPOSAL_REVIEW" | "MANAGEMENT_PRESENTATION" | null;
     } = {};
     const companyUpdatePayload: {
       atAGlanceProblem?: string | null;
@@ -388,6 +405,27 @@ export async function PATCH(
     }
     if (Object.prototype.hasOwnProperty.call(body, "leadSourceEntityName")) {
       updatePayload.leadSourceEntityName = toNullableString(input.leadSourceEntityName);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "pipelineCompanyType")) {
+      updatePayload.pipelineCompanyType = input.pipelineCompanyType ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "fundingStage")) {
+      updatePayload.fundingStage = input.fundingStage ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "amountRaising")) {
+      updatePayload.amountRaising = input.amountRaising != null ? new Prisma.Decimal(input.amountRaising) : null;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "targetCustomer")) {
+      updatePayload.targetCustomer = toNullableString(input.targetCustomer);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "valueProp")) {
+      updatePayload.valueProp = toNullableString(input.valueProp);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "submittingHealthSystemId")) {
+      updatePayload.submittingHealthSystemId = toNullableString(input.submittingHealthSystemId);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "intakeStep")) {
+      updatePayload.intakeStep = input.intakeStep ?? null;
     }
     updatePayload.lastMeaningfulActivityAt = new Date();
 
@@ -732,6 +770,17 @@ export async function PATCH(
         column: mapPhaseToBoardColumn(phase),
         closedOutcome: pipeline.closedOutcome,
         declineReasonNotes: pipeline.declineReasonNotes,
+        leadSourceType: pipeline.leadSourceType,
+        leadSourceEntityType: pipeline.leadSourceEntityType,
+        leadSourceEntityId: pipeline.leadSourceEntityId,
+        leadSourceEntityName: pipeline.leadSourceEntityName,
+        pipelineCompanyType: pipeline.pipelineCompanyType,
+        fundingStage: pipeline.fundingStage,
+        amountRaising: pipeline.amountRaising ? pipeline.amountRaising.toNumber() : null,
+        targetCustomer: pipeline.targetCustomer,
+        valueProp: pipeline.valueProp,
+        submittingHealthSystemId: pipeline.submittingHealthSystemId,
+        intakeStep: pipeline.intakeStep,
         updatedAt: pipeline.updatedAt.toISOString()
       },
       _dateDebug: debugContext
