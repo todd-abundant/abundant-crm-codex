@@ -727,21 +727,21 @@ function serializePipelineDraft(draft: PipelineDraft) {
   };
 }
 
-type EntitySearchResult = {
+export type EntitySearchResult = {
   id: string;
   entityType: "CONTACT" | "HEALTH_SYSTEM" | "CO_INVESTOR";
   name: string;
   label: string;
 };
 
-function entityTypeLabel(entityType: string) {
+export function entityTypeLabel(entityType: string) {
   if (entityType === "HEALTH_SYSTEM") return "Health System";
   if (entityType === "CO_INVESTOR") return "Co-Investor";
   if (entityType === "CONTACT") return "Contact";
   return entityType;
 }
 
-function LeadSourceEntityPicker({
+export function LeadSourceEntityPicker({
   entityId,
   entityType,
   entityName,
@@ -860,7 +860,7 @@ function LeadSourceEntityPicker({
   );
 }
 
-const LEAD_SOURCE_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
+export const LEAD_SOURCE_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "", label: "Not set" },
   { value: "INSIDE_OUT", label: "Inside-out" },
   { value: "ALLIANCE_REFERRAL", label: "Alliance referral" },
@@ -1622,50 +1622,22 @@ export function CompanyPipelineManager({
           field: "screeningWebinarDate2At"
         }}
         onScreeningWebinarDate2Save={(value) => updateDraft({ screeningWebinarDate2At: value })}
+        leadSourceType={draft.leadSourceType}
+        leadSourceEntityId={draft.leadSourceEntityId}
+        leadSourceEntityType={draft.leadSourceEntityType}
+        leadSourceEntityName={draft.leadSourceEntityName}
+        onLeadSourceTypeSave={(value) => updateDraft({ leadSourceType: value as PipelineLeadSourceType })}
+        onLeadSourceEntitySave={(id, entityType, name) =>
+          updateDraft({
+            leadSourceEntityId: id,
+            leadSourceEntityType: entityType as PipelineLeadSourceEntityType,
+            leadSourceEntityName: name
+          })
+        }
+        onLeadSourceEntityClear={() =>
+          updateDraft({ leadSourceEntityId: "", leadSourceEntityType: "", leadSourceEntityName: "" })
+        }
       />
-
-      <div className="detail-section">
-        <p className="detail-label">Lead Source</p>
-        <div className="detail-grid">
-          <div className="inline-edit-field">
-            <label>Source Type</label>
-            <select
-              value={draft.leadSourceType}
-              onChange={(e) =>
-                updateDraft({ leadSourceType: e.target.value as PipelineLeadSourceType })
-              }
-            >
-              {LEAD_SOURCE_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="inline-edit-field">
-            <label>Source Entity</label>
-            <LeadSourceEntityPicker
-              entityId={draft.leadSourceEntityId}
-              entityType={draft.leadSourceEntityType}
-              entityName={draft.leadSourceEntityName}
-              onSelect={(result) =>
-                updateDraft({
-                  leadSourceEntityId: result.id,
-                  leadSourceEntityType: result.entityType as PipelineLeadSourceEntityType,
-                  leadSourceEntityName: result.name
-                })
-              }
-              onClear={() =>
-                updateDraft({
-                  leadSourceEntityId: "",
-                  leadSourceEntityType: "",
-                  leadSourceEntityName: ""
-                })
-              }
-            />
-          </div>
-        </div>
-      </div>
 
       {showExtendedPipelineSections ? (
         <>

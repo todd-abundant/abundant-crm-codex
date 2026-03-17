@@ -257,6 +257,10 @@ type PipelineOpportunityDetail = {
   lastMeaningfulActivityAt: string | null;
   stageChangedAt: string | null;
   timeInStageDays: number | null;
+  leadSourceType: string | null;
+  leadSourceEntityType: string | null;
+  leadSourceEntityId: string | null;
+  leadSourceEntityName: string | null;
   ownerName: string | null;
   createdAt: string | null;
   updatedAt: string | null;
@@ -3038,6 +3042,10 @@ export function PipelineOpportunityDetailView({
     screeningWebinarDate2At?: string | null;
     ventureLikelihoodPercent?: number | null;
     ventureExpectedCloseDate?: string | null;
+    leadSourceType?: string | null;
+    leadSourceEntityType?: string | null;
+    leadSourceEntityId?: string | null;
+    leadSourceEntityName?: string | null;
   }): Promise<boolean> {
     if (!item) return false;
     const requestPayload = { ...input };
@@ -3420,6 +3428,31 @@ export function PipelineOpportunityDetailView({
     }
     if (item.ventureExpectedCloseDate && toDateInputValue(item.ventureExpectedCloseDate) === trimmed) return;
     await updatePipelineCardMeta({ ventureExpectedCloseDate: trimmed });
+  }
+
+  async function saveLeadSourceType(nextType: string) {
+    if (!item) return;
+    const value = nextType.trim() || null;
+    if ((item.leadSourceType ?? null) === value) return;
+    await updatePipelineCardMeta({ leadSourceType: value });
+  }
+
+  async function saveLeadSourceEntity(id: string, entityType: string, name: string) {
+    if (!item) return;
+    await updatePipelineCardMeta({
+      leadSourceEntityId: id || null,
+      leadSourceEntityType: entityType || null,
+      leadSourceEntityName: name || null
+    });
+  }
+
+  async function clearLeadSourceEntity() {
+    if (!item) return;
+    await updatePipelineCardMeta({
+      leadSourceEntityId: null,
+      leadSourceEntityType: null,
+      leadSourceEntityName: null
+    });
   }
 
   async function saveScreeningPipelineStatus(nextStatus: ScreeningPipelineStatus, nextReason?: string): Promise<boolean> {
@@ -6014,6 +6047,13 @@ function stripCurrencyFormatting(value: string) {
                   field: "screeningWebinarDate2At"
                 }}
                 onScreeningWebinarDate2Save={(nextValue) => void saveScreeningWebinarDate2(nextValue)}
+                leadSourceType={item.leadSourceType || ""}
+                leadSourceEntityId={item.leadSourceEntityId || ""}
+                leadSourceEntityType={item.leadSourceEntityType || ""}
+                leadSourceEntityName={item.leadSourceEntityName || ""}
+                onLeadSourceTypeSave={(nextType) => void saveLeadSourceType(nextType)}
+                onLeadSourceEntitySave={(id, entityType, name) => void saveLeadSourceEntity(id, entityType, name)}
+                onLeadSourceEntityClear={() => void clearLeadSourceEntity()}
               />
             ) : null}
 

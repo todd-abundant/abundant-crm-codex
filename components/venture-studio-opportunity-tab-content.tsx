@@ -2,6 +2,11 @@
 
 import * as React from "react";
 import { InlineTextField } from "./inline-detail-field";
+import {
+  LeadSourceEntityPicker,
+  LEAD_SOURCE_TYPE_OPTIONS,
+  type EntitySearchResult
+} from "./company-pipeline-manager";
 
 type StatusOption = {
   value: string;
@@ -91,6 +96,13 @@ type VentureStudioOpportunityTabContentProps = {
   screeningWebinarDate2: string;
   screeningWebinarDate2DebugContext?: DateDebugContext;
   onScreeningWebinarDate2Save: (value: string) => void;
+  leadSourceType: string;
+  leadSourceEntityId: string;
+  leadSourceEntityType: string;
+  leadSourceEntityName: string;
+  onLeadSourceTypeSave: (value: string) => void;
+  onLeadSourceEntitySave: (id: string, entityType: string, name: string) => void;
+  onLeadSourceEntityClear: () => void;
 };
 
 function summaryValue(value: string | null | undefined, fallback: string) {
@@ -147,7 +159,14 @@ export function VentureStudioOpportunityTabContent({
   onScreeningWebinarDate1Save,
   screeningWebinarDate2,
   screeningWebinarDate2DebugContext,
-  onScreeningWebinarDate2Save
+  onScreeningWebinarDate2Save,
+  leadSourceType,
+  leadSourceEntityId,
+  leadSourceEntityType,
+  leadSourceEntityName,
+  onLeadSourceTypeSave,
+  onLeadSourceEntitySave,
+  onLeadSourceEntityClear
 }: VentureStudioOpportunityTabContentProps) {
   const statusRadioGroupId = React.useId();
   const [showMoveStagePicker, setShowMoveStagePicker] = React.useState(false);
@@ -325,10 +344,6 @@ export function VentureStudioOpportunityTabContent({
         </div>
         <div className="detail-grid">
           <div className="inline-edit-field pipeline-status-readonly-field">
-            <label>Status</label>
-            <div className="pipeline-status-readonly-value">{statusReadOnlyLabel}</div>
-          </div>
-          <div className="inline-edit-field pipeline-status-readonly-field">
             <label>Created Date</label>
             <div className="pipeline-status-readonly-value">{createdDate || "Not set"}</div>
           </div>
@@ -374,12 +389,18 @@ export function VentureStudioOpportunityTabContent({
               />
             </>
           ) : (
-            <div className="inline-edit-field pipeline-status-readonly-field">
-              <label>{closedReasonLabel}</label>
-              <div className="pipeline-status-readonly-value">
-                {showClosedReasonField ? closedReasonValue : "Not set"}
+            <>
+              <div className="inline-edit-field pipeline-status-readonly-field">
+                <label>Status</label>
+                <div className="pipeline-status-readonly-value">{statusReadOnlyLabel}</div>
               </div>
-            </div>
+              <div className="inline-edit-field pipeline-status-readonly-field">
+                <label>{closedReasonLabel}</label>
+                <div className="pipeline-status-readonly-value">
+                  {showClosedReasonField ? closedReasonValue : "Not set"}
+                </div>
+              </div>
+            </>
           )}
 
           {isClosedLostStatus ? (
@@ -443,6 +464,33 @@ export function VentureStudioOpportunityTabContent({
               />
             </>
           ) : null}
+
+          <div className="inline-edit-field venture-lead-source-type-field">
+            <label>Source Type</label>
+            <select
+              value={leadSourceType}
+              onChange={(e) => onLeadSourceTypeSave(e.target.value)}
+            >
+              {LEAD_SOURCE_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="inline-edit-field venture-lead-source-entity-field">
+            <label>Source Entity</label>
+            <LeadSourceEntityPicker
+              entityId={leadSourceEntityId}
+              entityType={leadSourceEntityType}
+              entityName={leadSourceEntityName}
+              onSelect={(result: EntitySearchResult) =>
+                onLeadSourceEntitySave(result.id, result.entityType, result.name)
+              }
+              onClear={onLeadSourceEntityClear}
+            />
+          </div>
         </div>
       </section>
 
