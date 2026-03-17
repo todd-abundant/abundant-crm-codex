@@ -127,6 +127,27 @@ enum PipelineLeadSourceType {
   OTHER
 }
 
+enum PipelineCompanyType {
+  DE_NOVO
+  SPIN_OUT
+  EARLY_STAGE
+}
+
+enum PipelineFundingStage {
+  PRE_SEED
+  SEED
+  SERIES_A
+  SERIES_B
+  OTHER
+}
+
+enum PipelineIntakeStep {
+  INITIAL_CALL
+  DEEPER_DIVE
+  PROPOSAL_REVIEW
+  MANAGEMENT_PRESENTATION
+}
+
 enum PipelineLeadSourceEntityType {
   CONTACT
   HEALTH_SYSTEM
@@ -333,6 +354,7 @@ model HealthSystem {
   companyScreeningCellChanges          CompanyScreeningCellChange[]
   companyScreeningSurveySubmissions    CompanyScreeningSurveySubmission[]
   signalEvents                         HealthSystemSignalEvent[]
+  submittingPipelines                  CompanyPipeline[]                      @relation("PipelineSubmittingHealthSystem")
 
   @@index([name])
   @@index([isAllianceMember])
@@ -771,10 +793,18 @@ model CompanyPipeline {
   leadSourceEntityType            PipelineLeadSourceEntityType?
   leadSourceEntityId              String?
   leadSourceEntityName            String?
+  pipelineCompanyType             PipelineCompanyType?
+  fundingStage                    PipelineFundingStage?
+  amountRaising                   Decimal?              @db.Decimal(16, 2)
+  targetCustomer                  String?
+  valueProp                       String?
+  submittingHealthSystemId        String?
+  intakeStep                      PipelineIntakeStep?
   createdAt                       DateTime              @default(now())
   updatedAt                       DateTime              @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company                  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  submittingHealthSystem   HealthSystem? @relation("PipelineSubmittingHealthSystem", fields: [submittingHealthSystemId], references: [id], onDelete: SetNull)
 
   @@index([phase])
 }
